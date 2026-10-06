@@ -93,7 +93,7 @@ pg_restore --clean --if-exists -d app /tmp/restore/app.dump
 
 ```sh
 make test        # unit test (cần restic trong PATH cho test backup, nếu không sẽ skip)
-make e2e         # integration test: Postgres + MinIO bằng Docker
+make e2e         # integration test: Postgres + S3 (SeaweedFS) bằng Docker
 ```
 
 Cấu trúc thư mục:

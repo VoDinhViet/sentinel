@@ -87,6 +87,11 @@ func (r *Restic) run(ctx context.Context, args ...string) ([]byte, error) {
 		return stdout.Bytes(), nil
 	}
 	if ctx.Err() != nil {
+		// restic retries backend errors for a long time; its last log line
+		// usually says why (e.g. "connection refused", "bucket does not exist").
+		if msg := errorMessage(stdout.Bytes(), stderr.Bytes()); msg != "" {
+			return stdout.Bytes(), fmt.Errorf("restic %s: %w (last output: %s)", args[0], ctx.Err(), msg)
+		}
 		return stdout.Bytes(), fmt.Errorf("restic %s: %w", args[0], ctx.Err())
 	}
 	var exitErr *exec.ExitError
@@ -270,24 +275,39 @@ func (r *Restic) Restore(ctx context.Context, snapshotID, target string) error {
 	return err
 }
 
-// Init creates the repository. existed is true if it was already initialized.
+// Init creates the repository (and the S3 bucket if needed). existed is true
+// if it was already initialized.
 func (r *Restic) Init(ctx context.Context) (existed bool, err error) {
-	ok, err := r.Exists(ctx)
-	if err != nil {
-		return false, err
-	}
-	if ok {
+	ctx, cancel := context.WithTimeout(ctx, initTimeout)
+	defer cancel()
+	_, err = r.run(ctx, "init", "--json")
+	var exitErr *ExitError
+	// The wording differs by backend: "config file already exists" (local),
+	// "repository master key and config already initialized" (s3).
+	if errors.As(err, &exitErr) && (strings.Contains(exitErr.Message, "already exists") ||
+		strings.Contains(exitErr.Message, "already initialized")) {
 		return true, nil
 	}
-	_, err = r.run(ctx, "init", "--json")
 	return false, err
 }
 
+// restic retries backend errors for ~15 minutes; these bound the calls that
+// should be quick so a misconfigured repository fails fast.
+const (
+	existsTimeout = 90 * time.Second
+	initTimeout   = 5 * time.Minute
+)
+
 // Exists reports whether the repository is initialized and the password works.
 func (r *Restic) Exists(ctx context.Context) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, existsTimeout)
+	defer cancel()
 	_, err := r.run(ctx, "cat", "config", "--no-lock")
 	var exitErr *ExitError
 	if errors.As(err, &exitErr) && exitErr.Code == exitNoRepository {
+		return false, nil
+	}
+	if err != nil && strings.Contains(err.Error(), "bucket does not exist") {
 		return false, nil
 	}
 	return err == nil, err
