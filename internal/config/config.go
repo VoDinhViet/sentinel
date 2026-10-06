@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -25,6 +26,19 @@ type Config struct {
 	RepoCheckSchedule string                `yaml:"repo_check_schedule"`
 	Monitor           *Monitor              `yaml:"monitor"`
 	Uptime            []UptimeCheck         `yaml:"uptime"`
+
+	// Central connects this agent to a sentinel server.
+	Central *Central `yaml:"central"`
+	// RestoreDir is the only place restores requested from the server may write.
+	RestoreDir string `yaml:"restore_dir"`
+}
+
+type Central struct {
+	URL   string `yaml:"url"`
+	Token string `yaml:"token"`
+	// Managed means backups, monitor, uptime and alert settings come from the
+	// server; this file then only needs server_name, store and central.
+	Managed bool `yaml:"managed"`
 }
 
 type Notifiers struct {
@@ -170,27 +184,19 @@ func Load(path string) (*Config, error) {
 }
 
 func Parse(raw []byte) (*Config, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
+	return ParseWith(raw, ParseOptions{ExpandEnv: true})
+}
+
+type ParseOptions struct {
+	// ExpandEnv replaces ${VAR} references. The server validates agent configs
+	// with it off, since secrets only exist in each agent's environment.
+	ExpandEnv bool
+}
+
+func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	var c Config
-	if len(doc.Content) > 0 {
-		missing := map[string]bool{}
-		expandEnv(&doc, missing)
-		if len(missing) > 0 {
-			return nil, fmt.Errorf("unset environment variables: %v", slices.Sorted(maps.Keys(missing)))
-		}
-		// Re-encode so the strict decoder can reject unknown fields.
-		expanded, err := yaml.Marshal(&doc)
-		if err != nil {
-			return nil, err
-		}
-		dec := yaml.NewDecoder(bytes.NewReader(expanded))
-		dec.KnownFields(true)
-		if err := dec.Decode(&c); err != nil {
-			return nil, fmt.Errorf("parse config: %w", err)
-		}
+	if err := decodeStrict(raw, &c, opts.ExpandEnv); err != nil {
+		return nil, err
 	}
 	c.applyDefaults()
 	if err := c.validate(); err != nil {
@@ -199,12 +205,45 @@ func Parse(raw []byte) (*Config, error) {
 	return &c, nil
 }
 
+// decodeStrict decodes YAML into out, optionally expanding ${VAR} in values,
+// and rejects unknown fields.
+func decodeStrict(raw []byte, out any, expand bool) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	if len(doc.Content) == 0 {
+		return nil
+	}
+	if expand {
+		missing := map[string]bool{}
+		expandEnv(&doc, missing)
+		if len(missing) > 0 {
+			return fmt.Errorf("unset environment variables: %v", slices.Sorted(maps.Keys(missing)))
+		}
+	}
+	// Re-encode so the strict decoder can reject unknown fields.
+	expanded, err := yaml.Marshal(&doc)
+	if err != nil {
+		return err
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(expanded))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	return nil
+}
+
 func (c *Config) applyDefaults() {
 	if c.ServerName == "" {
 		c.ServerName, _ = os.Hostname()
 	}
 	if c.Store == "" {
 		c.Store = "/var/lib/sentinel/state.db"
+	}
+	if c.RestoreDir == "" {
+		c.RestoreDir = "/var/lib/sentinel/restore"
 	}
 	if c.Alert.Cooldown == 0 {
 		c.Alert.Cooldown = time.Hour
@@ -346,6 +385,14 @@ func (c *Config) validate() error {
 	}
 	if s := c.Notifiers.Slack; s != nil && s.Webhook == "" {
 		add("notifiers.slack: webhook is required")
+	}
+	if ct := c.Central; ct != nil {
+		if !strings.HasPrefix(ct.URL, "http://") && !strings.HasPrefix(ct.URL, "https://") {
+			add("central.url must start with http:// or https://")
+		}
+		if ct.Token == "" {
+			add("central.token is required")
+		}
 	}
 	return errors.Join(errs...)
 }

@@ -187,3 +187,51 @@ func TestParseEmpty(t *testing.T) {
 		t.Fatalf("empty config: %+v, %v", c, err)
 	}
 }
+
+func TestParseWithoutEnv(t *testing.T) {
+	// The server validates agent configs whose secrets it never sees.
+	raw := []byte(`
+repositories:
+  r:
+    url: s3:s3.amazonaws.com/b
+    password: ${RESTIC_PW_NOT_SET}
+backups:
+  - { name: a, type: files, paths: [/x], repositories: [r] }
+`)
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("Parse should reject the unset variable")
+	}
+	c, err := ParseWith(raw, ParseOptions{ExpandEnv: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Repositories["r"].Password != "${RESTIC_PW_NOT_SET}" {
+		t.Errorf("reference should be kept verbatim, got %q", c.Repositories["r"].Password)
+	}
+}
+
+func TestCentral(t *testing.T) {
+	c, err := Parse([]byte("central: { url: \"https://s.example.com\", token: t, managed: true }"))
+	if err != nil || !c.Central.Managed || c.RestoreDir != "/var/lib/sentinel/restore" {
+		t.Fatalf("central = %+v, %v", c, err)
+	}
+	if _, err := Parse([]byte("central: { url: s.example.com, token: t }")); err == nil {
+		t.Fatal("want error for url without scheme")
+	}
+}
+
+func TestParseServer(t *testing.T) {
+	c, err := ParseServer([]byte(`admin: { username: admin, password_hash: "$2a$10$abcdefghijklmnopqrstuv" }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Listen != ":8443" || c.OfflineAfter != 3*time.Minute || !*c.SecureCookies {
+		t.Errorf("defaults = %+v", c)
+	}
+	if _, err := ParseServer([]byte(`admin: { username: admin, password_hash: hunter2 }`)); err == nil {
+		t.Error("plain-text password should be rejected")
+	}
+	if _, err := ParseServer(nil); err == nil {
+		t.Error("missing admin should be rejected")
+	}
+}

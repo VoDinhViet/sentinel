@@ -111,6 +111,7 @@ func (s *Store) migrate() error {
 }
 
 type BackupRun struct {
+	ID           int64 // set when read back; ignored by RecordBackup
 	Job          string
 	Repository   string
 	StartedAt    time.Time
@@ -145,13 +146,11 @@ func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (t time.Ti
 	return time.Unix(unix.Int64, 0), true, nil
 }
 
-// LatestBackups returns the most recent run for each (job, repository) pair.
-func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT job, repository, started_at, finished_at, success,
-		snapshot_id, files_new, files_changed, bytes_added, total_bytes, error
-		FROM backup_runs b WHERE id = (
-			SELECT MAX(id) FROM backup_runs WHERE job = b.job AND repository = b.repository)
-		ORDER BY job, repository`)
+const backupCols = `id, job, repository, started_at, finished_at, success,
+	snapshot_id, files_new, files_changed, bytes_added, total_bytes, error`
+
+func (s *Store) queryBackups(ctx context.Context, query string, args ...any) ([]BackupRun, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +159,7 @@ func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
 	for rows.Next() {
 		var r BackupRun
 		var started, finished int64
-		if err := rows.Scan(&r.Job, &r.Repository, &started, &finished, &r.Success, &r.SnapshotID,
+		if err := rows.Scan(&r.ID, &r.Job, &r.Repository, &started, &finished, &r.Success, &r.SnapshotID,
 			&r.FilesNew, &r.FilesChanged, &r.BytesAdded, &r.TotalBytes, &r.Error); err != nil {
 			return nil, err
 		}
@@ -170,7 +169,20 @@ func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
 	return out, rows.Err()
 }
 
+// LatestBackups returns the most recent run for each (job, repository) pair.
+func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
+	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs b WHERE id = (
+			SELECT MAX(id) FROM backup_runs WHERE job = b.job AND repository = b.repository)
+		ORDER BY job, repository`)
+}
+
+// BackupRunsSince returns up to limit runs with id > afterID, oldest first.
+func (s *Store) BackupRunsSince(ctx context.Context, afterID int64, limit int) ([]BackupRun, error) {
+	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
+}
+
 type CheckResult struct {
+	ID      int64
 	Name    string
 	At      time.Time
 	OK      bool
@@ -185,10 +197,8 @@ func (s *Store) RecordCheck(ctx context.Context, r CheckResult) error {
 	return err
 }
 
-// LatestChecks returns the most recent result for each check name.
-func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, at, ok, latency_ms, error FROM check_results c
-		WHERE id = (SELECT MAX(id) FROM check_results WHERE name = c.name) ORDER BY name`)
+func (s *Store) queryChecks(ctx context.Context, query string, args ...any) ([]CheckResult, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +207,7 @@ func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
 	for rows.Next() {
 		var r CheckResult
 		var at, ms int64
-		if err := rows.Scan(&r.Name, &at, &r.OK, &ms, &r.Error); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &at, &r.OK, &ms, &r.Error); err != nil {
 			return nil, err
 		}
 		r.At, r.Latency = time.Unix(at, 0), time.Duration(ms)*time.Millisecond
@@ -206,7 +216,20 @@ func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
 	return out, rows.Err()
 }
 
+// LatestChecks returns the most recent result for each check name.
+func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
+	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results c
+		WHERE id = (SELECT MAX(id) FROM check_results WHERE name = c.name) ORDER BY name`)
+}
+
+// ChecksSince returns up to limit results with id > afterID, oldest first.
+func (s *Store) ChecksSince(ctx context.Context, afterID int64, limit int) ([]CheckResult, error) {
+	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results
+		WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
+}
+
 type Metrics struct {
+	ID      int64 // SQLite rowid
 	At      time.Time
 	CPU     float64
 	Memory  float64
@@ -274,6 +297,27 @@ func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
 		}
 		a.Since, a.LastNotified = time.Unix(since, 0), time.Unix(last, 0)
 		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// MetricsSince returns up to limit samples with rowid > afterID, oldest first.
+func (s *Store) MetricsSince(ctx context.Context, afterID int64, limit int) ([]Metrics, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT rowid, at, cpu, memory, swap, load1, disk_max FROM metrics
+		WHERE rowid > ? ORDER BY rowid LIMIT ?`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Metrics
+	for rows.Next() {
+		var m Metrics
+		var at int64
+		if err := rows.Scan(&m.ID, &at, &m.CPU, &m.Memory, &m.Swap, &m.Load1, &m.DiskMax); err != nil {
+			return nil, err
+		}
+		m.At = time.Unix(at, 0)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

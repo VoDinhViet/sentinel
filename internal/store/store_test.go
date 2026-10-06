@@ -142,3 +142,35 @@ func TestChecksMetricsPrune(t *testing.T) {
 		t.Errorf("metrics after prune = %d, want 1", n)
 	}
 }
+
+func TestSinceCursors(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	at := time.Unix(1_700_000_000, 0)
+	for i := 0; i < 5; i++ {
+		s.RecordBackup(ctx, BackupRun{Job: "j", Repository: "r", StartedAt: at, FinishedAt: at, Success: true})
+		s.RecordCheck(ctx, CheckResult{Name: "c", At: at, OK: true})
+		s.RecordMetrics(ctx, Metrics{At: at.Add(time.Duration(i) * time.Minute), CPU: float64(i)})
+	}
+
+	runs, err := s.BackupRunsSince(ctx, 0, 3)
+	if err != nil || len(runs) != 3 || runs[0].ID != 1 || runs[2].ID != 3 {
+		t.Fatalf("first page = %+v, %v", runs, err)
+	}
+	runs, _ = s.BackupRunsSince(ctx, runs[2].ID, 3)
+	if len(runs) != 2 || runs[0].ID != 4 {
+		t.Fatalf("second page = %+v", runs)
+	}
+	if runs, _ := s.BackupRunsSince(ctx, 5, 3); len(runs) != 0 {
+		t.Fatalf("past the end = %+v", runs)
+	}
+
+	checks, err := s.ChecksSince(ctx, 2, 10)
+	if err != nil || len(checks) != 3 || checks[0].ID != 3 {
+		t.Fatalf("checks = %+v, %v", checks, err)
+	}
+	ms, err := s.MetricsSince(ctx, 4, 10)
+	if err != nil || len(ms) != 1 || ms[0].ID != 5 || ms[0].CPU != 4 {
+		t.Fatalf("metrics = %+v, %v", ms, err)
+	}
+}
