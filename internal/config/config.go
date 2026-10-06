@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -135,22 +137,28 @@ type UptimeCheck struct {
 
 var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// expandEnv replaces ${VAR} references. Unset variables are an error so a
-// missing secret is caught at startup instead of producing an empty password.
-func expandEnv(raw []byte) ([]byte, error) {
-	var missing []string
-	out := envRef.ReplaceAllFunc(raw, func(m []byte) []byte {
-		name := string(envRef.FindSubmatch(m)[1])
-		v, ok := os.LookupEnv(name)
-		if !ok {
-			missing = append(missing, name)
-		}
-		return []byte(v)
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("unset environment variables: %v", missing)
+// expandEnv replaces ${VAR} references in every scalar value of the document
+// (not in comments or keys). Unset variables are an error so a missing secret
+// is caught at startup instead of producing an empty password. Expanding after
+// parsing means a secret containing YAML syntax cannot change the structure.
+func expandEnv(n *yaml.Node, missing map[string]bool) {
+	if n.Kind == yaml.ScalarNode {
+		n.Value = envRef.ReplaceAllStringFunc(n.Value, func(m string) string {
+			name := envRef.FindStringSubmatch(m)[1]
+			v, ok := os.LookupEnv(name)
+			if !ok {
+				missing[name] = true
+			}
+			return v
+		})
+		return
 	}
-	return out, nil
+	for i, c := range n.Content {
+		if n.Kind == yaml.MappingNode && i%2 == 0 {
+			continue // mapping key
+		}
+		expandEnv(c, missing)
+	}
 }
 
 func Load(path string) (*Config, error) {
@@ -162,15 +170,27 @@ func Load(path string) (*Config, error) {
 }
 
 func Parse(raw []byte) (*Config, error) {
-	expanded, err := expandEnv(raw)
-	if err != nil {
-		return nil, err
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	var c Config
-	dec := yaml.NewDecoder(bytes.NewReader(expanded))
-	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+	if len(doc.Content) > 0 {
+		missing := map[string]bool{}
+		expandEnv(&doc, missing)
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("unset environment variables: %v", slices.Sorted(maps.Keys(missing)))
+		}
+		// Re-encode so the strict decoder can reject unknown fields.
+		expanded, err := yaml.Marshal(&doc)
+		if err != nil {
+			return nil, err
+		}
+		dec := yaml.NewDecoder(bytes.NewReader(expanded))
+		dec.KnownFields(true)
+		if err := dec.Decode(&c); err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
 	}
 	c.applyDefaults()
 	if err := c.validate(); err != nil {

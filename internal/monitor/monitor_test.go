@@ -43,7 +43,9 @@ func TestSustainedThreshold(t *testing.T) {
 	rec := &recorder{}
 	m := &Monitor{Thresholds: config.Thresholds{CPU: th(90, 5*time.Minute)}, Alerts: &alert.Manager{Sender: rec}}
 	t0 := time.Unix(1_700_000_000, 0)
-	at := func(min int, cpu float64) Sample { return Sample{At: t0.Add(time.Duration(min) * time.Minute), CPU: cpu, Cores: 1} }
+	at := func(min int, cpu float64) Sample {
+		return Sample{At: t0.Add(time.Duration(min) * time.Minute), CPU: cpu, Cores: 1}
+	}
 
 	// A short spike never alerts.
 	m.Evaluate(ctx, at(0, 99))

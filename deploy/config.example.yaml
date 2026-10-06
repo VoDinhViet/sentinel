@@ -1,0 +1,86 @@
+# Sentinel configuration. ${VAR} is replaced by the environment variable VAR
+# (set them in /etc/sentinel/sentinel.env). A missing variable is an error.
+# Quote any value that contains YAML special characters.
+
+server_name: web-01                      # default: hostname
+store: /var/lib/sentinel/state.db
+
+alert:
+  cooldown: 1h                           # re-send a still-open alert this often
+  notify_success: false                  # also message after each successful backup
+
+notifiers:                               # remove the channels you don't use
+  telegram:
+    token: "${TG_TOKEN}"                 # from @BotFather
+    chat_id: "-1001234567890"
+  smtp:
+    host: smtp.gmail.com
+    port: 587                            # 587 = STARTTLS, 465 = implicit TLS
+    user: "${SMTP_USER}"
+    pass: "${SMTP_PASS}"                 # Gmail: an app password
+    to: [ops@example.com]
+  discord:
+    webhook: "${DISCORD_WEBHOOK}"
+  slack:
+    webhook: "${SLACK_WEBHOOK}"
+
+# restic repositories. Each needs its own password; losing it means losing the backups.
+repositories:
+  s3main:
+    url: "s3:s3.amazonaws.com/my-bucket/web-01"   # MinIO/R2/Wasabi: s3:https://host/bucket/path
+    password: "${RESTIC_PASSWORD}"
+    env:
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+  gdrive:
+    url: "rclone:gdrive:backups/web-01"           # "gdrive" is a remote created with `rclone config`
+    password: "${RESTIC_PASSWORD}"
+
+backups:
+  - name: appdb
+    type: postgres
+    schedule: "0 2 * * *"                # cron: minute hour day month weekday (server time)
+    timeout: 6h
+    postgres:
+      host: localhost
+      port: 5432
+      user: postgres
+      password: "${PGPASSWORD}"
+      database: app
+    repositories: [s3main, gdrive]
+    retention: { daily: 7, weekly: 4, monthly: 6 }
+
+  - name: uploads
+    type: files
+    schedule: "30 2 * * *"
+    paths: [/var/www/app/uploads, /etc/nginx]
+    exclude: ["*.tmp", "cache/"]
+    repositories: [s3main]
+    retention: { daily: 7, weekly: 4 }
+
+repo_check_schedule: "0 4 * * 0"         # weekly `restic check` of every repository
+
+monitor:
+  interval: 60s
+  thresholds:                            # "value%" or "value%/duration" (must last that long)
+    cpu: 90%/5m
+    memory: 90%/5m
+    disk: 85%
+    load_per_core: 2.0/5m
+
+uptime:
+  - name: website
+    type: http
+    url: https://example.com
+    interval: 60s
+    timeout: 10s
+    expect_status: 200
+    keyword: "Welcome"                   # optional: must appear in the body
+    cert_expiry_days: 14                 # warn when the TLS certificate expires sooner
+    fail_after: 3                        # alert after this many failures in a row
+  - name: db-port
+    type: tcp
+    address: 10.0.0.5:5432
+  - name: gateway
+    type: ping
+    host: 10.0.0.1

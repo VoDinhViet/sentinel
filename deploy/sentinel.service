@@ -1,0 +1,27 @@
+[Unit]
+Description=Sentinel server maintenance agent (backups, monitoring, uptime)
+Documentation=https://github.com/OWNER/sentinel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sentinel run --config /etc/sentinel/config.yaml
+# Secrets referenced as ${VAR} in config.yaml.
+EnvironmentFile=-/etc/sentinel/sentinel.env
+Restart=on-failure
+RestartSec=10s
+# restic gets SIGINT on shutdown to release its lock; give it time.
+TimeoutStopSec=90s
+
+# Runs as root so file backups can read everything. To run unprivileged,
+# create a user, grant it read access to the backup paths and set User=.
+StateDirectory=sentinel
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+# Raw ICMP for ping checks.
+AmbientCapabilities=CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+version: 2
+project_name: sentinel
+
+builds:
+  - main: ./cmd/sentinel
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+archives:
+  - formats: [tar.gz]
+    files:
+      - README.md
+      - deploy/*
+
+checksum:
+  name_template: checksums.txt

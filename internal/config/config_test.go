@@ -162,3 +162,28 @@ func TestFindBackup(t *testing.T) {
 		t.Fatal("want error for missing job")
 	}
 }
+
+func TestEnvOnlyInValues(t *testing.T) {
+	// A secret full of YAML syntax stays a plain string; comments are ignored.
+	t.Setenv("RESTIC_PW", "p: [x], #y")
+	c, err := Parse([]byte(`
+# ${NOT_SET} in a comment is fine
+repositories:
+  r:
+    url: /tmp/r
+    password: ${RESTIC_PW}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Repositories["r"].Password; got != "p: [x], #y" {
+		t.Errorf("password = %q", got)
+	}
+}
+
+func TestParseEmpty(t *testing.T) {
+	c, err := Parse(nil)
+	if err != nil || c.Store == "" {
+		t.Fatalf("empty config: %+v, %v", c, err)
+	}
+}

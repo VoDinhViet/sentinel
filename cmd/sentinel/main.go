@@ -51,7 +51,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&a.configPath, "config", "c", "/etc/sentinel/config.yaml", "config file")
-	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd())
+	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd(), a.statusCmd())
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
 }
