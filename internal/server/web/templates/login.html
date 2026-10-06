@@ -1,0 +1,15 @@
+{{define "title"}}Log in{{end}}
+{{define "content"}}
+<div class="card login">
+  <h1>Sentinel</h1>
+  <p class="muted">Sign in to manage your servers.</p>
+  {{if .Data.Error}}<div class="flash bad">{{.Data.Error}}</div>{{end}}
+  <form method="post" action="/login">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <div class="form-row"><button class="primary" type="submit">Log in</button></div>
+  </form>
+</div>
+{{end}}

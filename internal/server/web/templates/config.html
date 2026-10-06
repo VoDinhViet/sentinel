@@ -1,0 +1,73 @@
+{{define "title"}}Configuration · {{.Data.Agent.Name}}{{end}}
+{{define "content"}}
+{{$a := .Data.Agent}}
+<div class="page-head">
+  <h1><a href="/agents/{{$a.ID}}">{{$a.Name}}</a> · Configuration</h1>
+  <span class="spacer"></span>
+  {{if .Data.Current.Version}}{{with .Data.Current}}
+    <span class="muted small">latest v{{.Version}}</span>
+    {{if eq $a.RunningConfig .Version}}<span class="badge ok">running</span>
+    {{else if and (eq $a.ConfigStatus.Version .Version) $a.ConfigStatus.Error}}<span class="badge bad">rejected by agent</span>
+    {{else}}<span class="badge warn">waiting for agent</span>{{end}}
+  {{end}}{{end}}
+</div>
+
+{{if .Data.Saved}}<div class="flash ok">Saved as v{{.Data.Saved}}. The agent picks it up within 30 seconds.</div>{{end}}
+{{if and $a.ConfigStatus.Error (eq $a.ConfigStatus.Version .Data.Current.Version)}}
+<div class="flash bad">Agent could not apply v{{$a.ConfigStatus.Version}} and is still running v{{$a.RunningConfig}}:
+{{$a.ConfigStatus.Error}}</div>
+{{end}}
+
+<div class="card">
+  <p class="muted small">
+    Backups, repositories, monitoring, uptime checks and notifiers for this server.
+    Use <code>${VAR}</code> for secrets: values live in <code>/etc/sentinel/sentinel.env</code> on the server and never reach this UI.
+    <code>server_name</code>, <code>store</code>, <code>central</code> and <code>restore_dir</code> stay in the agent's local file.
+  </p>
+  {{if .Data.Error}}<div class="flash bad">{{.Data.Error}}</div>{{end}}
+  <form method="post" action="/agents/{{$a.ID}}/config">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <textarea class="code" name="yaml" spellcheck="false" aria-label="Configuration YAML">{{.Data.YAML}}</textarea>
+    <label for="comment">Change note</label>
+    <input id="comment" type="text" name="comment" placeholder="e.g. add uptime check for api" maxlength="200">
+    <div class="form-row">
+      <button type="button" hx-post="/agents/{{$a.ID}}/config/validate" hx-include="closest form"
+              hx-target="#validate-result" hx-swap="innerHTML">Validate</button>
+      <button type="submit" class="primary">Save new version</button>
+      <span id="validate-result"></span>
+    </div>
+  </form>
+</div>
+
+{{if .Data.Diff}}
+<div class="card">
+  <h2>v{{.Data.Viewing.Version}} compared with latest (v{{.Data.Current.Version}})</h2>
+  <div class="diff">{{range .Data.Diff}}<div class="{{.Kind}}">{{if eq .Kind "add"}}+ {{else if eq .Kind "del"}}- {{else}}  {{end}}{{.Text}}</div>{{end}}</div>
+  <form method="post" action="/agents/{{$a.ID}}/config/rollback" class="form-row">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="version" value="{{.Data.Viewing.Version}}">
+    <button type="submit">Restore v{{.Data.Viewing.Version}} as a new version</button>
+  </form>
+</div>
+{{end}}
+
+<div class="card">
+  <h2>History</h2>
+  {{if .Data.History}}
+  <table>
+    <tr><th>Version</th><th>Saved</th><th>Note</th><th></th></tr>
+    {{range .Data.History}}
+    <tr>
+      <td>v{{.Version}}{{if eq .Version $a.RunningConfig}} <span class="badge ok">running</span>{{end}}</td>
+      <td class="muted small">{{.CreatedAt.Local.Format "2006-01-02 15:04"}}</td>
+      <td>{{.Comment}}</td>
+      <td>{{if ne .Version $.Data.Current.Version}}<a href="/agents/{{$a.ID}}/config?compare={{.Version}}">compare</a>{{end}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p class="empty">No configuration yet. A managed agent uploads its local config when it first connects,
+    or write one above.</p>
+  {{end}}
+</div>
+{{end}}

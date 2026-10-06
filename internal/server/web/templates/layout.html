@@ -1,0 +1,33 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{block "title" .}}Sentinel{{end}} · Sentinel</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/uplot.min.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/uplot.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body{{if .CSRF}} hx-headers='{"X-CSRF-Token": "{{.CSRF}}"}'{{end}}>
+  {{if .CSRF}}
+  <header class="top">
+    <a class="brand" href="/manage">Sentinel</a>
+    <nav>
+      <a href="/manage">Manage</a>
+      <a href="/agents/new">Add server</a>
+    </nav>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button type="submit">Log out</button>
+    </form>
+  </header>
+  {{end}}
+  <main>
+    {{if .Flash}}<div class="flash {{.FlashKind}}">{{.Flash}}</div>{{end}}
+    {{block "content" .}}{{end}}
+  </main>
+  <footer>sentinel {{.Version}}</footer>
+</body>
+</html>{{end}}

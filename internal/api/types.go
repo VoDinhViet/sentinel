@@ -98,6 +98,10 @@ type Snapshot struct {
 	Paths []string  `json:"paths"`
 }
 
+type BackupRunOutput struct {
+	Summary string `json:"summary"`
+}
+
 type RestoreOutput struct {
 	Path string `json:"path"`
 }

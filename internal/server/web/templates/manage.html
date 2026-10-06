@@ -1,0 +1,64 @@
+{{define "title"}}Manage{{end}}
+{{define "content"}}
+<div class="page-head">
+  <h1>Manage</h1>
+  <span class="spacer"></span>
+  <a class="btn" href="/agents/new">+ Add server</a>
+</div>
+<div id="grid" hx-get="/manage/grid" hx-trigger="every 15s" hx-swap="innerHTML">
+  {{template "grid" .Data}}
+</div>
+{{end}}
+
+{{define "grid"}}
+{{if not .Agents}}
+<div class="card">
+  <p>No servers yet. <a href="/agents/new">Add your first server</a> to get an agent token.</p>
+</div>
+{{else}}
+<div class="grid">
+  {{range .Agents}}
+  <div class="card agent-card">
+    <h2>
+      <a href="/agents/{{.Agent.ID}}">{{.Agent.Name}}</a>
+      {{if .Online}}<span class="badge ok">online</span>
+      {{else if .Agent.LastSeen.IsZero}}<span class="badge idle">never connected</span>
+      {{else}}<span class="badge bad">offline</span>{{end}}
+      {{if .Alerts}}<span class="badge warn">{{len .Alerts}} alert{{if gt (len .Alerts) 1}}s{{end}}</span>{{end}}
+    </h2>
+    <div class="muted small">
+      {{if .Agent.Hostname}}{{.Agent.Hostname}} · {{end}}
+      {{if .Agent.LastSeen.IsZero}}waiting for first report{{else}}seen {{ago .Agent.LastSeen}}{{end}}
+    </div>
+    {{with .Metrics}}
+    <div class="meters">
+      {{template "meter" (meter "CPU" .CPU)}}
+      {{template "meter" (meter "Memory" .Memory)}}
+      {{template "meter" (meter "Disk" .DiskMax)}}
+    </div>
+    {{end}}
+    {{if .Backups}}
+    <table>
+      {{range .Backups}}
+      <tr>
+        <td>{{.Job}} <span class="muted small">→ {{.Repository}}</span></td>
+        <td>{{if .Success}}<span class="badge ok">ok</span>{{else}}<span class="badge bad">failed</span>{{end}}</td>
+        <td class="muted small">{{ago .FinishedAt}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{else if .Agent.Jobs}}
+    <p class="empty small">No backup has run yet.</p>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "meter"}}
+<div class="meter{{if ge .Value 85.0}} hot{{end}}">
+  <div class="label">{{.Label}} {{printf "%.0f" .Value}}%</div>
+  <div class="bar"><span style="width: {{printf "%.0f" .Value}}%"></span></div>
+</div>
+{{end}}

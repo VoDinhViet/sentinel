@@ -1,0 +1,15 @@
+{{define "title"}}Add server{{end}}
+{{define "content"}}
+<div class="page-head"><h1>Add server</h1></div>
+<div class="card" style="max-width:560px">
+  {{if .Data.Error}}<div class="flash bad">{{.Data.Error}}</div>{{end}}
+  <form method="post" action="/agents">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" required pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{0,62}"
+           placeholder="web-01" value="{{.Data.Name}}" autofocus>
+    <p class="muted small">Letters, digits, dot, underscore or dash. Usually the server's hostname.</p>
+    <div class="form-row"><button class="primary" type="submit">Create and show token</button></div>
+  </form>
+</div>
+{{end}}

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -40,7 +41,12 @@ type Daemon struct {
 	HistoryRetention time.Duration
 
 	started time.Time
+	busy    atomic.Int32 // backups and repository checks in progress
 }
+
+// Busy reports whether a backup or repository check is running, so a config
+// reload can wait instead of interrupting it.
+func (d *Daemon) Busy() bool { return d.busy.Load() > 0 }
 
 // Run schedules all work and blocks until ctx is cancelled. It then stops
 // scheduling, cancels running jobs (restic gets SIGINT so it can release its
@@ -101,11 +107,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 func backupKey(job, repo string) string { return "backup:" + job + ":" + repo }
 
 // RunBackup runs one job and raises or resolves an alert per repository.
-func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) {
+func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.BackupRun {
+	d.busy.Add(1)
+	defer d.busy.Add(-1)
 	runs := d.Backups.Run(ctx, job)
 	if ctx.Err() != nil {
 		// Shutting down: the run was interrupted, not broken.
-		return
+		return runs
 	}
 	var okRepos []string
 	for _, r := range runs {
@@ -121,10 +129,13 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) {
 	if d.Config.Alert.NotifySuccess && len(okRepos) > 0 {
 		d.Alerts.Info(ctx, "Backup "+job.Name+" completed", strings.Join(okRepos, "\n"))
 	}
+	return runs
 }
 
 // CheckRepositories runs `restic check` on every repository used by a job.
 func (d *Daemon) CheckRepositories(ctx context.Context) {
+	d.busy.Add(1)
+	defer d.busy.Add(-1)
 	used := map[string]bool{}
 	for _, b := range d.Config.Backups {
 		for _, r := range b.Repositories {
