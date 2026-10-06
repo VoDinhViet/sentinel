@@ -12,6 +12,7 @@ import (
 	"sentinel/internal/alert"
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
+	"sentinel/internal/monitor"
 	"sentinel/internal/scheduler"
 	"sentinel/internal/store"
 	"sentinel/internal/uptime"
@@ -77,6 +78,10 @@ func (a *app) periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.M
 				tracker.Observe(ctx, c, uptime.Check(ctx, c))
 			},
 		})
+	}
+	if cfg.Monitor != nil {
+		mon := &monitor.Monitor{Thresholds: cfg.Monitor.Thresholds, Source: monitor.System{}, Alerts: alerts, Store: st}
+		tasks = append(tasks, scheduler.Task{Name: "monitor", Every: cfg.Monitor.Interval, Run: mon.Tick})
 	}
 	return tasks
 }
