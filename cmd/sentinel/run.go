@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sentinel/internal/config"
 	"sentinel/internal/scheduler"
 	"sentinel/internal/store"
+	"sentinel/internal/uptime"
 )
 
 func newAlertManager(cfg *config.Config, st *store.Store) *alert.Manager {
@@ -65,5 +67,16 @@ func (a *app) runCmd() *cobra.Command {
 
 // periodicTasks returns the uptime and monitoring tasks for the daemon.
 func (a *app) periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) []scheduler.Task {
-	return nil
+	var tasks []scheduler.Task
+	tracker := &uptime.Tracker{Alerts: alerts, Store: st}
+	for _, c := range cfg.Uptime {
+		tasks = append(tasks, scheduler.Task{
+			Name:  "uptime:" + c.Name,
+			Every: c.Interval,
+			Run: func(ctx context.Context) {
+				tracker.Observe(ctx, c, uptime.Check(ctx, c))
+			},
+		})
+	}
+	return tasks
 }
