@@ -254,3 +254,27 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("Version = %v, %v", v, err)
 	}
 }
+
+func TestLockRetry(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "restic")
+	// Locked on the first call, succeeds on the second.
+	script := "#!/bin/sh\n" +
+		"if [ ! -f " + dir + "/called ]; then touch " + dir + "/called\n" +
+		"  echo '{\"message_type\":\"exit_error\",\"code\":11,\"message\":\"locked\"}'; exit 11; fi\n" +
+		"echo '{\"message_type\":\"summary\",\"snapshot_id\":\"abc\"}'\n"
+	os.WriteFile(bin, []byte(script), 0o755)
+
+	cfg := &config.Config{ServerName: "h", Repositories: map[string]config.Repository{"r": {URL: "/r", Password: "p"}}}
+	job := config.Backup{Name: "f", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
+
+	noRetry := (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job)
+	if noRetry[0].Success || !strings.Contains(noRetry[0].Error, "locked") {
+		t.Fatalf("without retries a lock should fail: %+v", noRetry[0])
+	}
+	os.Remove(dir + "/called")
+	runs := (&Runner{Config: cfg, Bin: bin, LockRetries: 1, LockRetryDelay: time.Millisecond}).Run(context.Background(), &job)
+	if !runs[0].Success {
+		t.Fatalf("retry should succeed: %+v", runs[0])
+	}
+}

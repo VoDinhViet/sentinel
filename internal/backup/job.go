@@ -17,6 +17,10 @@ type Runner struct {
 	Store  *store.Store // optional
 	Bin    string       // restic binary, default "restic"
 	Now    func() time.Time
+	// LockRetries is how many times a backup is retried when the repository
+	// is locked by another restic process; LockRetryDelay is the wait between.
+	LockRetries    int
+	LockRetryDelay time.Duration
 }
 
 func (r *Runner) now() time.Time {
@@ -90,6 +94,15 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 	}
 
 	sum, err := rc.Backup(ctx, opts)
+	for try := 0; IsLocked(err) && try < r.LockRetries; try++ {
+		log.Warn("repository locked, retrying", "in", r.LockRetryDelay)
+		select {
+		case <-ctx.Done():
+			return fail(fmt.Errorf("%w (gave up waiting for lock: %v)", err, ctx.Err()))
+		case <-time.After(r.LockRetryDelay):
+		}
+		sum, err = rc.Backup(ctx, opts)
+	}
 	run.SnapshotID, run.FilesNew, run.FilesChanged = sum.SnapshotID, sum.FilesNew, sum.FilesChanged
 	run.BytesAdded, run.TotalBytes = sum.BytesAdded, sum.TotalBytes
 	if err != nil {
