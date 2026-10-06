@@ -1,0 +1,24 @@
+# Sentinel central server: web UI + agent API. ${VAR} is replaced by the
+# environment variable VAR (set it in /etc/sentinel/sentinel.env).
+
+listen: ":8443"                  # put behind a reverse proxy, or set tls: below
+# public_url: "https://sentinel.example.com"   # shown in "Add server" instructions; default: the request's own host
+
+# tls:
+#   cert: /etc/sentinel/tls.crt
+#   key: /etc/sentinel/tls.key
+
+db: /var/lib/sentinel/server.db
+offline_after: 3m                # how long without a report before a server shows offline
+
+admin:
+  username: admin
+  password_hash: "${SENTINEL_ADMIN_HASH}"   # from: sentinel server hash-password
+
+alert:
+  cooldown: 1h                   # re-send "server is offline" this often while it stays offline
+
+notifiers:                       # used for "server is offline" / "online again"; remove unused channels
+  telegram:
+    token: "${TG_TOKEN}"
+    chat_id: "-1001234567890"

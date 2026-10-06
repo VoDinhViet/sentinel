@@ -6,8 +6,9 @@ Agent bảo trì server viết bằng Go: một binary duy nhất cài trên m�
 - **Giám sát** CPU, RAM, load, dung lượng disk, có ngưỡng và thời gian duy trì (ví dụ `90%/5m`).
 - **Kiểm tra uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
 - **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi xảy ra, nhắc lại theo `cooldown`, báo khi đã khắc phục. Cảnh báo cả khi một job **quá lâu chưa backup thành công**.
+- **Server trung tâm** (`sentinel server`, tùy chọn): web UI quản lý nhiều agent — xem trạng thái/biểu đồ, bấm backup ngay, restore, sửa cấu hình từ xa — không cần mở port trên agent.
 
-Trạng thái được lưu trong SQLite (`/var/lib/sentinel/state.db`), để dashboard ở giai đoạn 2 dùng lại.
+Trạng thái được lưu trong SQLite (`/var/lib/sentinel/state.db`); nếu agent kết nối tới server trung tâm, dữ liệu được đẩy lên server để xem trên web.
 
 ## Cài đặt
 
@@ -80,6 +81,36 @@ sentinel backup restore appdb latest --target /tmp/restore
 pg_restore --clean --if-exists -d app /tmp/restore/app.dump
 ```
 
+## Server trung tâm (quản lý nhiều agent)
+
+Dùng khi có từ 2 server trở lên và muốn xem/điều khiển tất cả từ một web UI. Agent luôn là bên chủ động kết nối ra ngoài (push báo cáo, long-poll lệnh), nên **không cần mở port nào trên agent**, chạy tốt sau NAT.
+
+```sh
+make build
+scp bin/sentinel deploy/* server-trung-tam:/tmp/sentinel/
+ssh server-trung-tam 'cd /tmp/sentinel && sudo sh install-server.sh ./sentinel'
+```
+
+`install-server.sh` chép binary, tạo `/etc/sentinel/server.yaml` (từ [server.example.yaml](deploy/server.example.yaml)), `/etc/sentinel/sentinel.env` và systemd unit `sentinel-server`. Xem chú thích trong file mẫu để cấu hình địa chỉ nghe, TLS (hoặc đặt sau reverse proxy có TLS sẵn) và kênh báo khi agent mất kết nối.
+
+```sh
+sentinel server hash-password                 # nhập mật khẩu admin, dán kết quả vào server.yaml
+sudo systemctl enable --now sentinel-server
+```
+
+Mở UI, đăng nhập, bấm **Add server** để tạo một agent — UI hiện token và đoạn cấu hình cần thêm vào agent đó:
+
+```yaml
+central:
+  url: https://sentinel.example.com
+  token: "${SENTINEL_TOKEN}"
+  managed: true     # true: sửa backup/monitor/uptime từ UI; false: agent tự quản lý config, chỉ báo cáo
+```
+
+Sau khi thêm vào `/etc/sentinel/config.yaml` và `sentinel.env` của agent rồi `systemctl restart sentinel`, agent sẽ xuất hiện "online" trên UI trong vòng một phút. Với `managed: true`, cấu hình hiện có của agent (trừ `server_name`, `store`, `central`, `restore_dir` — các trường này luôn ở lại agent) được tải lên server làm phiên bản v1, sau đó có thể sửa/rollback từ trang **Configuration** của agent đó.
+
+Trên trang chi tiết agent: nút **Backup now** cho từng job, xem snapshot và **Restore** (phải gõ lại tên job để xác nhận) — file được ghi vào một thư mục mới dưới `restore_dir` của agent (mặc định `/var/lib/sentinel/restore`), không đè lên bất cứ gì.
+
 ### Lưu ý
 
 - Nếu job có nhiều repository, mỗi repository được backup riêng (với PostgreSQL thì `pg_dump` chạy một lần cho mỗi repository).
@@ -88,6 +119,8 @@ pg_restore --clean --if-exists -d app /tmp/restore/app.dump
 - Khi repository đang bị khóa, daemon thử lại 3 lần, mỗi lần cách nhau 5 phút. Sentinel không bao giờ tự `unlock`.
 - Daemon bị khởi động lại thì không gửi lại các cảnh báo đang mở, nhưng vẫn báo khi chúng được khắc phục.
 - Lịch sử uptime và metric được giữ 30 ngày; lịch sử backup được giữ vĩnh viễn.
+- Agent nối server trung tâm: nếu mất kết nối, agent vẫn backup/giám sát/cảnh báo bình thường bằng cấu hình đã cache lần cuối; chỉ việc đẩy báo cáo và nhận lệnh/cấu hình mới bị tạm hoãn. Server báo "offline" sau `offline_after` (mặc định 3 phút) không có báo cáo.
+- Đổi cấu hình từ UI mà agent đang chạy backup thì agent chờ backup xong rồi mới áp dụng, không ngắt giữa chừng.
 
 ## Phát triển
 
@@ -107,7 +140,10 @@ internal/alert       trạng thái cảnh báo OK → FIRING → RESOLVED, coold
 internal/notify      Telegram, SMTP, Discord, Slack
 internal/uptime      kiểm tra HTTP/TCP/ping
 internal/monitor     metric hệ thống (gopsutil)
-internal/store       SQLite
-deploy/              systemd unit, install.sh, config mẫu
+internal/store       SQLite (agent)
+internal/api         kiểu dữ liệu dùng chung agent ↔ server
+internal/agent       client, đẩy báo cáo, chạy lệnh từ server, đồng bộ config
+internal/server      HTTP: agent API, web UI (htmx), service/ chứa logic + SQLite riêng của server
+deploy/              systemd units, install*.sh, config mẫu (agent và server)
 test/                integration test bằng docker compose
 ```
