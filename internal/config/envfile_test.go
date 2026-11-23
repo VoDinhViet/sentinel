@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,13 @@ func TestMissingVarsAndPasswordVars(t *testing.T) {
 	}
 	if len(vars) != 1 || vars["local"] != "PASS_A" {
 		t.Errorf("password vars = %v, want only local → PASS_A", vars)
+	}
+}
+
+func TestMissingVarsRejectsAnOldConfigFirst(t *testing.T) {
+	os.Unsetenv("OLD_FORMAT_PW")
+	_, err := MissingVars([]byte("repositories:\n  local: {url: /r, password: \"${OLD_FORMAT_PW}\"}\nbackups:\n  - name: documents\n"))
+	if err == nil || !strings.Contains(err.Error(), `"backups" was renamed to "jobs"`) {
+		t.Errorf("err = %v, want the rename hint", err)
 	}
 }

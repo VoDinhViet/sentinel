@@ -119,7 +119,11 @@ func (a *app) askMissing(raw []byte, missing []string) (map[string]string, error
 		repoByVar[name] = repoName
 	}
 	asked := map[string]string{}
+	fmt.Fprintln(os.Stderr, "Type each value and press Enter; nothing is shown while you type.")
 	for _, name := range missing {
+		if name != strings.ToUpper(name) {
+			fmt.Fprintf(os.Stderr, "Note: ${%s} in the config is the NAME of an environment variable, not the secret itself.\n", name)
+		}
 		prompt := name + ": "
 		if repoName, ok := repoByVar[name]; ok {
 			prompt = fmt.Sprintf("%s (password of repository %s): ", name, repoName)

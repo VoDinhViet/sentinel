@@ -178,3 +178,18 @@ func TestBareSentinelPrintsHelpWithoutATerminal(t *testing.T) {
 		t.Errorf("want the help, got %q", output.String())
 	}
 }
+
+func TestLoadConfigOldFormatFailsBeforeAsking(t *testing.T) {
+	script := &terminalScript{replies: []string{"never"}, existsFor: func(string) (bool, error) { return true, nil }}
+	cli, _ := secretsApp(t, script, true)
+	old := strings.Replace(secretsConfig, "jobs:", "backups:", 1)
+	if err := os.WriteFile(cli.configPath, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.loadConfig(); err == nil || !strings.Contains(err.Error(), "renamed to") {
+		t.Errorf("err = %v, want the rename hint", err)
+	}
+	if len(script.prompts) != 0 {
+		t.Errorf("asked before the config was valid: %q", script.prompts)
+	}
+}

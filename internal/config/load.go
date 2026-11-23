@@ -46,6 +46,12 @@ func MissingVars(raw []byte) ([]string, error) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	// A config in an old format fails here, before anybody is asked for a value it may not need.
+	if len(doc.Content) > 0 {
+		if err := checkRenamedKeys(doc.Content[0]); err != nil {
+			return nil, err
+		}
+	}
 	missingVars := map[string]bool{}
 	expandEnv(&doc, missingVars)
 	return slices.Sorted(maps.Keys(missingVars)), nil
