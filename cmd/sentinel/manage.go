@@ -43,7 +43,6 @@ func (a *app) runManage(cmd *cobra.Command) error {
 		return err
 	}
 	defer st.Close()
-	applyPalette(detectDarkBackground())
 	ctx := cmd.Context()
 	load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
 	model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))

@@ -2,13 +2,12 @@ package main
 
 import (
 	"image/color"
-	"os"
 
 	"charm.land/lipgloss/v2"
 )
 
-// The palette has a dark and a light variant; applyPalette picks one from the terminal's
-// background. The terminal downsamples the colours itself when it has fewer than 24 bits.
+// The palette has a dark and a light variant: the dark one until the terminal says what its
+// background is (tea.BackgroundColorMsg), then applyPalette picks the one that suits. The terminal downsamples the colours itself when it has fewer than 24 bits.
 var (
 	colourOK, colourWarn, colourBad, colourAcc color.Color
 	colourSelected, colourBorder, colourMuted  color.Color
@@ -23,11 +22,6 @@ var (
 )
 
 func init() { applyPalette(true) }
-
-// detectDarkBackground asks the terminal for its background colour; dark when it cannot tell.
-func detectDarkBackground() bool {
-	return lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
-}
 
 // applyPalette sets every colour and style of the screens for a dark or a light background.
 func applyPalette(dark bool) {

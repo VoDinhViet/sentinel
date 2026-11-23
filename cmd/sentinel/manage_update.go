@@ -16,7 +16,7 @@ func newManageModel(ctx context.Context, load func() (status.Report, error), act
 }
 
 func (m manageModel) Init() tea.Cmd {
-	return tea.Batch(m.reload(), m.scheduleRefresh())
+	return tea.Batch(m.reload(), m.scheduleRefresh(), tea.RequestBackgroundColor)
 }
 
 func (m manageModel) reload() tea.Cmd {
@@ -41,6 +41,9 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		applyPalette(msg.IsDark()) // the terminal answered: switch to the palette that suits its background
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(msg.Width-frameCols, 1), max(msg.Height-frameRows, 1)
 	case reportMsg:

@@ -80,7 +80,6 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		return nil
 	}}
-	applyPalette(detectDarkBackground())
 	model := newManageModel(ctx, func() (status.Report, error) { return status.Report{Server: hostname}, nil }, actions, nil)
 	model.loaded = true
 	model.report.Server = hostname
@@ -105,7 +104,7 @@ type initProgram struct {
 	saved bool
 }
 
-func (p initProgram) Init() tea.Cmd { return nil }
+func (p initProgram) Init() tea.Cmd { return tea.RequestBackgroundColor }
 
 func (p initProgram) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p.after(p.manageModel.Update(msg))
