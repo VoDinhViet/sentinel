@@ -19,8 +19,8 @@ func (a *app) backupCmd() *cobra.Command {
 	var repoFlag string
 
 	// pick returns the job and the repositories a command should act on.
-	pick := func(cfg *config.Config, jobName string) (*config.Backup, []string, error) {
-		job, err := cfg.FindBackup(jobName)
+	pick := func(cfg *config.Config, jobName string) (*config.Job, []string, error) {
+		job, err := cfg.FindJob(jobName)
 		if err != nil {
 			return nil, nil, err
 		}

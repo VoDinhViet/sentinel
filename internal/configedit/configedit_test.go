@@ -67,7 +67,7 @@ func TestListShowsAllJobsAndFlagsLiteralPasswords(t *testing.T) {
 
 func TestSaveAddsAJobAndKeepsEverythingElse(t *testing.T) {
 	path := writeConfig(t, baseConfig)
-	job := Job{Name: "shop", Type: config.BackupMySQL, Database: "shop", User: "dump", PasswordEnv: "MYSQL_SHOP_PW",
+	job := Job{Name: "shop", Type: config.JobMySQL, Database: "shop", User: "dump", PasswordEnv: "MYSQL_SHOP_PW",
 		Schedule: "30 2 * * *", Repositories: []string{"s3", "local"}, TLS: "disabled",
 		Retention: config.Retention{Daily: 7, Weekly: 4}}
 	if err := Save(path, "", job); err != nil {
@@ -94,7 +94,7 @@ func TestSaveAddsAJobAndKeepsEverythingElse(t *testing.T) {
 
 func TestSaveKeepsPermissionsAndLeavesABackup(t *testing.T) {
 	path := writeConfig(t, baseConfig)
-	if err := Save(path, "", Job{Name: "a", Type: config.BackupPostgres, Database: "a", Repositories: []string{"s3"}}); err != nil {
+	if err := Save(path, "", Job{Name: "a", Type: config.JobPostgres, Database: "a", Repositories: []string{"s3"}}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -143,10 +143,10 @@ func TestRenameAndDuplicateNames(t *testing.T) {
 	if err := Save(path, "legacy2", renamed); !errors.Is(err, ErrExists) {
 		t.Errorf("duplicate name error = %v, want ErrExists", err)
 	}
-	if err := Save(path, "", Job{Name: "legacy2", Type: config.BackupPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.Is(err, ErrExists) {
+	if err := Save(path, "", Job{Name: "legacy2", Type: config.JobPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.Is(err, ErrExists) {
 		t.Errorf("adding an existing name = %v, want ErrExists", err)
 	}
-	if err := Save(path, "missing", Job{Name: "m", Type: config.BackupPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.Is(err, ErrNotFound) {
+	if err := Save(path, "missing", Job{Name: "m", Type: config.JobPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("editing a missing job = %v, want ErrNotFound", err)
 	}
 }
@@ -154,10 +154,10 @@ func TestRenameAndDuplicateNames(t *testing.T) {
 func TestTypeChangesAreRefused(t *testing.T) {
 	path := writeConfig(t, baseConfig)
 	var invalidErr *InvalidError
-	if err := Save(path, "site", Job{Name: "site", Type: config.BackupPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
+	if err := Save(path, "site", Job{Name: "site", Type: config.JobPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
 		t.Errorf("turning a files job into a database job = %v, want InvalidError", err)
 	}
-	if err := Save(path, "legacy", Job{Name: "legacy", Type: config.BackupFiles, Paths: []string{"/x"}, Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
+	if err := Save(path, "legacy", Job{Name: "legacy", Type: config.JobFiles, Paths: []string{"/x"}, Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
 		t.Errorf("changing the type = %v, want InvalidError", err)
 	}
 	if readFile(t, path) != baseConfig {
@@ -193,11 +193,11 @@ func TestFilesJobsAreListedEditedAndRemoved(t *testing.T) {
 		t.Errorf("clearing exclude removes the key: %v\n%s", err, readFile(t, path))
 	}
 
-	fresh := Job{Name: "photos", Type: config.BackupFiles, Paths: []string{"/home/me/Pictures"}, Repositories: []string{"local"}}
+	fresh := Job{Name: "photos", Type: config.JobFiles, Paths: []string{"/home/me/Pictures"}, Repositories: []string{"local"}}
 	if err := Save(path, "", fresh); err != nil {
 		t.Fatal(err)
 	}
-	if err := Save(path, "", Job{Name: "empty", Type: config.BackupFiles, Repositories: []string{"local"}}); err == nil {
+	if err := Save(path, "", Job{Name: "empty", Type: config.JobFiles, Repositories: []string{"local"}}); err == nil {
 		t.Error("a files job needs a path")
 	}
 	if err := Delete(path, "site"); err != nil {
@@ -211,7 +211,7 @@ func TestFilesJobsAreListedEditedAndRemoved(t *testing.T) {
 func TestValidate(t *testing.T) {
 	repositories := []string{"s3", "local"}
 	good := func() Job {
-		return Job{Name: "db", Type: config.BackupPostgres, Database: "app", Repositories: []string{"s3"}}
+		return Job{Name: "db", Type: config.JobPostgres, Database: "app", Repositories: []string{"s3"}}
 	}
 	for name, change := range map[string]func(*Job){
 		"bad name":         func(j *Job) { j.Name = "a,b" },
@@ -225,9 +225,9 @@ func TestValidate(t *testing.T) {
 		"unknown repo":     func(j *Job) { j.Repositories = []string{"nope"} },
 		"negative":         func(j *Job) { j.Retention.Daily = -1 },
 		"unknown type":     func(j *Job) { j.Type = "oracle" },
-		"bad mysql tls":    func(j *Job) { j.Type, j.TLS = config.BackupMySQL, "maybe" },
-		"files no path":    func(j *Job) { j.Type, j.Database = config.BackupFiles, "" },
-		"files line break": func(j *Job) { j.Type, j.Paths = config.BackupFiles, []string{"/a\nb"} },
+		"bad mysql tls":    func(j *Job) { j.Type, j.TLS = config.JobMySQL, "maybe" },
+		"files no path":    func(j *Job) { j.Type, j.Database = config.JobFiles, "" },
+		"files line break": func(j *Job) { j.Type, j.Paths = config.JobFiles, []string{"/a\nb"} },
 	} {
 		job := good()
 		change(&job)
@@ -241,7 +241,7 @@ func TestValidate(t *testing.T) {
 		t.Errorf("good job: %+v, %v", job, err)
 	}
 	mongo := good()
-	mongo.Type, mongo.AuthDatabase, mongo.TLS = config.BackupMongoDB, "admin", "required"
+	mongo.Type, mongo.AuthDatabase, mongo.TLS = config.JobMongoDB, "admin", "required"
 	if err := Validate(&mongo, Known{Repositories: repositories}); err != nil || mongo.Port != 27017 || mongo.TLS != "" {
 		t.Errorf("mongo: %+v, %v (port defaults, tls is mysql-only)", mongo, err)
 	}
@@ -271,7 +271,7 @@ func TestDeleteRemovesTheJobAndDropsAnEmptyBackupsList(t *testing.T) {
 
 func TestBrokenConfigIsNotEdited(t *testing.T) {
 	path := writeConfig(t, "backups: [oops\n")
-	if err := Save(path, "", Job{Name: "a", Type: config.BackupPostgres, Database: "a", Repositories: []string{"s3"}}); err == nil {
+	if err := Save(path, "", Job{Name: "a", Type: config.JobPostgres, Database: "a", Repositories: []string{"s3"}}); err == nil {
 		t.Fatal("want an error for a config that does not parse")
 	}
 	if readFile(t, path) != "backups: [oops\n" {
@@ -293,7 +293,7 @@ func TestValidateNamesTheFieldAtFault(t *testing.T) {
 		"repositories": func(j *Job) { j.Repositories = nil },
 		"retention":    func(j *Job) { j.Retention.Weekly = -2 },
 	} {
-		job := Job{Name: "db", Type: config.BackupPostgres, Database: "app", Repositories: []string{"s3"}}
+		job := Job{Name: "db", Type: config.JobPostgres, Database: "app", Repositories: []string{"s3"}}
 		change(&job)
 		var invalidErr *InvalidError
 		if err := Validate(&job, known); !errors.As(err, &invalidErr) || invalidErr.Field != field {
@@ -339,16 +339,16 @@ func TestInheritedValuesStayOutOfTheFile(t *testing.T) {
 	}
 
 	job.Repositories = nil
-	if err := Save(path, "", Job{Name: "fresh", Type: config.BackupPostgres, Database: "x"}); err != nil {
+	if err := Save(path, "", Job{Name: "fresh", Type: config.JobPostgres, Database: "x"}); err != nil {
 		t.Errorf("a new job may leave the repositories to the defaults: %v", err)
 	}
-	if err := Save(writeConfig(t, baseConfig), "", Job{Name: "fresh", Type: config.BackupPostgres, Database: "x"}); err == nil {
+	if err := Save(writeConfig(t, baseConfig), "", Job{Name: "fresh", Type: config.JobPostgres, Database: "x"}); err == nil {
 		t.Error("without defaults a job needs a repository")
 	}
 }
 
 func TestProblemsListsEveryFieldAtFaultOnce(t *testing.T) {
-	job := Job{Name: "a b", Type: config.BackupPostgres, Port: 70000, Schedule: "daily 25:00"}
+	job := Job{Name: "a b", Type: config.JobPostgres, Port: 70000, Schedule: "daily 25:00"}
 	var fields []string
 	for _, problem := range Problems(&job, Known{Repositories: []string{"s3"}}) {
 		fields = append(fields, problem.Field)

@@ -45,22 +45,22 @@ func TestParseValid(t *testing.T) {
 	if c.Notifiers.Telegram.Token != "tok" || c.Repositories["s3main"].Password != "secret" {
 		t.Errorf("env not expanded: %+v", c)
 	}
-	pg := c.Backups[0].Postgres
+	pg := c.Jobs[0].Postgres
 	if pg.Host != "localhost" || pg.Port != 5432 || pg.User != "postgres" {
 		t.Errorf("postgres defaults not applied: %+v", pg)
 	}
-	if c.Backups[0].Timeout != 6*time.Hour {
-		t.Errorf("backup timeout default = %v", c.Backups[0].Timeout)
+	if c.Jobs[0].Timeout != 6*time.Hour {
+		t.Errorf("backup timeout default = %v", c.Jobs[0].Timeout)
 	}
 	if c.Alert.Cooldown != time.Hour {
 		t.Errorf("cooldown default = %v", c.Alert.Cooldown)
 	}
-	web := c.Uptime[0]
+	web := c.UptimeChecks[0]
 	if web.Interval != time.Minute || web.Timeout != 10*time.Second || web.FailAfter != 3 || web.ExpectStatus != 200 {
 		t.Errorf("uptime defaults not applied: %+v", web)
 	}
-	if c.Uptime[1].FailAfter != 5 {
-		t.Errorf("explicit fail_after overwritten: %d", c.Uptime[1].FailAfter)
+	if c.UptimeChecks[1].FailAfter != 5 {
+		t.Errorf("explicit fail_after overwritten: %d", c.UptimeChecks[1].FailAfter)
 	}
 	if c.Monitor == nil {
 		t.Errorf("legacy monitor section must still parse")
@@ -137,12 +137,12 @@ repositories: { r: { url: "/tmp/r" } }`, "password is required"},
 }
 
 func TestFindBackup(t *testing.T) {
-	c := &Config{Backups: []Backup{{Name: "a"}, {Name: "b"}}}
-	b, err := c.FindBackup("b")
+	c := &Config{Jobs: []Job{{Name: "a"}, {Name: "b"}}}
+	b, err := c.FindJob("b")
 	if err != nil || b.Name != "b" {
 		t.Fatalf("got %v, %v", b, err)
 	}
-	if _, err := c.FindBackup("zzz"); err == nil {
+	if _, err := c.FindJob("zzz"); err == nil {
 		t.Fatal("want error for missing job")
 	}
 }
@@ -167,7 +167,7 @@ repositories:
 
 func TestParseEmpty(t *testing.T) {
 	c, err := Parse(nil)
-	if err != nil || c.Store == "" {
+	if err != nil || c.StorePath == "" {
 		t.Fatalf("empty config: %+v, %v", c, err)
 	}
 }
@@ -213,10 +213,10 @@ backups:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m := c.Backups[0].MySQL; m.Host != "localhost" || m.Port != 3306 || m.User != "root" {
+	if m := c.Jobs[0].MySQL; m.Host != "localhost" || m.Port != 3306 || m.User != "root" {
 		t.Errorf("mysql defaults = %+v", m)
 	}
-	if g := c.Backups[1].MongoDB; g.Host != "localhost" || g.Port != 27017 || g.AuthDatabase != "admin" {
+	if g := c.Jobs[1].MongoDB; g.Host != "localhost" || g.Port != 27017 || g.AuthDatabase != "admin" {
 		t.Errorf("mongodb defaults = %+v", g)
 	}
 }
@@ -265,7 +265,7 @@ backups:
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, own, byHand := c.Backups[0], c.Backups[1], c.Backups[2]
+	plain, own, byHand := c.Jobs[0], c.Jobs[1], c.Jobs[2]
 	if plain.Schedule != "daily 02:00" || strings.Join(plain.Repositories, ",") != "local,offsite" || plain.Retention.Daily != 7 || plain.Retention.Weekly != 4 {
 		t.Errorf("plain job did not inherit: %+v", plain)
 	}
@@ -292,8 +292,8 @@ backups:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.Backups[0].Repositories; len(got) != 1 || got[0] != "only" || !c.Backups[0].Inherited.Repositories {
-		t.Errorf("repositories = %v, inherited %v", got, c.Backups[0].Inherited)
+	if got := c.Jobs[0].Repositories; len(got) != 1 || got[0] != "only" || !c.Jobs[0].Inherited.Repositories {
+		t.Errorf("repositories = %v, inherited %v", got, c.Jobs[0].Inherited)
 	}
 
 	_, err = Parse([]byte(`

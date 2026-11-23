@@ -24,7 +24,7 @@ type jobRepository struct {
 
 func configuredJobRepositories(cfg *config.Config) []jobRepository {
 	var jobRepositories []jobRepository
-	for _, job := range cfg.Backups {
+	for _, job := range cfg.Jobs {
 		for _, repository := range job.Repositories {
 			jobRepositories = append(jobRepositories, jobRepository{job: job.Name, repository: repository})
 		}
@@ -59,8 +59,8 @@ type manageActions struct {
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
-	jobAndRestic := func(jobName, repository string) (*config.Backup, *restic.Client, error) {
-		job, err := cfg.FindBackup(jobName)
+	jobAndRestic := func(jobName, repository string) (*config.Job, *restic.Client, error) {
+		job, err := cfg.FindJob(jobName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -84,10 +84,10 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
 		doctor: func(ctx context.Context) []finding {
-			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
+			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
 		},
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
-			job, err := cfg.FindBackup(jobName)
+			job, err := cfg.FindJob(jobName)
 			if err != nil {
 				return nil, err
 			}

@@ -66,7 +66,7 @@ func TestInitFormStartsValidAndWritesTheDefaults(t *testing.T) {
 		t.Errorf("a user's state database lives under their home, not in /var/lib: %q", got.Store)
 	}
 	if got.ServerName != "web-01" || got.Repository.Name != "local" || got.Repository.URL != "${HOME}/.local/share/sentinel/repo" || got.Repository.PasswordEnv != "RESTIC_PASSWORD" ||
-		got.Job.Name != "documents" || got.Job.Type != config.BackupFiles || strings.Join(got.Job.Paths, "|") != "${HOME}/Documents" ||
+		got.Job.Name != "documents" || got.Job.Type != config.JobFiles || strings.Join(got.Job.Paths, "|") != "${HOME}/Documents" ||
 		got.Schedule != "daily 02:00" || got.Retention != (config.Retention{Daily: 7, Weekly: 4, Monthly: 6}) {
 		t.Errorf("initial = %+v", got)
 	}
@@ -87,7 +87,7 @@ func TestInitFormAsksForADatabaseWhenTheJobIsOne(t *testing.T) {
 	if strings.Contains(plain(program.render()), "Database") {
 		t.Error("a files job has no database field")
 	}
-	program.form.field("job_type").value = config.BackupPostgres
+	program.form.field("job_type").value = config.JobPostgres
 	view := plain(program.render())
 	if !strings.Contains(view, "DB password var") || strings.Contains(view, "Paths") {
 		t.Errorf("postgres fields:\n%s", view)

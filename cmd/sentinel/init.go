@@ -150,7 +150,7 @@ func printInitOutcome(w io.Writer, outcome *initOutcome) {
 
 // ---- the form
 
-var initJobTypes = []string{config.BackupFiles, config.BackupPostgres, config.BackupMySQL, config.BackupMongoDB}
+var initJobTypes = []string{config.JobFiles, config.JobPostgres, config.JobMySQL, config.JobMongoDB}
 
 // newInitForm is the repository form plus the first job and its schedule, on one screen.
 func newInitForm(path string, root bool, hostname string) form {
@@ -183,9 +183,9 @@ func newInitForm(path string, root bool, hostname string) form {
 		}
 	}
 	fields = append(fields,
-		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.BackupFiles, choices: initJobTypes},
+		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.JobFiles, choices: initJobTypes},
 		jobField("job_name", "Job name", "letters, digits, . _ -", "documents"),
-		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works", jobPaths, config.BackupFiles),
+		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works", jobPaths, config.JobFiles),
 		jobField("job_database", "Database", "the database to dump", "", configedit.DatabaseTypes...),
 		jobField("job_password_env", "DB password var", "name of the environment variable holding the database password; empty if none", "", configedit.DatabaseTypes...),
 		formField{key: "job_schedule", label: "Schedule", hint: "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression · manual; ← → for presets", kind: fieldSchedule, value: "daily 02:00"},
@@ -207,7 +207,7 @@ func (f form) initial() (configedit.Initial, error) {
 		Paths: splitList(f.field("job_paths").value), Database: strings.TrimSpace(f.field("job_database").value),
 		PasswordEnv: strings.TrimSpace(f.field("job_password_env").value),
 	}
-	if job.Type != config.BackupFiles {
+	if job.Type != config.JobFiles {
 		job.Paths = nil
 	}
 	var retention config.Retention

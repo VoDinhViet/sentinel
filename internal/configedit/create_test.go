@@ -15,7 +15,7 @@ func initialFor() Initial {
 		ServerName: "web-01",
 		Store:      "${HOME}/.local/state/sentinel/state.db",
 		Repository: Repository{Name: "local", URL: "${HOME}/.local/share/sentinel/repo", PasswordEnv: "RESTIC_PASSWORD", Env: map[string]string{}},
-		Job:        Job{Name: "documents", Type: config.BackupFiles, Paths: []string{"${HOME}/Documents"}},
+		Job:        Job{Name: "documents", Type: config.JobFiles, Paths: []string{"${HOME}/Documents"}},
 		Schedule:   "daily 02:00",
 		Retention:  config.Retention{Daily: 7, Weekly: 4, Monthly: 6},
 	}
@@ -44,7 +44,7 @@ func TestCreateWritesACompactConfigThatParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the written config does not load: %v\n%s", err, written)
 	}
-	job := cfg.Backups[0]
+	job := cfg.Jobs[0]
 	if job.Schedule != "daily 02:00" || len(job.Repositories) != 1 || job.Repositories[0] != "local" || job.Retention.Monthly != 6 || !job.Inherited.Repositories {
 		t.Errorf("job = %+v", job)
 	}

@@ -10,24 +10,24 @@ import (
 	"sentinel/internal/config"
 )
 
-func postgresJob() *config.Backup {
-	return &config.Backup{
-		Name: "db", Type: config.BackupPostgres,
+func postgresJob() *config.Job {
+	return &config.Job{
+		Name: "db", Type: config.JobPostgres,
 		Postgres: &config.Postgres{Host: "db.local", Port: 5433, User: "app", Password: "pg-secret", Database: "shop"},
 	}
 }
 
 func TestForKnowsDatabaseTypesOnly(t *testing.T) {
-	if _, ok := For(config.BackupPostgres); !ok {
+	if _, ok := For(config.JobPostgres); !ok {
 		t.Fatal("postgres engine not registered")
 	}
-	if IsDatabase(config.BackupFiles) || IsDatabase("") || IsDatabase("oracle") {
+	if IsDatabase(config.JobFiles) || IsDatabase("") || IsDatabase("oracle") {
 		t.Fatal("non-database types must not resolve to an engine")
 	}
 }
 
 func TestPostgresDump(t *testing.T) {
-	pgEngine, _ := For(config.BackupPostgres)
+	pgEngine, _ := For(config.JobPostgres)
 	dump, err := pgEngine.Dump(postgresJob())
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestPostgresDump(t *testing.T) {
 func TestPostgresDumpWithoutPasswordSetsNoEnv(t *testing.T) {
 	job := postgresJob()
 	job.Postgres.Password = ""
-	pgEngine, _ := For(config.BackupPostgres)
+	pgEngine, _ := For(config.JobPostgres)
 	dump, err := pgEngine.Dump(job)
 	if err != nil || len(dump.Env) != 0 {
 		t.Fatalf("env = %v, err = %v", dump.Env, err)
@@ -55,17 +55,17 @@ func TestPostgresDumpWithoutPasswordSetsNoEnv(t *testing.T) {
 }
 
 func TestPostgresDumpRequiresSettings(t *testing.T) {
-	pgEngine, _ := For(config.BackupPostgres)
-	if _, err := pgEngine.Dump(&config.Backup{Type: config.BackupPostgres}); err == nil {
+	pgEngine, _ := For(config.JobPostgres)
+	if _, err := pgEngine.Dump(&config.Job{Type: config.JobPostgres}); err == nil {
 		t.Fatal("want error when postgres settings are missing")
 	}
-	if got := pgEngine.Database(&config.Backup{Type: config.BackupPostgres}); got != "" {
+	if got := pgEngine.Database(&config.Job{Type: config.JobPostgres}); got != "" {
 		t.Errorf("database = %q", got)
 	}
 }
 
 func TestPostgresRestoreHint(t *testing.T) {
-	pgEngine, _ := For(config.BackupPostgres)
+	pgEngine, _ := For(config.JobPostgres)
 	got := pgEngine.RestoreHint(postgresJob(), "/tmpDir/r")
 	if want := "pg_restore --clean --if-exists -d shop /tmpDir/r/shop.dump"; got != want {
 		t.Errorf("hint = %q, want %q", got, want)
@@ -73,15 +73,15 @@ func TestPostgresRestoreHint(t *testing.T) {
 }
 
 func TestToolsForDeduplicates(t *testing.T) {
-	backups := []config.Backup{
-		{Type: config.BackupFiles},
+	backups := []config.Job{
+		{Type: config.JobFiles},
 		*postgresJob(),
 		*postgresJob(),
 	}
 	if got := ToolsFor(backups); !slices.Equal(got, []string{"pg_dump"}) {
 		t.Errorf("tools = %v", got)
 	}
-	if got := ToolsFor([]config.Backup{{Type: config.BackupFiles}}); len(got) != 0 {
+	if got := ToolsFor([]config.Job{{Type: config.JobFiles}}); len(got) != 0 {
 		t.Errorf("files-only config needs no tools, got %v", got)
 	}
 }
@@ -104,7 +104,7 @@ func TestShellQuote(t *testing.T) {
 			t.Errorf("shellQuote(%q) = %q, want %q", value, got, want)
 		}
 	}
-	pgEngine, _ := For(config.BackupPostgres)
+	pgEngine, _ := For(config.JobPostgres)
 	if got := pgEngine.RestoreHint(postgresJob(), "/tmpDir/my restore"); got != "pg_restore --clean --if-exists -d shop '/tmpDir/my restore/shop.dump'" {
 		t.Errorf("hint = %q", got)
 	}

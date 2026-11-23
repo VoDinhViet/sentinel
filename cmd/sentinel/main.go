@@ -67,9 +67,9 @@ func (a *app) loadConfig() (*config.Config, error) {
 }
 
 func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
-	s, err := store.Open(cfg.Store)
+	s, err := store.Open(cfg.StorePath)
 	if err != nil {
-		return nil, fmt.Errorf("open store %s: %w", cfg.Store, err)
+		return nil, fmt.Errorf("open store %s: %w", cfg.StorePath, err)
 	}
 	return s, nil
 }

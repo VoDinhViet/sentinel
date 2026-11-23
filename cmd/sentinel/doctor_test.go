@@ -12,10 +12,10 @@ import (
 
 func TestRunDoctorReportsProblemsWithHints(t *testing.T) {
 	cfg := &config.Config{
-		Store:        filepath.Join(t.TempDir(), "state.db"),
+		StorePath:    filepath.Join(t.TempDir(), "state.db"),
 		Repositories: map[string]config.Repository{"local": {URL: filepath.Join(t.TempDir(), "repo"), Password: "x"}},
 	}
-	findings := runDoctor(context.Background(), cfg, "/etc/sentinel/config.yaml", func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
+	findings := runDoctor(context.Background(), cfg, "/etc/sentinel/config.yaml", func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
 
 	byName := map[string]finding{}
 	for _, f := range findings {
@@ -38,8 +38,8 @@ func TestRunDoctorReportsProblemsWithHints(t *testing.T) {
 }
 
 func TestRunDoctorStoreFailureHasAHint(t *testing.T) {
-	cfg := &config.Config{Store: "/proc/nope/state.db"}
-	findings := runDoctor(context.Background(), cfg, "c.yaml", func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
+	cfg := &config.Config{StorePath: "/proc/nope/state.db"}
+	findings := runDoctor(context.Background(), cfg, "c.yaml", func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
 	for _, f := range findings {
 		if f.name == "store" {
 			if f.err == nil || f.hint == "" {

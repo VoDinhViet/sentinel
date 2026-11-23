@@ -76,7 +76,7 @@ func Create(path string, initial Initial, force bool) error {
 // EnsureSecret makes sure the env file defines the variable, adding a random value when it does
 // not (mode 0600). It returns whether it wrote one. An existing value is never touched.
 func EnsureSecret(envFile, name string) (bool, error) {
-	if !envName.MatchString(name) {
+	if !envNameRe.MatchString(name) {
 		return false, fmt.Errorf("%q is not an environment variable name", name)
 	}
 	raw, err := os.ReadFile(envFile)

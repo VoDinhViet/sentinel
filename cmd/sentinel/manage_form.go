@@ -164,15 +164,15 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 
 // jobFieldTypes are the job types each type-specific field applies to; the others apply to all.
 var jobFieldTypes = map[string][]string{
-	"paths":         {config.BackupFiles},
-	"exclude":       {config.BackupFiles},
+	"paths":         {config.JobFiles},
+	"exclude":       {config.JobFiles},
 	"database":      configedit.DatabaseTypes,
 	"host":          configedit.DatabaseTypes,
 	"port":          configedit.DatabaseTypes,
 	"user":          configedit.DatabaseTypes,
 	"password_env":  configedit.DatabaseTypes,
-	"tls":           {config.BackupMySQL},
-	"auth_database": {config.BackupMongoDB},
+	"tls":           {config.JobMySQL},
+	"auth_database": {config.JobMongoDB},
 }
 
 // visible are the fields that apply right now (to the chosen type or kind).
@@ -762,7 +762,7 @@ func (m manageModel) startAdd() manageModel {
 		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
 		return m
 	}
-	return m.openForm(configedit.Job{Type: config.BackupPostgres}, "", listing)
+	return m.openForm(configedit.Job{Type: config.JobPostgres}, "", listing)
 }
 
 // startEdit opens the form for the selected job on the Backups tab.

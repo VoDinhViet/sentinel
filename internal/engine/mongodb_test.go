@@ -9,15 +9,15 @@ import (
 	"sentinel/internal/config"
 )
 
-func mongoJob() *config.Backup {
-	return &config.Backup{
-		Name: "crm", Type: config.BackupMongoDB,
+func mongoJob() *config.Job {
+	return &config.Job{
+		Name: "crm", Type: config.JobMongoDB,
 		MongoDB: &config.MongoDB{Host: "mongo.local", Port: 27018, User: "app", Password: `s"3cret`, Database: "crm", AuthDatabase: "admin"},
 	}
 }
 
 func TestMongoDumpKeepsPasswordOutOfArgv(t *testing.T) {
-	mongoEngine, _ := For(config.BackupMongoDB)
+	mongoEngine, _ := For(config.JobMongoDB)
 	dump, err := mongoEngine.Dump(mongoJob())
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestMongoDumpKeepsPasswordOutOfArgv(t *testing.T) {
 func TestMongoDumpWithoutAuth(t *testing.T) {
 	job := mongoJob()
 	job.MongoDB.User, job.MongoDB.Password, job.MongoDB.AuthDatabase = "", "", ""
-	mongoEngine, _ := For(config.BackupMongoDB)
+	mongoEngine, _ := For(config.JobMongoDB)
 	dump, err := mongoEngine.Dump(job)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestMongoDumpWithoutAuth(t *testing.T) {
 }
 
 func TestMongoRestoreHintAndTools(t *testing.T) {
-	mongoEngine, _ := For(config.BackupMongoDB)
+	mongoEngine, _ := For(config.JobMongoDB)
 	if got := mongoEngine.Tools(); !slices.Equal(got, []string{"mongodump"}) {
 		t.Errorf("tools = %v", got)
 	}

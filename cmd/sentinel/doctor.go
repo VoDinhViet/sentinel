@@ -34,7 +34,7 @@ type finding struct {
 // checkBinaries verifies the external tools the config needs are installed.
 func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 	var out []finding
-	needRestic := len(cfg.Backups) > 0
+	needRestic := len(cfg.Jobs) > 0
 	needRclone := false
 	for _, r := range cfg.Repositories {
 		if strings.HasPrefix(r.URL, "rclone:") {
@@ -61,7 +61,7 @@ func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 	if needRclone {
 		tools = append(tools, "rclone")
 	}
-	tools = append(tools, engine.ToolsFor(cfg.Backups)...)
+	tools = append(tools, engine.ToolsFor(cfg.Jobs)...)
 	for _, tool := range tools {
 		f := finding{name: tool}
 		if path, err := exec.LookPath(tool); err != nil {
@@ -108,9 +108,9 @@ func runDoctor(ctx context.Context, cfg *config.Config, configPath string, openS
 	if err == nil {
 		st.Close()
 	}
-	storeFinding := finding{name: "store", err: err, info: cfg.Store}
+	storeFinding := finding{name: "store", err: err, info: cfg.StorePath}
 	if err != nil {
-		storeFinding.hint = "check that the directory of " + cfg.Store + " exists and is writable"
+		storeFinding.hint = "check that the directory of " + cfg.StorePath + " exists and is writable"
 	}
 	findings = append(findings, storeFinding)
 

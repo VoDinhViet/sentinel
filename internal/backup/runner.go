@@ -34,7 +34,7 @@ func (r *Runner) now() time.Time {
 }
 
 // JobTags are the restic tags that identify a job's snapshots.
-func JobTags(job *config.Backup) []string {
+func JobTags(job *config.Job) []string {
 	return []string{"job=" + job.Name}
 }
 
@@ -50,7 +50,7 @@ func (r *Runner) Restic(repoName string) (*restic.Client, error) {
 // Run backs the job up to each of its repositories in turn and applies
 // retention. Every repository is attempted even if an earlier one fails;
 // the returned runs say which succeeded.
-func (r *Runner) Run(ctx context.Context, job *config.Backup) []store.BackupRun {
+func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 	held, release, err := r.lockJob(job.Name)
 	defer release()
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *Runner) Run(ctx context.Context, job *config.Backup) []store.BackupRun 
 	return runs
 }
 
-func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string) store.BackupRun {
+func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) store.BackupRun {
 	run := store.BackupRun{Job: job.Name, Repository: repoName, StartedAt: r.now()}
 	logger := slog.With("job", job.Name, "repository", repoName)
 	logger.Info("backup started")
@@ -94,8 +94,8 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 		return fail(err)
 	}
 	opts := restic.BackupOptions{Tags: JobTags(job)}
-	if job.Type == config.BackupFiles {
-		opts.Paths, opts.Excludes = job.Paths, job.Exclude
+	if job.Type == config.JobFiles {
+		opts.Paths, opts.Excludes = job.Paths, job.Excludes
 	} else {
 		dbEngine, ok := engine.For(job.Type)
 		if !ok {

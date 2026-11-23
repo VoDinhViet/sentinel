@@ -18,10 +18,10 @@ const AlreadyRunning = "backup already running"
 // now" from the server never run the same job at once. held is false when
 // another process has the lock. release is always safe to call.
 func (r *Runner) lockJob(jobName string) (held bool, release func(), err error) {
-	if r.Config == nil || r.Config.Store == "" {
+	if r.Config == nil || r.Config.StorePath == "" {
 		return true, func() {}, nil // no state directory (tests): nothing to lock
 	}
-	lockDir := filepath.Join(filepath.Dir(r.Config.Store), "locks")
+	lockDir := filepath.Join(filepath.Dir(r.Config.StorePath), "locks")
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return false, func() {}, fmt.Errorf("create lock directory: %w", err)
 	}
