@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build install uninstall lint vuln test e2e e2e-engines docker clean
+.PHONY: build install uninstall dist lint vuln test e2e e2e-engines docker clean
 
 # Go toolchain: the one on this machine, or the golang image through docker when Go is not installed.
 HAVE_GO := $(shell command -v go 2>/dev/null)
@@ -25,6 +25,19 @@ ifeq ($(HAVE_GO),)
 else
 	CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$(VERSION)" -o bin/sentinel ./cmd/sentinel
 endif
+
+# Release files for deploy/install.sh: sentinel_linux_<arch>.tar.gz (the binary, README.md, deploy/) and
+# checksums.txt, in dist/. Always built through the golang image so the result does not depend on this machine.
+dist:
+	rm -rf dist && mkdir -p dist
+	$(DOCKER_GO) sh -c 'for arch in amd64 arm64; do mkdir -p dist/$$arch && \
+		GOOS=linux GOARCH=$$arch go build -ldflags "-s -w -X main.version=$(VERSION)" -o dist/$$arch/sentinel ./cmd/sentinel || exit 1; done; \
+		chown -R $(shell id -u):$(shell id -g) dist'
+	for arch in amd64 arm64; do \
+		cp README.md dist/$$arch/ && cp -r deploy dist/$$arch/deploy && \
+		tar -czf dist/sentinel_linux_$$arch.tar.gz -C dist/$$arch sentinel README.md deploy && rm -rf dist/$$arch; \
+	done
+	cd dist && sha256sum sentinel_linux_*.tar.gz > checksums.txt && cat checksums.txt
 
 install: build
 	install -d "$(DESTDIR)$(BINDIR)"

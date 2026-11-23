@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/ins
 
 Bản phát hành được tải về và kiểm tra SHA-256 trước khi cài. Chạy lại cùng lệnh để nâng cấp: binary được thay, `config.yaml` và `sentinel.env` giữ nguyên. Tùy chọn (thêm sau `sh -s --`): `--version v1.2.0` cài đúng một bản, `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB; biến `SENTINEL_REPO` đổi repo GitHub tải về. Client PostgreSQL lấy từ apt, nên cần cùng major version với PostgreSQL server (`sentinel doctor` báo khi thiếu).
 
-Bản phát hành do GitHub Actions tạo khi đẩy tag `v*` (`.github/workflows/release.yml`, goreleaser). Chưa có bản nào thì dòng lệnh trên báo "could not download" và dừng; khi đó build tay:
+Bản phát hành được tạo tay: `make dist VERSION=v0.1.0` build `sentinel_linux_amd64.tar.gz`, `sentinel_linux_arm64.tar.gz` và `checksums.txt` vào `dist/`, rồi `gh release create v0.1.0 dist/*` đưa lên GitHub (chưa dùng CI). Chưa có bản nào thì dòng lệnh trên báo "could not download" và dừng; khi đó build tay:
 
 ```sh
 make build                        # -> bin/sentinel (dùng Go nếu có, không thì build qua docker)
