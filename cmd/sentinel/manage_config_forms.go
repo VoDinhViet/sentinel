@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"sentinel/internal/config"
@@ -123,6 +124,9 @@ func newRepositoryForm(repository configedit.Repository, original string, listin
 	add("sftp", "target", "User and host", "user@host", "")
 	add("sftp", "path", "Folder", "absolute path on the server, e.g. /srv/backups", "")
 	add("custom", "url", "Location", "any restic repository location, e.g. b2:bucket:path", "")
+	for i := range fields {
+		fields[i].complete = fields[i].key == "path" && slices.Equal(fields[i].only, []string{"local"})
+	}
 	fields = append(fields,
 		formField{key: "access_key_env", label: "Access key var", hint: "name of the environment variable holding the access key id", value: repository.Env[awsKeyID], onField: "kind", only: []string{"s3"}},
 		formField{key: "secret_key_env", label: "Secret key var", hint: "name of the environment variable holding the secret access key", value: repository.Env[awsSecretKey], onField: "kind", only: []string{"s3"}},

@@ -37,10 +37,18 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 	}
 	move := func(delta int) { m.form.focusOn(shown[(position+delta+len(shown))%len(shown)]) }
 	focused := &m.form.fields[m.form.focus]
+	if key != "tab" {
+		focused.options = nil
+	}
 	switch key {
 	case "esc", "ctrl+c":
 		m.mode = modeTable
-	case "tab", "down":
+	case "tab":
+		if m.form.completeFocused() {
+			return m, nil
+		}
+		move(1)
+	case "down":
 		move(1)
 	case "shift+tab", "up":
 		move(-1)

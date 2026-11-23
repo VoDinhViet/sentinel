@@ -129,6 +129,7 @@ type manageModel struct {
 	chosen                    restic.Snapshot
 	target, confirm           string
 	inputError                string
+	targetOptions             []string // candidates the last Tab listed for the restore folder
 
 	busyText   string
 	busyStart  time.Time

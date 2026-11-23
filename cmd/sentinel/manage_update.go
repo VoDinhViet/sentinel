@@ -280,7 +280,16 @@ func editText(field, key, text string) string {
 }
 
 func (m manageModel) onTargetKey(key, text string) (tea.Model, tea.Cmd) {
+	if key != "tab" {
+		m.targetOptions = nil
+	}
 	switch key {
+	case "tab":
+		completed, options := completePath(m.target)
+		if completed != m.target || len(options) == 0 {
+			m.target = completed
+		}
+		m.targetOptions = options
 	case "esc":
 		m.mode = modeSnapshots
 	case "enter":

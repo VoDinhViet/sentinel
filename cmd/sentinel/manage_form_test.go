@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -418,5 +420,66 @@ func TestRepositoryFormShowsTheFolderNoteForLocalRepositoriesOnly(t *testing.T) 
 	screen.form.field("path").value = t.TempDir()
 	if view := plain(screen.render()); strings.Contains(view, "exists, writable") {
 		t.Errorf("a remote path is not checked on this disk:\n%s", view)
+	}
+}
+
+func TestTabCompletesTheLastPathThenMovesOn(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "var", "www"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	screen := loadedModel(t)
+	screen.form = newJobForm(configedit.Job{Type: config.JobFiles, Name: "web"}, "", configedit.Listing{})
+	screen.mode = modeForm
+	screen.form.focus = fieldIndex(screen, "paths")
+	screen.form.fields[screen.form.focus].value = "/etc, " + root + "/v"
+
+	screen, _ = press(t, screen, "tab")
+	if got, want := screen.form.fields[screen.form.focus].value, "/etc, "+root+"/var/"; got != want || screen.form.fields[screen.form.focus].key != "paths" {
+		t.Fatalf("after tab: %q (field %q), want %q on paths", got, screen.form.fields[screen.form.focus].key, want)
+	}
+	screen, _ = press(t, screen, "tab") // www/ is the only entry: it is completed too
+	if got := screen.form.fields[screen.form.focus].value; got != "/etc, "+root+"/var/www/" {
+		t.Fatalf("second tab: %q", got)
+	}
+	screen, _ = press(t, screen, "tab") // nothing left to complete: tab moves on
+	if screen.form.fields[screen.form.focus].key == "paths" {
+		t.Errorf("tab must move to the next field when there is nothing to complete")
+	}
+}
+
+func TestTabListsCandidatesOnceThenMovesOn(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"aa1", "aa2"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	screen := loadedModel(t)
+	screen.form = newJobForm(configedit.Job{Type: config.JobFiles, Name: "web"}, "", configedit.Listing{})
+	screen.mode = modeForm
+	screen.form.focus = fieldIndex(screen, "paths")
+	screen.form.fields[screen.form.focus].value = root + "/a"
+	screen, _ = press(t, screen, "tab")
+	field := screen.form.fields[screen.form.focus]
+	if field.value != root+"/aa" || len(field.options) != 2 || !strings.Contains(plain(screen.render()), "aa1/  aa2/") {
+		t.Fatalf("value %q options %v\n%s", field.value, field.options, plain(screen.render()))
+	}
+	screen, _ = press(t, screen, "tab") // same candidates again: move on
+	if screen.form.fields[screen.form.focus].key == "paths" {
+		t.Error("a second tab with the same candidates must move on")
+	}
+}
+
+func TestTabCompletesTheRestoreFolder(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "restore-here"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	screen := loadedModel(t)
+	screen.mode, screen.target = modeTarget, root+"/res"
+	screen, _ = press(t, screen, "tab")
+	if screen.target != root+"/restore-here/" {
+		t.Errorf("target = %q", screen.target)
 	}
 }

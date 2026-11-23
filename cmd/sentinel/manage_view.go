@@ -423,10 +423,13 @@ func (m manageModel) renderTarget() []string {
 		"Directory to restore into (absolute path):",
 		"  " + m.target + lipglossAccent("▏"),
 	}
+	if len(m.targetOptions) > 0 {
+		screenLines = append(screenLines, "  "+dimStyle.Render(truncate(strings.Join(m.targetOptions, "  "), max(m.width-4, 10))))
+	}
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "continue", "esc", "back"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "complete", "enter", "continue", "esc", "back"))
 }
 
 func (m manageModel) renderConfirm() []string {

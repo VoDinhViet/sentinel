@@ -42,6 +42,10 @@ type formField struct {
 	// placeholder is what an empty field stands for, shown dimmed.
 	placeholder string
 	fixed       bool // a choice that cannot be changed
+	// complete makes Tab finish a path typed in the field (a Paths field always does);
+	// options are the candidates the last Tab listed.
+	complete bool
+	options  []string
 	// onField and only show the field only while the field named onField holds one of only.
 	onField string
 	only    []string
@@ -283,4 +287,22 @@ func (f form) shownProblems() map[string]string {
 		}
 	}
 	return shown
+}
+
+// completes says whether Tab finishes a path in the field.
+func (f formField) completes() bool { return f.kind == fieldPaths || f.complete }
+
+// completeFocused finishes the path in the field on Tab. It reports whether it did anything
+// (changed the text or listed candidates it had not listed yet), so Tab moves on otherwise.
+func (f *form) completeFocused() bool {
+	field := &f.fields[f.focus]
+	if !field.completes() || field.fixed {
+		return false
+	}
+	completed, options := completeList(field.value, field.kind == fieldPaths)
+	listed := len(options) > 0 && !slices.Equal(options, field.options)
+	changed := completed != field.value
+	field.value, field.options = completed, options
+	f.touched[field.key] = true
+	return changed || listed
 }

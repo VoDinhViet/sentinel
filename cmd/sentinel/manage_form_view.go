@@ -112,6 +112,9 @@ func (m manageModel) renderForm() []string {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
 			}
 		}
+		if focused && len(field.options) > 0 {
+			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(truncate(strings.Join(field.options, "  "), max(m.width-formLabelWidth-5, 10))))
+		}
 		if field.kind == fieldPaths && focused {
 			screenLines = append(screenLines, m.suggestionLines(len(screenLines), index, field.value)...)
 		}
@@ -130,7 +133,11 @@ func (m manageModel) renderForm() []string {
 	m.hits.add(buttonRow, 0, lipgloss.Width(saveButton), "ctrl+s")
 	m.hits.add(buttonRow, lipgloss.Width(saveButton)+2, lipgloss.Width("[ Cancel ]"), "esc")
 	screenLines = append(screenLines, "", buttons)
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "next", "space", "tick", "ctrl+s", "save", "esc", "cancel"))
+	tabHint := "next"
+	if m.form.fields[m.form.focus].completes() {
+		tabHint = "complete"
+	}
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", tabHint, "space", "tick", "ctrl+s", "save", "esc", "cancel"))
 }
 
 // folderNote says whether the folder chosen for the backups exists, whether it can be written to
