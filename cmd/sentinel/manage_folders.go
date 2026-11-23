@@ -1,10 +1,12 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // suggestionRoots are folders worth backing up on most servers; the ones that exist and can be
@@ -65,4 +67,84 @@ func addPath(list, folder string) string {
 		paths = append(paths, folder)
 	}
 	return strings.Join(paths, ", ")
+}
+
+// Limits that keep the folder browser from stalling on a huge tree.
+const (
+	maxSizeFiles   = 20000                  // files counted for the size estimate of one folder
+	maxSizeTime    = 300 * time.Millisecond // time spent on that estimate
+	maxDeepDepth   = 4                      // levels below the current folder the search looks into
+	maxDeepVisited = 5000                   // folders the search lists
+	maxDeepResults = 15
+	maxDeepTime    = 150 * time.Millisecond
+)
+
+// deepSkip are trees that hold no data worth finding by name (or are endless).
+var deepSkip = []string{"/proc", "/sys", "/dev", "/run", "/var/lib/docker", "/snap"}
+
+func skippedTree(path string) bool {
+	return slices.Contains(deepSkip, path)
+}
+
+// dirSize adds up the sizes of the files under root, without following symlinks. It stops after
+// maxFiles files or maxTime and then reports complete=false: the figure is a lower bound.
+func dirSize(root string, maxFiles int, maxTime time.Duration) (bytes int64, complete bool) {
+	deadline := time.Now().Add(maxTime)
+	files := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		switch {
+		case err != nil || entry.Type()&fs.ModeSymlink != 0:
+			return nil // unreadable or a link: not counted
+		case entry.IsDir():
+			if skippedTree(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		files++
+		if files > maxFiles || time.Now().After(deadline) {
+			return fs.SkipAll
+		}
+		if info, err := entry.Info(); err == nil {
+			bytes += info.Size()
+		}
+		return nil
+	})
+	return bytes, err == nil && files <= maxFiles && !time.Now().After(deadline)
+}
+
+// deepSearch looks below root for folders whose name contains needle, two levels or more down
+// (the first level is the folder list itself). Hidden folders, symlinks and skippedTree are left out.
+func deepSearch(root, needle string) []string {
+	needle = strings.ToLower(needle)
+	deadline := time.Now().Add(maxDeepTime)
+	type level struct {
+		path  string
+		depth int
+	}
+	queue := []level{{root, 0}}
+	var found []string
+	visited := 0
+	for len(queue) > 0 && len(found) < maxDeepResults && visited < maxDeepVisited && time.Now().Before(deadline) {
+		current := queue[0]
+		queue = queue[1:]
+		children, err := os.ReadDir(current.path)
+		if err != nil {
+			continue
+		}
+		for _, child := range children {
+			path := filepath.Join(current.path, child.Name())
+			if !child.IsDir() || strings.HasPrefix(child.Name(), ".") || skippedTree(path) {
+				continue
+			}
+			visited++
+			if current.depth >= 1 && strings.Contains(strings.ToLower(child.Name()), needle) && len(found) < maxDeepResults {
+				found = append(found, path)
+			}
+			if current.depth+1 < maxDeepDepth {
+				queue = append(queue, level{path, current.depth + 1})
+			}
+		}
+	}
+	return found
 }

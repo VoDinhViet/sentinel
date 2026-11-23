@@ -93,6 +93,7 @@ const (
 	modeForm                        // adding or editing a database job
 	modeDelete                      // typing the job name to confirm its removal
 	modeHelp                        // the key list
+	modeBrowse                      // choosing folders for a Paths field
 )
 
 type manageModel struct {
@@ -131,6 +132,7 @@ type manageModel struct {
 	resultBad  bool
 
 	form       form
+	browse     browseState
 	deleteName string
 	// deleteWhat is "job", "repository"...; deleteNote tells what stays; deleteAction removes it.
 	deleteWhat, deleteNote string
@@ -206,6 +208,8 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.report = msg.report
 		}
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+	case folderSizedMsg:
+		return m.onFolderSized(msg), nil
 	case doctorMsg:
 		m.doctor.running, m.doctor.findings = false, msg.findings
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
@@ -227,6 +231,9 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		return m.onClick(msg.X, msg.Y, msg.Button == tea.MouseLeft)
 	case tea.MouseWheelMsg:
+		if m.mode == modeBrowse {
+			return m.browseWheel(msg.Button == tea.MouseWheelUp, msg.Button == tea.MouseWheelDown)
+		}
 		return m.onWheel(msg.Button == tea.MouseWheelUp, msg.Button == tea.MouseWheelDown), nil
 	}
 	return m, nil
@@ -276,6 +283,8 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 		return m.onFormKey(key, text)
 	case modeDelete:
 		return m.onDeleteKey(key, text)
+	case modeBrowse:
+		return m.onBrowseKey(key, text)
 	case modeHelp:
 		m.mode = m.helpReturn
 		return m, nil
@@ -678,6 +687,8 @@ func (m manageModel) render() string {
 		screenLines = append(screenLines, m.renderForm()...)
 	case modeDelete:
 		screenLines = append(screenLines, m.renderDelete()...)
+	case modeBrowse:
+		screenLines = append(screenLines, m.renderBrowse()...)
 	case modeHelp:
 		screenLines = append(screenLines, m.renderHelp()...)
 	default:
@@ -926,6 +937,8 @@ func (m manageModel) keyBar(row int, pairs ...string) string {
 		switch action {
 		case "↑↓":
 			action = "" // two keys: nothing to click
+		case "←":
+			action = "left"
 		case "any key":
 			action = "esc"
 		}

@@ -123,7 +123,7 @@ func (p initProgram) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // after takes what the screen did and ends the program once the form is gone.
 func (p initProgram) after(model tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	p.manageModel = model.(manageModel)
-	if p.mode != modeForm {
+	if p.mode != modeForm && p.mode != modeBrowse {
 		p.saved = !p.noticeBad && p.notice != ""
 		return p, tea.Quit
 	}

@@ -142,7 +142,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	form.fields = []formField{
 		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != ""},
 		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name},
-		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder", kind: fieldPaths, value: strings.Join(job.Paths, ", ")},
+		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder, ctrl+o browses the server", kind: fieldPaths, value: strings.Join(job.Paths, ", ")},
 		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", ")},
 		{key: "database", label: "Database", hint: "the database to dump", value: job.Database},
 		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost"},
@@ -328,6 +328,11 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 		move(-1)
 	case "ctrl+s":
 		return m.saveForm()
+	case "ctrl+o":
+		if focused.kind == fieldPaths {
+			next, cmd := m.openBrowse()
+			return next, cmd
+		}
 	case "enter":
 		if position == len(shown)-1 {
 			return m.saveForm()
@@ -615,9 +620,7 @@ func (m manageModel) renderForm() []string {
 			}
 		}
 		if field.kind == fieldPaths && focused {
-			if line := m.suggestionLine(len(screenLines), index, field.value); line != "" {
-				screenLines = append(screenLines, line)
-			}
+			screenLines = append(screenLines, m.suggestionLines(len(screenLines), index, field.value)...)
 		}
 	}
 	screenLines = append(screenLines, "", dimStyle.Render(wrap(m.form.fields[m.form.focus].hint, m.width-2)))
@@ -690,13 +693,24 @@ func canWrite(info os.FileInfo) bool {
 	return mode&0o002 != 0
 }
 
-// suggestionLine is the line of folders worth adding under a focused Paths field; each one is a
-// click target. row is the line's row within the form's lines.
-func (m manageModel) suggestionLine(row, index int, value string) string {
+// suggestionLines are the lines under a focused Paths field: the folders worth adding and the
+// [ Browse ] chip, each a click target. On a narrow screen the chip gets a line of its own.
+// row is the first line's row within the form's lines.
+func (m manageModel) suggestionLines(row, index int, value string) []string {
+	const browse = "[ Browse ]"
 	indent := 2 + formLabelWidth + 1
-	line, column := strings.Repeat(" ", indent)+dimStyle.Render("add: "), indent+len("add: ")
-	shown := 0
-	for number, folder := range suggestFolders(splitList(value)) {
+	pad := strings.Repeat(" ", indent)
+	wide := m.width >= 80
+	line, column := pad, indent
+	if wide {
+		m.hits.add(row, indent, len(browse), "browse")
+		line, column = line+keyStyle.Render(browse)+"  ", column+len(browse)+2
+	}
+	suggestions := suggestFolders(splitList(value))
+	if len(suggestions) > 0 {
+		line, column = line+dimStyle.Render("add: "), column+len("add: ")
+	}
+	for number, folder := range suggestions {
 		if number == 0 { // a long first folder is shortened rather than left out
 			folder = truncate(folder, max(m.width-column-3, 8))
 		}
@@ -707,12 +721,16 @@ func (m manageModel) suggestionLine(row, index int, value string) string {
 		m.hits.add(row, column, lipgloss.Width(chip), fmt.Sprintf("suggest:%d:%d", index, number+1))
 		line += keyStyle.Render(strconv.Itoa(number+1)) + dimStyle.Render(" "+folder) + "  "
 		column += lipgloss.Width(chip) + 2
-		shown++
 	}
-	if shown == 0 {
-		return ""
+	if wide {
+		return []string{line}
 	}
-	return line
+	var lines []string
+	if len(suggestions) > 0 {
+		lines = append(lines, line)
+	}
+	m.hits.add(row+len(lines), indent, len(browse), "browse")
+	return append(lines, pad+keyStyle.Render(browse))
 }
 
 // pathsNote says whether the listed paths exist on this machine.
