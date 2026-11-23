@@ -153,7 +153,7 @@ func (m manageModel) renderTabs() []string {
 		screenLines = append(screenLines, "")
 	}
 	footer := m.keyBar(len(screenLines)+1, footerKeys...)
-	return append(screenLines, "", footer)
+	return append(screenLines, borderStyle.Render(strings.Repeat("─", m.width)), footer)
 }
 
 // tabLabels are the tab bar's labels, e.g. "1 Backups 3"; the tab bar joins them with tabGap().
@@ -297,9 +297,10 @@ func (m manageModel) renderTable(tab manageTab, visible, base int) []string {
 	header := make([]string, keep)
 	for col := range header {
 		text := truncate(tab.headers[col], widths[col])
-		header[col] = headerStyle.Render(text + strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0)))
+		header[col] = text + strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0))
 	}
-	screenLines := []string{strings.Repeat(" ", prefix) + strings.Join(header, strings.Repeat(" ", gap))}
+	headerText := strings.Repeat(" ", prefix) + strings.Join(header, strings.Repeat(" ", gap))
+	screenLines := []string{headerBand.Render(headerText + strings.Repeat(" ", max(m.width-lipgloss.Width(headerText), 0)))}
 	first := firstVisible(m.cursor, visible)
 	for i := first; i < min(first+visible, len(tab.lines)); i++ {
 		line := tab.lines[i]
@@ -352,11 +353,11 @@ func (m manageModel) keyBar(screenRow int, pairs ...string) string {
 			separator = "  "
 		}
 		var parts []string
-		column := 0
+		column := 1 // the band starts with one space
 		for _, chip := range chips {
-			text, width := keyStyle.Render(chip.key), lipgloss.Width(chip.key)
+			text, width := barKeyStyle.Render(chip.key), lipgloss.Width(chip.key)
 			if withLabels {
-				text += " " + dimStyle.Render(chip.label)
+				text += barStyle.Render(" ") + barDimStyle.Render(chip.label)
 				width += 1 + lipgloss.Width(chip.label)
 			}
 			parts = append(parts, text)
@@ -365,15 +366,15 @@ func (m manageModel) keyBar(screenRow int, pairs ...string) string {
 			}
 			column += width + len(separator)
 		}
-		return strings.Join(parts, separator), column - len(separator)
+		return barStyle.Render(" ") + strings.Join(parts, barStyle.Render(separator)), column - len(separator)
 	}
 	mark := len(m.hits.safeTargets())
 	bar, width := build(true)
 	if width > m.width {
 		m.hits.truncate(mark)
-		bar, _ = build(false)
+		bar, width = build(false)
 	}
-	return bar
+	return bar + barStyle.Render(strings.Repeat(" ", max(m.width-width, 0))) // the band spans the screen
 }
 
 // fitWidths shrinks the widest columns until the table fits in total cells.

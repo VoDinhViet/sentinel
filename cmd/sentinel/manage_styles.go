@@ -11,6 +11,7 @@ import (
 var (
 	colourOK, colourWarn, colourBad, colourAcc color.Color
 	colourSelected, colourBorder, colourMuted  color.Color
+	colourBar                                  color.Color
 	colourOnAccent, colourOnSelected           color.Color
 
 	titleStyle, dimStyle, headerStyle, borderStyle lipgloss.Style
@@ -19,6 +20,8 @@ var (
 	activeTab           lipgloss.Style
 	keyStyle            lipgloss.Style
 	lipglossStyleAccent lipgloss.Style
+	// The key bar at the bottom and the header of a table are bands with their own background.
+	barStyle, barKeyStyle, barDimStyle, headerBand lipgloss.Style
 )
 
 func init() { applyPalette(true) }
@@ -34,6 +37,7 @@ func applyPalette(dark bool) {
 	colourMuted = pick(hex("#5c6384"), hex("#8089b3"))
 	colourBorder = pick(hex("#8a94c4"), hex("#3f4768"))
 	colourSelected = pick(hex("#d6e0ff"), hex("#283057"))
+	colourBar = pick(hex("#e6eafa"), hex("#1d2138"))
 	colourOnSelected = pick(hex("#16182a"), hex("#e3e8ff"))
 	colourOnAccent = pick(hex("#ffffff"), hex("#14162b"))
 
@@ -45,6 +49,10 @@ func applyPalette(dark bool) {
 	activeTab = lipgloss.NewStyle().Bold(true).Foreground(colourOnAccent).Background(colourAcc)
 	keyStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
 	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
+	barStyle = lipgloss.NewStyle().Background(colourBar)
+	barKeyStyle = barStyle.Bold(true).Foreground(colourAcc)
+	barDimStyle = barStyle.Foreground(colourMuted)
+	headerBand = barStyle.Bold(true).Foreground(colourMuted)
 }
 
 func severityStyle(level severity) lipgloss.Style {
