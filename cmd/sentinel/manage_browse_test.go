@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // browseTree makes a small tree to browse:
@@ -339,7 +340,11 @@ func TestBrowserClickTargetsStayOnTheScreenAndDoNotOverlap(t *testing.T) {
 		screen, _ := openBrowser(t, filepath.Join(root, "www"))
 		model, _ := screen.Update(tea5Size(width))
 		screen = model.(manageModel)
-		screen.render()
+		for i, line := range strings.Split(plain(screen.render()), "\n") {
+			if lipgloss.Width(line) > width {
+				t.Errorf("width %d: line %d is %d cells wide: %q", width, i, lipgloss.Width(line), line)
+			}
+		}
 		targets := screen.hits.targets
 		if len(targets) == 0 {
 			t.Fatalf("width %d: no targets", width)

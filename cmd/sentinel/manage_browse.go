@@ -333,9 +333,12 @@ func (m manageModel) renderBrowse() []string {
 	b := m.browse
 	title := titleStyle.Render("Choose folders to back up")
 	chosen := fmt.Sprintf("%d chosen", len(b.marks))
-	room := max(m.width-lipgloss.Width("Choose folders to back up")-len(chosen)-6, 8)
+	where := ""
+	if room := m.width - lipgloss.Width("Choose folders to back up") - len(chosen) - 10; room >= 12 {
+		where = tailOf(b.dir, room) + "  ·  " // too narrow a screen drops the folder: the last line shows it
+	}
 	screenLines := []string{
-		title + dimStyle.Render("  "+tailOf(b.dir, room)+"  ·  "+chosen),
+		title + dimStyle.Render("  "+where+chosen),
 		"Search: " + b.filter + lipglossAccent("▏"),
 	}
 	rows := b.rows()
@@ -344,13 +347,6 @@ func (m manageModel) renderBrowse() []string {
 		if row.kind != browseUp {
 			folders++
 		}
-	}
-	if folders == 0 {
-		message := "no folders here"
-		if b.filter != "" {
-			message = "no folder matches \"" + b.filter + "\""
-		}
-		screenLines = append(screenLines, dimStyle.Render("  "+message))
 	}
 	visible := max(m.height-9, 3)
 	first := firstVisible(b.cursor, visible)
@@ -362,6 +358,13 @@ func (m manageModel) renderBrowse() []string {
 			deeperShown = true
 		}
 		screenLines = append(screenLines, m.browseLine(len(screenLines), i, row))
+	}
+	if folders == 0 {
+		message := "no folders here"
+		if b.filter != "" {
+			message = "no folder matches \"" + b.filter + "\""
+		}
+		screenLines = append(screenLines, dimStyle.Render("  "+message))
 	}
 	if hidden := len(rows) - (first + visible); hidden > 0 {
 		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
