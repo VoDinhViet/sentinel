@@ -52,6 +52,9 @@ func (m manageModel) renderHeader() []string {
 	if m.mode != modeTable || !m.loaded {
 		return []string{""}
 	}
+	if m.showCards() {
+		return append(m.renderCards(), "")
+	}
 	return []string{m.summary(), ""}
 }
 
@@ -146,6 +149,9 @@ func (m manageModel) renderTabs() []string {
 	case 0:
 		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit"}
 	}
+	for m.hits.offset+len(screenLines)+2 < m.height { // the footer sits on the last line of the frame
+		screenLines = append(screenLines, "")
+	}
 	footer := m.keyBar(len(screenLines)+1, footerKeys...)
 	return append(screenLines, "", footer)
 }
@@ -193,7 +199,13 @@ func (m manageModel) tabGap() string {
 
 // visibleRows is how many table lines fit: the screen minus title, summary, tabs,
 // rules, column header, detail, notice and footer.
-func (m manageModel) visibleRows() int { return max(m.height-13, 3) }
+func (m manageModel) visibleRows() int {
+	rows := m.height - 12
+	if m.showCards() {
+		rows -= 2 // the cards are three lines instead of one
+	}
+	return max(rows, 3)
+}
 
 func (m manageModel) emptyText(tab int) string {
 	switch tab {

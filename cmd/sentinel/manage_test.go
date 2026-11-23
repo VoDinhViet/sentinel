@@ -157,3 +157,25 @@ func TestPrintStatusAndJSONReport(t *testing.T) {
 		}
 	}
 }
+
+func TestWideScreenShowsCardsAndPinsTheKeyBarToTheBottom(t *testing.T) {
+	model, _ := loadedModel(t).Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	screen := model.(manageModel)
+	lines := strings.Split(plain(screen.render()), "\n")
+	if len(lines) != 24 {
+		t.Fatalf("the frame fills the screen: %d lines, want 24", len(lines))
+	}
+	view := strings.Join(lines, "\n")
+	for _, want := range []string{"╭─ ◆ Sentinel", "1 healthy", "1 failed", "1 warnings", "1 alert", "1 check down"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	if !strings.Contains(lines[len(lines)-2], "q quit") {
+		t.Errorf("the key bar is the last line inside the frame: %q", lines[len(lines)-2])
+	}
+	model, _ = screen.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	if narrow := plain(model.(manageModel).render()); strings.Contains(narrow, "╭───") && strings.Count(narrow, "╭") > 1 {
+		t.Errorf("below %d columns the summary is one line, not cards:\n%s", cardsMinWidth, narrow)
+	}
+}

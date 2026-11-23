@@ -61,26 +61,81 @@ func (m manageModel) tabs() []manageTab {
 }
 
 // summary is the one line under the title: what needs attention, or "all good".
-func (m manageModel) summary() string {
-	var healthy, warning, failed, neverRun int
+// healthCounts is how the jobs, alerts and checks add up, for the summary line and the cards.
+type healthCounts struct{ healthy, warning, failed, neverRun, checksDown, alerts int }
+
+func (m manageModel) healthCounts() healthCounts {
+	var counts healthCounts
 	for _, line := range m.tabs()[0].lines {
 		switch {
 		case line.cells[3] == "never run":
-			neverRun++
+			counts.neverRun++
 		case line.severity == sevBad:
-			failed++
+			counts.failed++
 		case line.severity == sevWarn:
-			warning++
+			counts.warning++
 		default:
-			healthy++
+			counts.healthy++
 		}
 	}
-	checksDown := 0
 	for _, check := range m.report.Checks {
 		if !check.OK {
-			checksDown++
+			counts.checksDown++
 		}
 	}
+	counts.alerts = len(m.report.Alerts)
+	return counts
+}
+
+// cardsMinWidth is the screen width from which the summary becomes a row of cards.
+const cardsMinWidth = 110
+
+// showCards says whether the header is a row of cards (three lines) instead of the summary line.
+func (m manageModel) showCards() bool {
+	counts := m.healthCounts()
+	return m.mode == modeTable && m.loaded && m.width >= cardsMinWidth &&
+		counts.healthy+counts.warning+counts.failed+counts.neverRun+counts.checksDown+counts.alerts > 0
+}
+
+// renderCards is the summary as five small boxes (healthy, failed, warnings, alerts, checks
+// down); a box with a zero is drawn quietly.
+func (m manageModel) renderCards() []string {
+	counts := m.healthCounts()
+	type card struct {
+		count int
+		label string
+		level severity
+	}
+	cards := []card{
+		{counts.healthy, "healthy", sevOK},
+		{counts.failed, "failed", sevBad},
+		{counts.warning + counts.neverRun, "warnings", sevWarn},
+		{counts.alerts, plural(counts.alerts, "alert", "alerts"), sevBad},
+		{counts.checksDown, plural(counts.checksDown, "check down", "checks down"), sevBad},
+	}
+	const gap = 2
+	width := min((m.width-gap*(len(cards)-1))/len(cards), 26)
+	var tops, middles, bottoms []string
+	for _, c := range cards {
+		border := borderStyle
+		number := dimStyle
+		if c.count > 0 {
+			border = lipgloss.NewStyle().Foreground(severityStyle(c.level).GetForeground())
+			number = severityStyle(c.level)
+		}
+		text := number.Render(fmt.Sprintf("%d", c.count)) + " " + dimStyle.Render(c.label)
+		pad := max(width-2-2-lipgloss.Width(text), 0)
+		tops = append(tops, border.Render("╭"+strings.Repeat("─", width-2)+"╮"))
+		middles = append(middles, border.Render("│")+" "+text+strings.Repeat(" ", pad)+" "+border.Render("│"))
+		bottoms = append(bottoms, border.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	}
+	space := strings.Repeat(" ", gap)
+	return []string{strings.Join(tops, space), strings.Join(middles, space), strings.Join(bottoms, space)}
+}
+
+func (m manageModel) summary() string {
+	counts := m.healthCounts()
+	healthy, warning, failed, neverRun, checksDown := counts.healthy, counts.warning, counts.failed, counts.neverRun, counts.checksDown
 	type part struct {
 		text  string
 		level severity
