@@ -100,7 +100,14 @@ func (m manageModel) renderForm() []string {
 		if message, bad := problems[field.key]; bad {
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+severityStyle(sevBad).Render("✗ "+truncate(message, max(m.width-formLabelWidth-6, 10))))
 		} else if field.key == "store_at" || (field.key == "path" && m.form.field("kind").value == "local") {
-			if note := folderNote(field.value); note != "" {
+			folder, prefix := field.value, ""
+			if job, _ := m.form.job(); field.key == "store_at" && strings.TrimSpace(folder) == "" {
+				if folder = m.form.autoFolder(job); folder != "" {
+					prefix = dimStyle.Render("→ automatic: " + folder + "  ")
+				}
+			}
+			if note := folderNote(folder); note != "" {
+				note = prefix + note
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
 		} else if field.kind == fieldPaths {

@@ -254,15 +254,15 @@ func (f form) apply(actions manageActions) (string, error) {
 		return "job " + job.Name, err
 	}
 	label := "job " + job.Name
-	if f.storeAt() != "" {
+	if repo.URL != "" {
 		repo.PasswordEnv = f.sharedPasswordEnv(actions)
 		if err := actions.saveRepository("", repo); err != nil {
 			return label, err
 		}
-		label += " and its repository (create it once with: sentinel backup init " + job.Name + ")"
+		label += " with its backups in " + repo.URL + " (create the repository once with: sentinel backup init " + job.Name + ")"
 	}
 	if err := actions.saveJob(f.original, job); err != nil {
-		if f.storeAt() != "" {
+		if repo.URL != "" {
 			err = fmt.Errorf("repository %s was created, but the job was not saved: %w", repo.Name, err)
 		}
 		return label, err

@@ -538,3 +538,50 @@ func TestAltArrowsAreNamedTheWayTheFormExpects(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseJobWithoutARepositoryGetsAnAutomaticFolder(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "ordersdb")
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "orders")
+	if view := plain(screen.render()); !strings.Contains(view, "automatic: "+autoStoreBase()+"/ordersdb") {
+		t.Errorf("the form says where the backups will go:\n%s", view)
+	}
+	if problems := screen.form.problems(); len(problems) != 0 {
+		t.Fatalf("no folder and no repository is fine for a database job: %v", problems)
+	}
+	model, _ := screen.saveForm()
+	screen = model.(manageModel)
+	if len(configFile.saved) != 1 || strings.Join(configFile.saved[0].Repositories, ",") != "ordersdb" {
+		t.Fatalf("job saved = %+v (notice %q)", configFile.saved, screen.notice)
+	}
+	if len(configFile.repositories) != 1 || configFile.repositories[0].URL != autoStoreBase()+"/ordersdb" {
+		t.Errorf("repository saved = %+v", configFile.repositories)
+	}
+	if !strings.Contains(screen.notice, autoStoreBase()+"/ordersdb") || !strings.Contains(screen.notice, "sentinel backup init ordersdb") {
+		t.Errorf("notice = %q", screen.notice)
+	}
+}
+
+func TestAutomaticFolderIsOnlyForDatabaseJobsWithNoRepository(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "files1", "x"
+	screen.form.field("type").value = config.JobFiles
+	screen.form.field("paths").value = "/etc"
+	if message := screen.form.problems()["repositories"]; message == "" {
+		t.Error("a files job still has to choose a repository")
+	}
+	screen.form.field("type").value = config.JobPostgres
+	screen.form.field("repositories").ticked[0] = true
+	if _, _, repo, _ := screen.form.jobWithStore(); repo.URL != "" {
+		t.Errorf("a ticked repository means no automatic one: %+v", repo)
+	}
+	screen.form.field("repositories").ticked[0] = false
+	screen.form.known.InheritsRepositories = true
+	if _, _, repo, _ := screen.form.jobWithStore(); repo.URL != "" {
+		t.Errorf("repositories from the defaults mean no automatic one: %+v", repo)
+	}
+}

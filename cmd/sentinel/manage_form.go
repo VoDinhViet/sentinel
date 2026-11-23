@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -146,7 +147,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "user", label: "User", hint: "optional", value: job.User},
 		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv},
 		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote},
-		{key: "store_at", label: "Store at", hint: "optional: a new local folder for this job's backups, e.g. /srv/backups/" + "db; a repository named like the job is created for it (tab completes the folder). Empty = use the repositories ticked below", complete: true},
+		{key: "store_at", label: "Store at", hint: "a folder for this job's backups (tab completes it); a repository named like the job is created for it. Empty = the repositories ticked below, or, for a database job with none, an automatic folder " + autoStoreBase() + "/<job name>", complete: true, placeholder: "automatic"},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
 		{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year; all empty = keep everything", kind: fieldRetention, counts: retention},
 		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS},
@@ -323,6 +324,9 @@ func (f form) jobWithStore() (configedit.Job, configedit.Known, configedit.Repos
 	known := f.known
 	folder := f.storeAt()
 	if folder == "" {
+		folder = f.autoFolder(job)
+	}
+	if folder == "" {
 		return job, known, configedit.Repository{}, err
 	}
 	repo := configedit.Repository{Name: job.Name, URL: folder, PasswordEnv: "RESTIC_PASSWORD"}
@@ -338,4 +342,25 @@ func (f form) jobWithStore() (configedit.Job, configedit.Known, configedit.Repos
 	known.Repositories = append(slices.Clone(known.Repositories), repo.Name)
 	job.Repositories = append(job.Repositories, repo.Name)
 	return job, known, repo, err
+}
+
+// autoStoreBase is the folder under which Sentinel puts the repository of a database job that
+// was given no place to store its backups: one folder per job.
+func autoStoreBase() string {
+	if os.Geteuid() == 0 {
+		return "/var/backups/sentinel"
+	}
+	return "${HOME}/.local/share/sentinel"
+}
+
+// autoFolder is the folder Sentinel builds for a database job that has no repository (none
+// ticked, none inherited from the defaults) and no "Store at" folder: <base>/<job name>. It is
+// "" for any other job.
+func (f form) autoFolder(job configedit.Job) string {
+	if f.kind != formJob || job.Name == "" || !slices.Contains(configedit.DatabaseTypes, job.Type) ||
+		len(job.Repositories) > 0 || f.known.InheritsRepositories ||
+		configedit.ValidateRepository(configedit.Repository{Name: job.Name, URL: "x", PasswordEnv: "X"}) != nil { // a bad name is the name field's problem
+		return ""
+	}
+	return autoStoreBase() + "/" + job.Name
 }
