@@ -332,3 +332,17 @@ func TestRenamedKeysSayWhatToUse(t *testing.T) {
 		}
 	}
 }
+
+func TestJobOnlyRepo(t *testing.T) {
+	job := &Job{Name: "db", Repositories: []string{"s3", "local"}}
+	scoped, err := job.OnlyRepo("local")
+	if err != nil || len(scoped.Repositories) != 1 || scoped.Repositories[0] != "local" {
+		t.Fatalf("OnlyRepo(local) = %+v, %v", scoped, err)
+	}
+	if len(job.Repositories) != 2 {
+		t.Errorf("the original job changed: %v", job.Repositories)
+	}
+	if _, err := job.OnlyRepo("gdrive"); err == nil || !strings.Contains(err.Error(), `does not use repository "gdrive"`) {
+		t.Errorf("unknown repository: %v", err)
+	}
+}

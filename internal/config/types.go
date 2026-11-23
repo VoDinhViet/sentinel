@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -191,4 +192,14 @@ func (c *Config) FindJob(name string) (*Job, error) {
 		}
 	}
 	return nil, fmt.Errorf("job %q not found", name)
+}
+
+// OnlyRepo returns a copy of the job that backs up to repoName alone. The job must use it.
+func (j *Job) OnlyRepo(repoName string) (*Job, error) {
+	if !slices.Contains(j.Repositories, repoName) {
+		return nil, fmt.Errorf("job %q does not use repository %q", j.Name, repoName)
+	}
+	scoped := *j
+	scoped.Repositories = []string{repoName}
+	return &scoped, nil
 }

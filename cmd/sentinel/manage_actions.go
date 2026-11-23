@@ -12,7 +12,6 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
-	"sentinel/internal/engine"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
 
@@ -93,10 +92,12 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			if err != nil {
 				return nil, err
 			}
-			jobCopy := *job
-			jobCopy.Repositories = []string{repository}
+			scoped, err := job.OnlyRepo(repository)
+			if err != nil {
+				return nil, err
+			}
 			// The runner's job lock keeps this from overlapping the daemon or a CLI run.
-			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, &jobCopy), nil
+			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, scoped), nil
 		},
 		snapshots: func(ctx context.Context, jobName, repository string) ([]restic.Snapshot, error) {
 			job, client, err := jobAndRestic(jobName, repository)
@@ -113,25 +114,15 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			return snapshots, nil
 		},
 		restore: func(ctx context.Context, jobName, repository string, snapshot restic.Snapshot, target string) (string, error) {
-			job, client, err := jobAndRestic(jobName, repository)
+			job, err := cfg.FindJob(jobName)
 			if err != nil {
 				return "", err
 			}
-			// Look the snapshot up among the job's own, as `backup restore` does.
-			own, err := client.JobSnapshot(ctx, backup.JobTags(job), snapshot.ID)
+			_, loadHint, err := (&backup.Runner{Config: cfg}).Restore(ctx, job, repository, snapshot.ID, target)
 			if errors.Is(err, restic.ErrForeignSnapshot) {
 				return "", fmt.Errorf("snapshot %s is not a snapshot of job %q in %s", shortID(snapshot.ID), jobName, repository)
 			}
-			if err != nil {
-				return "", err
-			}
-			if err := client.Restore(ctx, own.ID, target); err != nil {
-				return "", err
-			}
-			if dbEngine, ok := engine.For(job.Type); ok {
-				return dbEngine.RestoreHint(job, target), nil
-			}
-			return "", nil
+			return loadHint, err
 		},
 	}
 }
