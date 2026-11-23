@@ -188,8 +188,9 @@ type loginLimiter struct {
 	window time.Duration
 	now    func() time.Time
 
-	mu       sync.Mutex
-	attempts map[string][]time.Time
+	mu        sync.Mutex
+	attempts  map[string][]time.Time
+	lastSweep time.Time
 	blocked  map[string]bool // keys already reported as blocked in this burst
 }
 
@@ -204,6 +205,7 @@ func (l *loginLimiter) allow(key string) (allowed, firstRefusal bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	l.sweep(now)
 	recent := l.attempts[key][:0]
 	for _, t := range l.attempts[key] {
 		if now.Sub(t) < l.window {
@@ -219,6 +221,21 @@ func (l *loginLimiter) allow(key string) (allowed, firstRefusal bool) {
 	delete(l.blocked, key)
 	l.attempts[key] = append(recent, now)
 	return true, false
+}
+
+// sweep forgets keys whose attempts have all expired, at most once per window,
+// so addresses that tried once and never came back do not accumulate.
+func (l *loginLimiter) sweep(now time.Time) {
+	if now.Sub(l.lastSweep) < l.window {
+		return
+	}
+	l.lastSweep = now
+	for key, times := range l.attempts {
+		if len(times) == 0 || now.Sub(times[len(times)-1]) >= l.window {
+			delete(l.attempts, key)
+			delete(l.blocked, key)
+		}
+	}
 }
 
 func (l *loginLimiter) reset(key string) {
