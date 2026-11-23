@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sync"
 	"time"
@@ -56,6 +57,11 @@ type Agent struct {
 	Checks        []string
 	RunningConfig int64
 	ConfigStatus  api.ConfigStatus
+	// BeszelSystem is the id of the linked Beszel system ("" = none, match by name).
+	BeszelSystem string
+	// BeszelOwned is set when Sentinel created that system, so removing the
+	// agent may remove it too.
+	BeszelOwned bool
 }
 
 // Online reports whether the agent has reported within offlineAfter.
@@ -80,7 +86,7 @@ var agentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
 // stored hashed, so this is the one chance to show it.
 func (s *Service) CreateAgent(ctx context.Context, name string) (Agent, string, error) {
 	if !agentName.MatchString(name) {
-		return Agent{}, "", fmt.Errorf("invalid name %q: use letters, digits, '.', '_' or '-'", name)
+		return Agent{}, "", Invalid("invalid name %q: use letters, digits, '.', '_' or '-'", name)
 	}
 	token := newToken()
 	res, err := s.db.ExecContext(ctx, `INSERT INTO agents (name, token_hash, created_at) VALUES (?, ?, ?)`,
@@ -134,14 +140,14 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Agent, error)
 }
 
 const agentCols = `id, name, created_at, last_seen, hostname, version, jobs_json, checks_json,
-	running_config, config_status_version, config_status_error`
+	running_config, config_status_version, config_status_error, beszel_system, beszel_owned`
 
 func scanAgent(row interface{ Scan(...any) error }) (Agent, error) {
 	var a Agent
 	var created, seen int64
 	var jobs, checks, statusErr string
 	err := row.Scan(&a.ID, &a.Name, &created, &seen, &a.Hostname, &a.Version, &jobs, &checks,
-		&a.RunningConfig, &a.ConfigStatus.Version, &statusErr)
+		&a.RunningConfig, &a.ConfigStatus.Version, &statusErr, &a.BeszelSystem, &a.BeszelOwned)
 	if err != nil {
 		return a, err
 	}
@@ -149,8 +155,14 @@ func scanAgent(row interface{ Scan(...any) error }) (Agent, error) {
 	if seen > 0 {
 		a.LastSeen = time.Unix(seen, 0)
 	}
-	json.Unmarshal([]byte(jobs), &a.Jobs)
-	json.Unmarshal([]byte(checks), &a.Checks)
+	// The columns were written by Ingest; a bad value means a damaged row, not a
+	// reason to fail the whole listing.
+	if err := json.Unmarshal([]byte(jobs), &a.Jobs); err != nil {
+		slog.Warn("agent has unreadable jobs", "agent", a.Name, "error", err)
+	}
+	if err := json.Unmarshal([]byte(checks), &a.Checks); err != nil {
+		slog.Warn("agent has unreadable checks", "agent", a.Name, "error", err)
+	}
 	a.ConfigStatus.Error = statusErr
 	a.ConfigStatus.Applied = a.ConfigStatus.Version > 0 && statusErr == ""
 	return a, nil
@@ -179,6 +191,19 @@ func (s *Service) ListAgents(ctx context.Context) ([]Agent, error) {
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// SetBeszelSystem links an agent to a Beszel system id ("" removes the link).
+// owned records that Sentinel created the system.
+func (s *Service) SetBeszelSystem(ctx context.Context, id int64, system string, owned bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET beszel_system = ?, beszel_owned = ? WHERE id = ?`, system, owned && system != "", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func isUniqueViolation(err error) bool {
