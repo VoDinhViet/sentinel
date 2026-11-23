@@ -40,6 +40,40 @@ func expandEnv(node *yaml.Node, missingVars map[string]bool) {
 	}
 }
 
+// MissingVars lists the ${VAR} references of a config document whose variable is not set.
+func MissingVars(raw []byte) ([]string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	missingVars := map[string]bool{}
+	expandEnv(&doc, missingVars)
+	return slices.Sorted(maps.Keys(missingVars)), nil
+}
+
+// wholeEnvRef matches a value that is exactly one ${VAR}.
+var wholeEnvRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// PasswordVars maps each repository name to the variable its password is, for the repositories
+// that write the password as one ${VAR}.
+func PasswordVars(raw []byte) (map[string]string, error) {
+	var doc struct {
+		Repositories map[string]struct {
+			Password string `yaml:"password"`
+		} `yaml:"repositories"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	vars := map[string]string{}
+	for name, repo := range doc.Repositories {
+		if match := wholeEnvRef.FindStringSubmatch(repo.Password); match != nil {
+			vars[name] = match[1]
+		}
+	}
+	return vars, nil
+}
+
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
