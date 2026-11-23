@@ -217,7 +217,7 @@ func TestHelpOpensFromTheJobsAndSnapshotsAndClosesOnAnyKey(t *testing.T) {
 	model, _ := m.onKey("?", "?")
 	m = model.(manageModel)
 	view := plain(m.render())
-	for _, want := range []string{"Keys", "back up the selected job now", "add a job", "click"} {
+	for _, want := range []string{"Phím", "backup job đang chọn", "thêm job", "click"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("help lacks %q:\n%s", want, view)
 		}
@@ -232,7 +232,7 @@ func TestHelpOpensFromTheJobsAndSnapshotsAndClosesOnAnyKey(t *testing.T) {
 	m2 = feed(t, model.(manageModel), messagesOf(cmd))
 	model, _ = m2.onKey("?", "?")
 	m2 = model.(manageModel)
-	if view := plain(m2.render()); !strings.Contains(view, "Snapshots") || !strings.Contains(view, "restore the selected snapshot") {
+	if view := plain(m2.render()); !strings.Contains(view, "Snapshots") || !strings.Contains(view, "restore snapshot đang chọn") {
 		t.Errorf("snapshot help:\n%s", view)
 	}
 	model, _ = m2.onKey("esc", "")
@@ -253,7 +253,7 @@ func TestHelpKeyIsTextInForms(t *testing.T) {
 }
 
 func TestFooterMentionsHelp(t *testing.T) {
-	if !strings.Contains(plain(loadedModel(t).render()), "? help") {
+	if !strings.Contains(plain(loadedModel(t).render()), "? trợ giúp") {
 		t.Error("the footer should point to the help")
 	}
 }

@@ -71,9 +71,9 @@ func (m manageModel) frame(lines []string) string {
 	if m.width <= 0 {
 		return strings.Join(lines, "\n")
 	}
-	updated := "loading…"
+	updated := "đang tải…"
 	if m.loaded {
-		updated = "updated " + m.report.GeneratedAt.Local().Format("15:04:05")
+		updated = "cập nhật " + m.report.GeneratedAt.Local().Format("15:04:05")
 	}
 	left := lipglossStyleAccent.Render("◆ ") + titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server)
 	right := dimStyle.Render(updated)
@@ -119,7 +119,7 @@ func (m manageModel) renderTabs() []string {
 	screenLines = append(screenLines, strings.Join(tabBar, m.tabGap()), rule)
 
 	if m.loadErr != nil {
-		screenLines = append(screenLines, severityStyle(sevBad).Render("could not read the store: "+m.loadErr.Error()), "")
+		screenLines = append(screenLines, severityStyle(sevBad).Render("không đọc được store: "+m.loadErr.Error()), "")
 	}
 
 	tab := tabs[m.tab]
@@ -140,14 +140,14 @@ func (m manageModel) renderTabs() []string {
 		}
 		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
-	footerKeys := []string{"tab", "switch", "↑↓", "select", "r", "refresh", "?", "help", "q", "quit"}
+	footerKeys := []string{"tab", "chuyển", "↑↓", "chọn", "r", "làm mới", "?", "trợ giúp", "q", "thoát"}
 	switch m.tab {
 	case doctorTab:
-		footerKeys = []string{"tab", "switch", "↑↓", "select", "r", "run checks", "?", "help", "q", "quit"}
+		footerKeys = []string{"tab", "chuyển", "↑↓", "chọn", "r", "chạy check", "?", "trợ giúp", "q", "thoát"}
 	case configTab:
-		footerKeys = []string{"a", "add", "e", "edit", "d", "remove", "tab", "switch", "?", "help", "q", "quit"}
+		footerKeys = []string{"a", "thêm", "e", "sửa", "d", "xoá", "tab", "chuyển", "?", "trợ giúp", "q", "thoát"}
 	case 0:
-		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit"}
+		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "thêm", "e", "sửa", "d", "xoá", "?", "trợ giúp", "q", "thoát"}
 	}
 	for m.hits.offset+len(screenLines)+2 < m.height { // the footer sits on the last line of the frame
 		screenLines = append(screenLines, "")
@@ -212,12 +212,12 @@ func (m manageModel) emptyText(tab int) string {
 	case doctorTab:
 		return m.doctorWaitText()
 	case configTab:
-		return "The config could not be read."
+		return "Không đọc được config."
 	}
 	return [...]string{
-		"No backups recorded yet. Run `sentinel backup run <job>` or start the daemon.",
-		"No uptime checks recorded yet.",
-		"No open alerts.",
+		"Chưa có backup nào. Chạy `sentinel backup run <job>` hoặc bật daemon.",
+		"Chưa có uptime check nào.",
+		"Không có alert nào đang mở.",
 	}[tab]
 }
 
@@ -313,7 +313,7 @@ func (m manageModel) renderTable(tab manageTab, visible, base int) []string {
 		screenLines = append(screenLines, "  "+severityStyle(line.severity).Render("●")+" "+joined(line, false))
 	}
 	if hidden := len(tab.lines) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("    … %d more", hidden)))
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("    … còn %d", hidden)))
 	}
 	return screenLines
 }
@@ -342,7 +342,7 @@ func (m manageModel) keyBar(screenRow int, pairs ...string) string {
 			action = "" // two keys: nothing to click
 		case "←":
 			action = "left"
-		case "any key":
+		case "any key", "phím bất kỳ":
 			action = "esc"
 		}
 		chips = append(chips, chip{pairs[i], pairs[i+1], action})
@@ -435,18 +435,18 @@ func (m manageModel) renderBusy() []string {
 	return []string{
 		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
 		"",
-		m.keyBar(2, "ctrl+c", "cancel"),
+		m.keyBar(2, "ctrl+c", "huỷ"),
 	}
 }
 
 func (m manageModel) renderSnapshots() []string {
-	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", m.snapshotJob, m.snapshotRepo)), ""}
+	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots của %s trong %s", m.snapshotJob, m.snapshotRepo)), ""}
 	if len(m.snapshots) == 0 {
-		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", m.keyBar(len(screenLines)+2, "esc", "back"))
+		return append(screenLines, dimStyle.Render("Chưa có snapshot nào của job này trong repository này."), "", m.keyBar(len(screenLines)+2, "esc", "quay lại"))
 	}
 	visible := max(m.height-8, 3)
 	first := firstVisible(m.snapshotCursor, visible)
-	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "TIME", "SIZE")))
+	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "THỜI GIAN", "KÍCH THƯỚC")))
 	for i := first; i < min(first+visible, len(m.snapshots)); i++ {
 		snapshot := m.snapshots[i]
 		size := ""
@@ -463,16 +463,16 @@ func (m manageModel) renderSnapshots() []string {
 		}
 	}
 	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … còn %d", hidden)))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "select", "enter", "restore…", "esc", "back"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "chọn", "enter", "restore…", "esc", "quay lại"))
 }
 
 func (m manageModel) renderTarget() []string {
 	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
+		titleStyle.Render(fmt.Sprintf("Restore %s của %s", shortID(m.chosen.ID), m.snapshotJob)),
 		"",
-		"Directory to restore into (absolute path):",
+		"Thư mục để restore vào (đường dẫn tuyệt đối):",
 		"  " + m.target + lipglossAccent("▏"),
 	}
 	if len(m.targetOptions) > 0 {
@@ -481,24 +481,24 @@ func (m manageModel) renderTarget() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "complete", "enter", "continue", "esc", "back"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "điền", "enter", "tiếp tục", "esc", "quay lại"))
 }
 
 func (m manageModel) renderConfirm() []string {
 	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
+		titleStyle.Render(fmt.Sprintf("Restore %s của %s", shortID(m.chosen.ID), m.snapshotJob)),
 		"",
-		wrap(fmt.Sprintf("Snapshot %s (%s) from %s will be restored into %s.",
+		wrap(fmt.Sprintf("Snapshot %s (%s) từ %s sẽ được restore vào %s.",
 			shortID(m.chosen.ID), m.chosen.Time.Local().Format("2006-01-02 15:04"), m.snapshotRepo, m.target), m.width-2),
 	}
 	if m.target == "/" {
-		screenLines = append(screenLines, "", severityStyle(sevWarn).Render("Target is / : files are restored in place and overwrite what is there."))
+		screenLines = append(screenLines, "", severityStyle(sevWarn).Render("Đích là / : file được restore tại chỗ và ghi đè dữ liệu hiện có."))
 	}
-	screenLines = append(screenLines, "", "Type the job name ("+m.snapshotJob+") to confirm:", "  "+m.confirm+lipglossAccent("▏"))
+	screenLines = append(screenLines, "", "Gõ tên job ("+m.snapshotJob+") để xác nhận:", "  "+m.confirm+lipglossAccent("▏"))
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "restore", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "restore", "esc", "huỷ"))
 }
 
 func (m manageModel) renderResult() []string {
@@ -511,7 +511,7 @@ func (m manageModel) renderResult() []string {
 	if rest != "" {
 		screenLines = append(screenLines, rest)
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "continue"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "phím bất kỳ", "tiếp tục"))
 }
 
 func lipglossAccent(text string) string {

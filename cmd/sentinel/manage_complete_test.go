@@ -62,7 +62,7 @@ func TestCompletePathCapsTheOptions(t *testing.T) {
 		}
 	}
 	completed, options := completePath(root + "/i")
-	if completed != root+"/item" || len(options) != maxOptions+1 || options[maxOptions] != "+5 more" {
+	if completed != root+"/item" || len(options) != maxOptions+1 || options[maxOptions] != "+5 nữa" {
 		t.Errorf("completed %q, options %v", completed, options)
 	}
 }

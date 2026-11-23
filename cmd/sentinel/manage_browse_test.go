@@ -85,7 +85,7 @@ func TestBrowserStartsBesideTheLastPathAndListsOnlyFolders(t *testing.T) {
 		t.Error("the size of the selected folder is counted in the background")
 	}
 	view := plain(screen.render())
-	for _, want := range []string{"Choose folders to back up", "0 chosen", "Search:", "› [ ] www/", "alpha/"} {
+	for _, want := range []string{"Chọn thư mục để backup", "đã chọn 0", "Tìm:", "› [ ] www/", "alpha/"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
@@ -193,7 +193,7 @@ func TestBrowserFilterNarrowsTheListAndSearchesDeeper(t *testing.T) {
 		t.Errorf("rows = %v", got)
 	}
 	view := plain(screen.render())
-	for _, want := range []string{"Search: upl", "also found deeper:", "beta/deep/uploads/"} {
+	for _, want := range []string{"Tìm: upl", "còn thấy ở sâu hơn:", "beta/deep/uploads/"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
@@ -203,7 +203,7 @@ func TestBrowserFilterNarrowsTheListAndSearchesDeeper(t *testing.T) {
 		t.Errorf("a deeper match opens straight into the folder: %q", screen.browse.dir)
 	}
 	screen = typeFilter(t, keys(t, screen, "left", "left", "left"), "zzz")
-	if view := plain(screen.render()); !strings.Contains(view, `no folder matches "zzz"`) {
+	if view := plain(screen.render()); !strings.Contains(view, `không có thư mục nào khớp "zzz"`) {
 		t.Errorf("nothing matched and the screen does not say so:\n%s", view)
 	}
 }
@@ -257,7 +257,7 @@ func TestBrowserMarksAcrossFoldersAndCtrlSJoinsThemWithoutRepeats(t *testing.T) 
 	if got := screen.browse.marks; !slices.Equal(got, []string{filepath.Join(root, "alpha"), filepath.Join(root, "beta/nginx-sites")}) {
 		t.Fatalf("marks = %v", got)
 	}
-	if view := plain(screen.render()); !strings.Contains(view, "2 chosen") || !strings.Contains(view, "[✓] nginx-sites/") {
+	if view := plain(screen.render()); !strings.Contains(view, "đã chọn 2") || !strings.Contains(view, "[✓] nginx-sites/") {
 		t.Errorf("marks are not shown:\n%s", view)
 	}
 	screen = keys(t, screen, "space")
@@ -306,7 +306,7 @@ func TestBrowserDoesNotEnterOrMarkAFolderItCannotList(t *testing.T) {
 	}
 	root := browseTree(t)
 	screen, _ := openBrowser(t, filepath.Join(root, "locked"))
-	if view := plain(screen.render()); !strings.Contains(view, "✗ no access") {
+	if view := plain(screen.render()); !strings.Contains(view, "✗ không có quyền") {
 		t.Errorf("a folder that cannot be listed says so:\n%s", view)
 	}
 	screen = keys(t, screen, "enter", "space")

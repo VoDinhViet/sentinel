@@ -9,33 +9,33 @@ type keyHelp struct{ key, does string }
 func (m manageModel) helpFor() (title string, keys []keyHelp) {
 	if m.helpReturn == modeSnapshots {
 		return "Snapshots", []keyHelp{
-			{"↑ ↓  j k", "select a snapshot"},
-			{"enter  r", "restore the selected snapshot (asks for a directory, then the job name)"},
-			{"click", "select a snapshot; click it again to restore"},
-			{"wheel", "scroll"},
-			{"esc  q", "back to the jobs"},
+			{"↑ ↓  j k", "chọn một snapshot"},
+			{"enter  r", "restore snapshot đang chọn (hỏi thư mục đích, rồi tên job)"},
+			{"click", "chọn một snapshot; bấm lần nữa để restore"},
+			{"wheel", "cuộn"},
+			{"esc  q", "quay lại danh sách job"},
 		}
 	}
 	common := []keyHelp{
-		{"tab  1 2 3 4", "switch between Backups, Uptime, Alerts and Doctor"},
-		{"↑ ↓  j k", "select a line"},
-		{"g  G", "first and last line"},
-		{"r", "refresh now (the screen also refreshes every 5 seconds)"},
-		{"click  wheel", "click a tab or a line; scroll with the wheel"},
-		{"q  esc", "quit"},
+		{"tab  1-5", "chuyển giữa Backups, Uptime, Alerts, Doctor và Config"},
+		{"↑ ↓  j k", "chọn một dòng"},
+		{"g  G", "dòng đầu và dòng cuối"},
+		{"r", "làm mới ngay (màn hình cũng tự làm mới mỗi 5 giây)"},
+		{"click  wheel", "bấm vào tab hoặc dòng; cuộn bằng wheel"},
+		{"q  esc", "thoát"},
 	}
 	if m.tab == doctorTab {
-		return "Keys", append([]keyHelp{{"r", "run the checks again"}}, common[:1]...)
+		return "Phím", append([]keyHelp{{"r", "chạy lại các check"}}, common[:1]...)
 	}
 	if m.tab != 0 {
-		return "Keys", common
+		return "Phím", common
 	}
-	return "Keys", append([]keyHelp{
-		{"b", "back up the selected job now (ctrl+c cancels it)"},
-		{"s  enter", "list the job's snapshots, then restore one"},
-		{"a", "add a job (files, postgres, mysql, mongodb) to the config"},
-		{"e", "edit the selected job"},
-		{"d", "remove the selected job from the config"},
+	return "Phím", append([]keyHelp{
+		{"b", "backup job đang chọn ngay (ctrl+c để huỷ)"},
+		{"s  enter", "liệt kê snapshot của job, rồi restore một cái"},
+		{"a", "thêm job (files, postgres, mysql, mongodb) vào config"},
+		{"e", "sửa job đang chọn"},
+		{"d", "xoá job đang chọn khỏi config"},
 	}, common...)
 }
 
@@ -45,5 +45,5 @@ func (m manageModel) renderHelp() []string {
 	for _, help := range keys {
 		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", help.key)), wrap(help.does, max(m.width-18, 20))))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "close"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "phím bất kỳ", "đóng"))
 }

@@ -116,7 +116,7 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			}
 			_, loadHint, err := (&backup.Runner{Config: cfg}).Restore(ctx, job, repository, snapshot.ID, target)
 			if errors.Is(err, restic.ErrForeignSnapshot) {
-				return "", fmt.Errorf("snapshot %s is not a snapshot of job %q in %s", shortID(snapshot.ID), jobName, repository)
+				return "", fmt.Errorf("snapshot %s không phải là snapshot của job %q trong %s", shortID(snapshot.ID), jobName, repository)
 			}
 			return loadHint, err
 		},
