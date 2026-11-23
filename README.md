@@ -66,7 +66,7 @@ sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                      # chạy mọi uptime check một lần
 sentinel status                     # backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json             # như trên, dạng JSON cho script
-sentinel manage                     # màn hình quản lý tương tác trên terminal (alias: tui): tab/1-3 đổi mục, ↑↓ chọn, b backup ngay, s snapshot + restore, r làm mới, q thoát
+sentinel manage                     # màn hình quản lý tương tác (alias: tui): xem trạng thái, b backup ngay, s snapshot + restore, a/e/d thêm-sửa-xóa job database trong config.yaml, r làm mới, q thoát
 
 sudo systemctl enable --now sentinel
 journalctl -u sentinel -f
@@ -87,6 +87,12 @@ pg_restore --clean --if-exists -d app /tmp/restore/app.dump
 - MongoDB lưu file `<database>.archive.gz` (`mongodump --archive --gzip`). Nạp lại: `mongorestore --drop --gzip --archive=/tmp/restore/<database>.archive.gz --nsInclude '<database>.*'`.
 
 Sau mỗi lần `sentinel backup restore`, lệnh nạp lại tương ứng được in ra. Mật khẩu của MySQL và MongoDB không bao giờ nằm trên dòng lệnh: Sentinel ghi một file tạm quyền 0600 (`--defaults-extra-file` / `--config`) rồi xóa ngay sau khi dump xong. Client MariaDB ≥ 11.4 mặc định đòi TLS; nếu server không có TLS, đặt `tls: disabled` trong khối `mysql:`.
+
+### Màn hình quản lý (`sentinel manage`)
+
+Chạy trong terminal, ba tab: **Backups**, **Uptime**, **Alerts**. Trên tab Backups: `b` backup ngay job đang chọn (khóa job vẫn có hiệu lực nên không chạy chồng với daemon), `s` xem snapshot của job rồi restore (nhập thư mục đích tuyệt đối và gõ lại tên job để xác nhận), `ctrl+c` hủy tác vụ đang chạy.
+
+`a` thêm, `e` sửa, `d` xóa job **database** (`postgres`, `mysql`, `mongodb`) ngay trong `config.yaml`: giữ nguyên comment, thứ tự và các khóa không quản lý; bản cũ được lưu ở `config.yaml.bak` cùng quyền truy cập. **Mật khẩu không bao giờ nhập vào màn hình này**: chỉ nhập *tên* biến môi trường (ví dụ `PG_APPDB_PASSWORD`), config ghi `${PG_APPDB_PASSWORD}` và giá trị thật nằm trong `/etc/sentinel/sentinel.env`. Job `files` chỉ sửa bằng tay trong file config. Sau khi sửa, daemon đang chạy phải được khởi động lại (`systemctl restart sentinel`) để nhận job mới.
 
 ## Chạy bằng Docker
 

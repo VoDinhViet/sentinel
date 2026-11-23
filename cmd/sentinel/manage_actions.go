@@ -9,6 +9,7 @@ import (
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
+	"sentinel/internal/configedit"
 	"sentinel/internal/engine"
 	"sentinel/internal/store"
 )
@@ -35,9 +36,13 @@ type manageActions struct {
 	snapshots func(ctx context.Context, job, repository string) ([]backup.Snapshot, error)
 	// restore returns the command that loads a restored database dump, or "".
 	restore func(ctx context.Context, job, repository string, snapshot backup.Snapshot, target string) (string, error)
+	// The config file: read the jobs, save a database job, remove one.
+	listJobs  func() (configedit.Listing, error)
+	saveJob   func(original string, job configedit.Job) error
+	deleteJob func(name string) error
 }
 
-func newManageActions(cfg *config.Config, st *store.Store) manageActions {
+func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
 	jobAndRestic := func(jobName, repository string) (*config.Backup, *backup.Restic, error) {
 		job, err := cfg.FindBackup(jobName)
 		if err != nil {
@@ -47,6 +52,9 @@ func newManageActions(cfg *config.Config, st *store.Store) manageActions {
 		return job, restic, err
 	}
 	return manageActions{
+		listJobs:  func() (configedit.Listing, error) { return configedit.List(configPath) },
+		saveJob:   func(original string, job configedit.Job) error { return configedit.Save(configPath, original, job) },
+		deleteJob: func(name string) error { return configedit.Delete(configPath, name) },
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
 			job, err := cfg.FindBackup(jobName)
 			if err != nil {

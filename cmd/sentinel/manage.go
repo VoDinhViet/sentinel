@@ -41,7 +41,7 @@ func (a *app) manageCmd() *cobra.Command {
 			defer st.Close()
 			ctx := cmd.Context()
 			load := func() (statusReport, error) { return buildStatusReport(ctx, cfg, st, time.Now()) }
-			model := newManager(ctx, load, newManageActions(cfg, st), configuredPairs(cfg))
+			model := newManager(ctx, load, newManageActions(cfg, st, a.configPath), configuredPairs(cfg))
 			_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
 			return err
 		},
@@ -84,6 +84,8 @@ const (
 	modeConfirm                     // typing the job name to confirm a restore
 	modeBusy                        // a backup, snapshot listing or restore is running
 	modeResult                      // the outcome of a restore
+	modeForm                        // adding or editing a database job
+	modeDelete                      // typing the job name to confirm its removal
 )
 
 type manager struct {
@@ -120,6 +122,9 @@ type manager struct {
 
 	resultText string
 	resultBad  bool
+
+	form       jobForm
+	deleteName string
 }
 
 type (
@@ -233,6 +238,10 @@ func (d manager) onKey(key, text string) (tea.Model, tea.Cmd) {
 		return d.onTargetKey(key, text)
 	case modeConfirm:
 		return d.onConfirmKey(key, text)
+	case modeForm:
+		return d.onFormKey(key, text)
+	case modeDelete:
+		return d.onDeleteKey(key, text)
 	}
 	return d.onTableKey(key)
 }
@@ -268,6 +277,18 @@ func (d manager) onTableKey(key string) (tea.Model, tea.Cmd) {
 				runs, err := act.runBackup(ctx, job, repository)
 				return backupDoneMsg{job: job, repository: repository, runs: runs, err: err}
 			})
+		}
+	case "a":
+		if d.tab == 0 {
+			return d.startAdd(), nil
+		}
+	case "e":
+		if d.tab == 0 {
+			return d.startEdit(), nil
+		}
+	case "d":
+		if d.tab == 0 {
+			return d.startDelete(), nil
 		}
 	case "s", "enter":
 		if line, ok := d.selectedBackup(); ok {
@@ -515,6 +536,10 @@ func (d manager) render() string {
 		out = append(out, d.renderConfirm()...)
 	case modeResult:
 		out = append(out, d.renderResult()...)
+	case modeForm:
+		out = append(out, d.renderForm()...)
+	case modeDelete:
+		out = append(out, d.renderDelete()...)
 	default:
 		out = append(out, d.renderTabs()...)
 	}
@@ -574,7 +599,10 @@ func (d manager) renderTabs() []string {
 	}
 	help := "tab switch · ↑↓ select · r refresh · q quit"
 	if d.tab == 0 {
-		help = "b backup now · s snapshots · tab · r · q"
+		help = "b backup · s snapshots · a add db · e edit · d remove · q"
+		if d.width < 60 {
+			help = "b s a e d · q"
+		}
 	}
 	return append(out, "", dimStyle.Render(help))
 }
