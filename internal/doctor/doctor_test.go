@@ -29,7 +29,7 @@ func TestRunReportsProblemsWithHints(t *testing.T) {
 	}
 	notifiers := byName["notifiers"]
 	if notifiers.Err == nil || !notifiers.Warn || !strings.Contains(notifiers.Hint, "notifiers:") {
-		t.Errorf("notifiers = %+v (a missing channel is a warning with a hint)", notifiers)
+		t.Errorf("notifiers = %+v (a missing notifier is a warning with a hint)", notifiers)
 	}
 	repo := byName["repository local"]
 	if repo.Err == nil || repo.Hint == "" {

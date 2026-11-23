@@ -10,7 +10,7 @@ import (
 	"sentinel/internal/configedit"
 )
 
-// The forms of the Config tab: repository, uptime check, notifier channel and settings. They use
+// The forms of the Config tab: repository, uptime check, notifier notifier and settings. They use
 // the same form engine as the job form; what differs is how the fields turn into an entry.
 
 var repositoryKinds = []string{"local", "s3", "rclone", "sftp", "custom"}
@@ -199,14 +199,14 @@ func (f form) uptime() configedit.Uptime {
 }
 
 func newNotifierForm(notifier configedit.Notifier, original string) form {
-	title := "Add a notification channel"
+	title := "Add a notifier"
 	if original != "" {
 		title = "Edit " + original
 	}
 	if notifier.Kind == "" {
 		notifier.Kind = configedit.NotifierKinds[0]
 	}
-	fields := []formField{{key: "kind", label: "Channel", hint: "← → to choose", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
+	fields := []formField{{key: "kind", label: "Notifier", hint: "← → to choose", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
 	for _, kind := range configedit.NotifierKinds {
 		for _, spec := range configedit.NotifierFields(kind) {
 			field := formField{key: kind + "." + spec.Key, label: spec.Label, hint: notifierHint(spec), value: notifier.Values[spec.Key], onField: "kind", only: []string{kind}}
@@ -363,7 +363,7 @@ func (f form) repositoryProblems(repo configedit.Repository) []error {
 	return problems
 }
 
-// prefixNotifierField maps a problem of a channel field ("token") to the form's key ("telegram.token").
+// prefixNotifierField maps a problem of a notifier field ("token") to the form's key ("telegram.token").
 func (f form) prefixNotifierField(err error) error {
 	var invalid *configedit.InvalidError
 	if errors.As(err, &invalid) && invalid.Field != "" && invalid.Field != "kind" {

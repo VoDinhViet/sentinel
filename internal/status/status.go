@@ -14,7 +14,7 @@ type Report struct {
 	Server      string    `json:"server"`
 	GeneratedAt time.Time `json:"generated_at"`
 	Alerts      []Alert   `json:"alerts"`
-	Jobs        []Job     `json:"backups"`
+	Jobs        []Job     `json:"jobs"`
 	Checks      []Check   `json:"checks"`
 }
 

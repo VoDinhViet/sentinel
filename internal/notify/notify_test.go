@@ -114,7 +114,7 @@ func TestMultiRetriesAndIsolatesFailures(t *testing.T) {
 
 	err := m.Send(context.Background(), msg)
 	if err == nil || !strings.Contains(err.Error(), "dead") || strings.Contains(err.Error(), "flaky") {
-		t.Fatalf("err = %v; want only the dead channel reported", err)
+		t.Fatalf("err = %v; want only the dead notifier reported", err)
 	}
 	if flaky.calls.Load() != 2 || dead.calls.Load() != 3 || ok.calls.Load() != 1 {
 		t.Errorf("calls flaky=%d dead=%d ok=%d", flaky.calls.Load(), dead.calls.Load(), ok.calls.Load())

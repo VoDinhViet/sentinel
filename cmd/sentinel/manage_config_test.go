@@ -202,7 +202,7 @@ func TestNotifierFormAsksForVariableNamesAndKeepsLiteralSecrets(t *testing.T) {
 	screen = goTo(t, screen, secNotifier, "telegram")
 	screen = keys(t, screen, "a") // the first kind that is not configured yet
 	if screen.form.field("kind").value != "smtp" {
-		t.Fatalf("new channel kind = %q, want the first unconfigured one", screen.form.field("kind").value)
+		t.Fatalf("new notifier kind = %q, want the first unconfigured one", screen.form.field("kind").value)
 	}
 	view := plain(screen.render())
 	if !strings.Contains(view, "Password var") || strings.Contains(view, "Bot token") {
@@ -212,7 +212,7 @@ func TestNotifierFormAsksForVariableNamesAndKeepsLiteralSecrets(t *testing.T) {
 	screen.form.field("smtp.pass").value = "SMTP_PASS"
 	screen = keys(t, screen, "ctrl+s")
 	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "✗ to is required") {
-		t.Errorf("a channel without recipients stays open (mode %d):\n%s", screen.mode, plain(screen.render()))
+		t.Errorf("a notifier without recipients stays open (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen.form.field("smtp.to").value = "ops@example.com, dev@example.com"
 	screen = keys(t, screen, "ctrl+s")

@@ -11,7 +11,7 @@ import (
 )
 
 // configTab is the index of the Config tab: the repositories, jobs, uptime checks, notification
-// channels and settings of the config file, each editable in place.
+// notifiers and settings of the config file, each editable in place.
 const configTab = 4
 
 type configSection int
@@ -142,7 +142,7 @@ func (m manageModel) buildConfigTab() manageTab {
 				level = sevWarn // a secret written in the file
 			}
 		}
-		add(configEntry{secNotifier, notifier.Kind}, level, "alerts go here", strings.Join(parts, " · "), "Notification channel "+notifier.Kind+": "+strings.Join(parts, " · "))
+		add(configEntry{secNotifier, notifier.Kind}, level, "alerts go here", strings.Join(parts, " · "), "Notifier "+notifier.Kind+": "+strings.Join(parts, " · "))
 	}
 	settings := overview.Settings
 	defaults := "no defaults"
@@ -194,7 +194,7 @@ func (m manageModel) configAdd() manageModel {
 			}
 		}
 		if next.Kind == "" {
-			m.notice, m.noticeBad = "Every kind of channel is configured already: edit one instead.", true
+			m.notice, m.noticeBad = "Every notifier is configured already: edit one instead.", true
 			return m
 		}
 		return m.openEntryForm(newNotifierForm(next, ""))
@@ -259,7 +259,7 @@ func (m manageModel) configRemove() manageModel {
 	case secUptime:
 		return m.confirmRemoval("uptime check", entry.name, "Its recorded history ages out of the store by itself.", func() error { return actions.deleteUptime(entry.name) })
 	case secNotifier:
-		return m.confirmRemoval("notification channel", entry.name, "Alerts stop going there.", func() error { return actions.deleteNotifier(entry.name) })
+		return m.confirmRemoval("notifier", entry.name, "Alerts stop going there.", func() error { return actions.deleteNotifier(entry.name) })
 	}
 	m.notice, m.noticeBad = "The settings cannot be removed: press e to change them.", false
 	return m

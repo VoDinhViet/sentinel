@@ -16,7 +16,7 @@ import (
 )
 
 // The functions here edit the parts of the config that are not backup jobs: repositories,
-// uptime checks, notifier channels and the general settings. They read and write the YAML
+// uptime checks, notifier notifiers and the general settings. They read and write the YAML
 // nodes, so comments and keys they do not manage stay, and what is not in the file is not
 // written (a default stays a default). Secrets are only ever environment variable names.
 
@@ -45,7 +45,7 @@ type Uptime struct {
 	CertExpiryDays, FailAfter string
 }
 
-// Notifier is one channel of notifiers:. Values holds each field of NotifierFields(Kind); a
+// Notifier is one notifier of notifiers:. Values holds each field of NotifierFields(Kind); a
 // secret field holds the name of the environment variable, never the secret.
 type Notifier struct {
 	Kind    string
@@ -53,7 +53,7 @@ type Notifier struct {
 	Literal map[string]bool // secret fields that hold a literal value in the file (kept unless replaced)
 }
 
-// NotifierField describes one field of a channel.
+// NotifierField describes one field of a notifier.
 type NotifierField struct {
 	Key, Label string
 	Secret     bool // the form asks for an environment variable name
@@ -62,10 +62,10 @@ type NotifierField struct {
 	List       bool // comma separated
 }
 
-// NotifierKinds are the channels, in the order they are shown.
+// NotifierKinds are the notifiers, in the order they are shown.
 var NotifierKinds = []string{"telegram", "smtp", "discord", "slack"}
 
-// NotifierFields are the fields of a channel kind.
+// NotifierFields are the fields of a notifier kind.
 func NotifierFields(kind string) []NotifierField {
 	switch kind {
 	case "telegram":
@@ -143,7 +143,7 @@ func retentionOf(mapping *yaml.Node) config.Retention {
 	return config.Retention{Last: number("last"), Daily: number("daily"), Weekly: number("weekly"), Monthly: number("monthly"), Yearly: number("yearly")}
 }
 
-// Read returns the repositories, uptime checks, notifier channels and settings of the file.
+// Read returns the repositories, uptime checks, notifier notifiers and settings of the file.
 func Read(path string) (Overview, error) {
 	var overview Overview
 	err := readConfig(path, func(root *yaml.Node, current *config.Config) error {
@@ -497,13 +497,13 @@ func DeleteUptime(path, name string) error {
 	})
 }
 
-// ---- notifier channels
+// ---- notifier notifiers
 
-// ValidateNotifier checks a channel's fields; the error names the field at fault.
+// ValidateNotifier checks a notifier's fields; the error names the field at fault.
 func ValidateNotifier(notifier Notifier) error {
 	fields := NotifierFields(notifier.Kind)
 	if fields == nil {
-		return fieldError("kind", "channel must be one of %s", strings.Join(NotifierKinds, ", "))
+		return fieldError("kind", "notifier must be one of %s", strings.Join(NotifierKinds, ", "))
 	}
 	for _, field := range fields {
 		value := strings.TrimSpace(notifier.Values[field.Key])
@@ -523,18 +523,18 @@ func ValidateNotifier(notifier Notifier) error {
 	return nil
 }
 
-// SaveNotifier adds the channel or replaces its settings.
+// SaveNotifier adds the notifier or replaces its settings.
 func SaveNotifier(path string, notifier Notifier) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
 		if err := ValidateNotifier(notifier); err != nil {
 			return err
 		}
 		fields := NotifierFields(notifier.Kind)
-		channels := ensureMapping(root, "notifiers", 0)
-		notifierNode := mapGet(channels, notifier.Kind)
+		notifiersNode := ensureMapping(root, "notifiers", 0)
+		notifierNode := mapGet(notifiersNode, notifier.Kind)
 		if notifierNode == nil || notifierNode.Kind != yaml.MappingNode {
 			notifierNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			mapSet(channels, notifier.Kind, notifierNode)
+			mapSet(notifiersNode, notifier.Kind, notifierNode)
 		}
 		for _, field := range fields {
 			value := strings.TrimSpace(notifier.Values[field.Key])
@@ -569,15 +569,15 @@ func SaveNotifier(path string, notifier Notifier) error {
 	})
 }
 
-// DeleteNotifier removes a channel.
+// DeleteNotifier removes a notifier.
 func DeleteNotifier(path, kind string) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
-		channels := mapGet(root, "notifiers")
-		if channels == nil || mapGet(channels, kind) == nil {
+		notifiersNode := mapGet(root, "notifiers")
+		if notifiersNode == nil || mapGet(notifiersNode, kind) == nil {
 			return fmt.Errorf("notifier %q: %w", kind, ErrNotFound)
 		}
-		mapDelete(channels, kind)
-		if len(channels.Content) == 0 {
+		mapDelete(notifiersNode, kind)
+		if len(notifiersNode.Content) == 0 {
 			mapDelete(root, "notifiers")
 		}
 		return nil

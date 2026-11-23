@@ -28,7 +28,7 @@ func (a *app) checkCmd() *cobra.Command {
 			results := uptime.ProbeAll(cmd.Context(), cfg.UptimeChecks)
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tTARGET\tSTATUS\tLATENCY\tDETAIL")
+			fmt.Fprintln(w, "NAME\tENDPOINT\tSTATUS\tLATENCY\tDETAIL")
 			failed := 0
 			for i, c := range cfg.UptimeChecks {
 				r := results[i]

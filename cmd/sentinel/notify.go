@@ -11,10 +11,10 @@ import (
 )
 
 func (a *app) notifyCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "notify", Short: "Notification channels"}
+	cmd := &cobra.Command{Use: "notify", Short: "Notifiers"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "test",
-		Short: "Send a test message to every configured channel",
+		Short: "Send a test message to every configured notifier",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := a.loadConfig()
@@ -40,7 +40,7 @@ func (a *app) notifyCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "%-10s %s\n", notifier.Name(), status)
 			}
 			if err := errors.Join(errs...); err != nil {
-				return errors.New("some channels failed")
+				return errors.New("some notifiers failed")
 			}
 			return nil
 		},

@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -45,5 +46,24 @@ func TestReportCarriesTheRecentOutcomesOfEachJob(t *testing.T) {
 	}
 	if !slices.Equal(got["appdb"], []string{"ok", "warning", "failed"}) || !slices.Equal(got["files"], []string{"ok"}) {
 		t.Errorf("recent = %v", got)
+	}
+}
+
+func TestReportJSONKeys(t *testing.T) {
+	encoded, err := json.Marshal(Report{Jobs: []Job{{Job: "db"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &keys); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"server", "generated_at", "alerts", "jobs", "checks"} {
+		if _, ok := keys[want]; !ok {
+			t.Errorf("JSON lacks the %q key: %s", want, encoded)
+		}
+	}
+	if _, old := keys["backups"]; old {
+		t.Errorf("the old %q key is still there: %s", "backups", encoded)
 	}
 }

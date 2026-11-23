@@ -75,7 +75,7 @@ const (
 )
 
 // form edits one entry of the config: a job (a database dump or a set of files), a
-// repository, an uptime check, a notifier channel or the general settings. original is the job's name when editing, "" when adding.
+// repository, an uptime check, a notifier notifier or the general settings. original is the job's name when editing, "" when adding.
 type form struct {
 	kind         formKind
 	title        string

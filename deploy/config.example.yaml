@@ -9,7 +9,7 @@ alert:
   cooldown: 1h                           # re-send a still-open alert this often
   notify_success: false                  # also message after each successful backup
 
-notifiers:                               # remove the channels you don't use
+notifiers:                               # remove the notifiers you don't use
   telegram:
     token: "${TG_TOKEN}"                 # from @BotFather
     chat_id: "-1001234567890"
