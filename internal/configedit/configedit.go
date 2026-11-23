@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,7 +30,11 @@ var (
 )
 
 // InvalidError is a problem with what the user entered; its message is meant to be shown.
-type InvalidError struct{ Message string }
+// Field names the input the problem is about ("" when it is about the whole job).
+type InvalidError struct {
+	Message string
+	Field   string
+}
 
 func (e *InvalidError) Error() string { return e.Message }
 
@@ -59,6 +64,10 @@ type Job struct {
 	Retention       config.Retention
 	TLS             string // mysql: "", "disabled" or "required"
 	AuthDatabase    string // mongodb
+
+	// Inherited says which of Schedule, Repositories and Retention are not in the job's own
+	// entry: they are left empty here and the config's defaults apply.
+	Inherited config.Inherited
 }
 
 // Editable reports whether the job is a database job this package can change.
@@ -68,6 +77,17 @@ func (j Job) Editable() bool { return slices.Contains(DatabaseTypes, j.Type) }
 type Listing struct {
 	Jobs         []Job
 	Repositories []string
+	// Defaults is the config's defaults block; InheritedRepositories are the repositories a
+	// job without its own list uses (defaults.repositories, or the only repository).
+	Defaults              config.Defaults
+	InheritedRepositories []string
+}
+
+// Known is what Validate checks a job against.
+type Known struct {
+	Repositories []string
+	// InheritsRepositories is true when a job without repositories gets some from the config.
+	InheritsRepositories bool
 }
 
 var (
@@ -98,19 +118,40 @@ func List(path string) (Listing, error) {
 	if err != nil {
 		return Listing{}, err
 	}
-	listing := Listing{Jobs: []Job{}, Repositories: []string{}}
+	listing := Listing{Jobs: []Job{}, Repositories: []string{}, Defaults: cfg.Defaults}
 	for name := range cfg.Repositories {
 		listing.Repositories = append(listing.Repositories, name)
 	}
 	sort.Strings(listing.Repositories)
+	listing.InheritedRepositories = inheritedRepositories(cfg)
 	for _, backup := range cfg.Backups {
 		listing.Jobs = append(listing.Jobs, jobFromConfig(backup))
 	}
 	return listing, nil
 }
 
+// inheritedRepositories are the repositories a job without its own list gets.
+func inheritedRepositories(cfg *config.Config) []string {
+	switch {
+	case len(cfg.Defaults.Repositories) > 0:
+		return slices.Clone(cfg.Defaults.Repositories)
+	case len(cfg.Repositories) == 1:
+		return slices.Collect(maps.Keys(cfg.Repositories))
+	}
+	return nil
+}
+
 func jobFromConfig(backup config.Backup) Job {
-	job := Job{Name: backup.Name, Type: backup.Type, Schedule: backup.Schedule, Repositories: backup.Repositories, Retention: backup.Retention}
+	job := Job{Name: backup.Name, Type: backup.Type, Schedule: backup.Schedule, Repositories: backup.Repositories, Retention: backup.Retention, Inherited: backup.Inherited}
+	if backup.Inherited.Schedule {
+		job.Schedule = ""
+	}
+	if backup.Inherited.Repositories {
+		job.Repositories = nil
+	}
+	if backup.Inherited.Retention {
+		job.Retention = config.Retention{}
+	}
 	var password string
 	switch {
 	case backup.Postgres != nil:
@@ -131,37 +172,50 @@ func jobFromConfig(backup config.Backup) Job {
 	return job
 }
 
-// Validate checks a job against the repositories the config defines and fills in defaults.
-func Validate(job *Job, repositories []string) error {
+// Validate checks a job against what the config defines and fills in defaults. It returns
+// the first problem; Problems returns all of them.
+func Validate(job *Job, known Known) error {
+	if problems := Problems(job, known); len(problems) > 0 {
+		return problems[0]
+	}
+	return nil
+}
+
+// Problems lists everything wrong with the job, at most one problem per field, in field order.
+func Problems(job *Job, known Known) []*InvalidError {
+	var problems []*InvalidError
+	add := func(field, format string, args ...any) {
+		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
+	}
 	if !slices.Contains(DatabaseTypes, job.Type) {
-		return invalid("type must be one of %v", DatabaseTypes)
+		add("type", "type must be one of %v", DatabaseTypes)
 	}
 	if !jobName.MatchString(job.Name) {
-		return invalid("invalid job name %q: use letters, digits, '.', '_' or '-'", job.Name)
+		add("name", "invalid job name %q: use letters, digits, '.', '_' or '-'", job.Name)
 	}
 	if !identifier.MatchString(job.Database) {
-		return invalid("database name is required")
+		add("database", "database name is required")
 	}
 	if job.User != "" && !identifier.MatchString(job.User) {
-		return invalid("invalid user")
+		add("user", "invalid user")
 	}
 	if job.Host == "" {
 		job.Host = "localhost"
 	}
 	if !hostName.MatchString(job.Host) {
-		return invalid("invalid host %q", job.Host)
+		add("host", "invalid host %q", job.Host)
 	}
 	if job.Port == 0 {
 		job.Port = defaultPort(job.Type)
 	}
 	if job.Port < 1 || job.Port > 65535 {
-		return invalid("port must be between 1 and 65535")
+		add("port", "port must be between 1 and 65535")
 	}
 	if job.PasswordEnv != "" && !envName.MatchString(job.PasswordEnv) {
-		return invalid("invalid environment variable name %q (the password itself is never entered here)", job.PasswordEnv)
+		add("password_env", "invalid environment variable name %q (the password itself is never entered here)", job.PasswordEnv)
 	}
 	if job.Type == config.BackupMySQL && job.TLS != "" && job.TLS != "disabled" && job.TLS != "required" {
-		return invalid("tls must be empty, disabled or required")
+		add("tls", "tls must be empty, disabled or required")
 	}
 	if job.Type != config.BackupMySQL {
 		job.TLS = ""
@@ -169,38 +223,46 @@ func Validate(job *Job, repositories []string) error {
 	if job.Type != config.BackupMongoDB {
 		job.AuthDatabase = ""
 	}
+	return append(problems, commonProblems(job, known)...)
+}
+
+// commonProblems checks what every job type shares: schedule, repositories and retention.
+func commonProblems(job *Job, known Known) []*InvalidError {
+	var problems []*InvalidError
+	add := func(field, format string, args ...any) {
+		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
+	}
 	if !schedule.IsManual(job.Schedule) {
 		if _, err := schedule.Parse(job.Schedule); err != nil {
-			return invalid("invalid schedule: %v (try \"daily 02:00\", \"weekly sun 03:00\" or a cron expression)", err)
+			add("schedule", "invalid schedule: %v (try \"daily 02:00\", \"weekly sun 03:00\" or a cron expression)", err)
 		}
 	}
-	if len(job.Repositories) == 0 {
-		return invalid("choose at least one repository")
+	if len(job.Repositories) == 0 && !known.InheritsRepositories {
+		add("repositories", "choose at least one repository")
 	}
 	slices.Sort(job.Repositories)
 	job.Repositories = slices.Compact(job.Repositories)
 	for _, name := range job.Repositories {
-		if !slices.Contains(repositories, name) {
-			return invalid("unknown repository %q (defined: %v)", name, repositories)
+		if !slices.Contains(known.Repositories, name) {
+			add("repositories", "unknown repository %q (defined: %v)", name, known.Repositories)
+			break
 		}
 	}
 	for _, n := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
 		if n < 0 {
-			return invalid("retention values cannot be negative")
+			add("retention", "retention values cannot be negative")
+			break
 		}
 	}
-	return nil
+	return problems
 }
 
 // Save adds the job (original == "") or replaces the settings of the job named
 // original, then rewrites the file. The previous file is kept as path+".bak".
 func Save(path, original string, job Job) error {
 	return editFile(path, func(root *yaml.Node, cfg *config.Config) error {
-		repositories := make([]string, 0, len(cfg.Repositories))
-		for name := range cfg.Repositories {
-			repositories = append(repositories, name)
-		}
-		if err := Validate(&job, repositories); err != nil {
+		known := Known{Repositories: slices.Sorted(maps.Keys(cfg.Repositories)), InheritsRepositories: len(inheritedRepositories(cfg)) > 0}
+		if err := Validate(&job, known); err != nil {
 			return err
 		}
 		return editBackup(root, original, job)
@@ -416,7 +478,11 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 	for _, name := range job.Repositories {
 		repositories.Content = append(repositories.Content, scalar(name, 0))
 	}
-	mapSet(item, "repositories", repositories)
+	if len(job.Repositories) == 0 {
+		mapDelete(item, "repositories") // the config's defaults apply
+	} else {
+		mapSet(item, "repositories", repositories)
+	}
 
 	retention := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
 	for _, field := range []struct {

@@ -106,6 +106,11 @@ func (m manageModel) onClick(x, y int, left bool) (tea.Model, tea.Cmd) {
 		m.snapshotCursor = index
 		return m, nil
 	}
+	if m.mode == modeForm {
+		if next, handled := m.formAction(action); handled {
+			return next, nil
+		}
+	}
 	return m.onKey(action, "")
 }
 

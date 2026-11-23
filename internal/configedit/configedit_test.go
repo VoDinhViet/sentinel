@@ -190,17 +190,17 @@ func TestValidate(t *testing.T) {
 		job := good()
 		change(&job)
 		var invalidErr *InvalidError
-		if err := Validate(&job, repositories); !errors.As(err, &invalidErr) {
+		if err := Validate(&job, Known{Repositories: repositories}); !errors.As(err, &invalidErr) {
 			t.Errorf("%s: err = %v, want InvalidError", name, err)
 		}
 	}
 	job := good()
-	if err := Validate(&job, repositories); err != nil || job.Host != "localhost" || job.Port != 5432 {
+	if err := Validate(&job, Known{Repositories: repositories}); err != nil || job.Host != "localhost" || job.Port != 5432 {
 		t.Errorf("good job: %+v, %v", job, err)
 	}
 	mongo := good()
 	mongo.Type, mongo.AuthDatabase, mongo.TLS = config.BackupMongoDB, "admin", "required"
-	if err := Validate(&mongo, repositories); err != nil || mongo.Port != 27017 || mongo.TLS != "" {
+	if err := Validate(&mongo, Known{Repositories: repositories}); err != nil || mongo.Port != 27017 || mongo.TLS != "" {
 		t.Errorf("mongo: %+v, %v (port defaults, tls is mysql-only)", mongo, err)
 	}
 }
@@ -237,5 +237,81 @@ func TestBrokenConfigIsNotEdited(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".bak"); err == nil {
 		t.Error("no backup is made when nothing was written")
+	}
+}
+
+func TestValidateNamesTheFieldAtFault(t *testing.T) {
+	known := Known{Repositories: []string{"s3"}}
+	for field, change := range map[string]func(*Job){
+		"name":         func(j *Job) { j.Name = "a b" },
+		"database":     func(j *Job) { j.Database = "" },
+		"port":         func(j *Job) { j.Port = 70000 },
+		"password_env": func(j *Job) { j.PasswordEnv = "no good" },
+		"schedule":     func(j *Job) { j.Schedule = "daily 25:00" },
+		"repositories": func(j *Job) { j.Repositories = nil },
+		"retention":    func(j *Job) { j.Retention.Weekly = -2 },
+	} {
+		job := Job{Name: "db", Type: config.BackupPostgres, Database: "app", Repositories: []string{"s3"}}
+		change(&job)
+		var invalidErr *InvalidError
+		if err := Validate(&job, known); !errors.As(err, &invalidErr) || invalidErr.Field != field {
+			t.Errorf("%s: err = %v", field, err)
+		}
+	}
+}
+
+const defaultsConfig = `
+repositories:
+  only: { url: /tmp/r, password: p }
+defaults:
+  schedule: daily 02:00
+  retention: { daily: 7 }
+backups:
+  - name: inherits
+    type: postgres
+    postgres: { host: db, port: 5432, database: app }
+`
+
+func TestInheritedValuesStayOutOfTheFile(t *testing.T) {
+	path := writeConfig(t, defaultsConfig)
+	listing, err := List(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := listing.Jobs[0]
+	if job.Schedule != "" || len(job.Repositories) != 0 || !job.Retention.Empty() || !job.Inherited.Schedule || !job.Inherited.Repositories || !job.Inherited.Retention {
+		t.Fatalf("an inheriting job lists no values of its own: %+v", job)
+	}
+	if listing.Defaults.Schedule != "daily 02:00" || len(listing.InheritedRepositories) != 1 || listing.InheritedRepositories[0] != "only" {
+		t.Errorf("listing defaults = %+v %v", listing.Defaults, listing.InheritedRepositories)
+	}
+	job.Host = "db2"
+	if err := Save(path, "inherits", job); err != nil {
+		t.Fatal(err)
+	}
+	saved := readFile(t, path)
+	for _, key := range []string{"schedule: ", "repositories", "retention"} {
+		if strings.Contains(strings.Split(saved, "backups:")[1], key) {
+			t.Errorf("saving an unchanged inheriting job must not write %q:\n%s", key, saved)
+		}
+	}
+
+	job.Repositories = nil
+	if err := Save(path, "", Job{Name: "fresh", Type: config.BackupPostgres, Database: "x"}); err != nil {
+		t.Errorf("a new job may leave the repositories to the defaults: %v", err)
+	}
+	if err := Save(writeConfig(t, baseConfig), "", Job{Name: "fresh", Type: config.BackupPostgres, Database: "x"}); err == nil {
+		t.Error("without defaults a job needs a repository")
+	}
+}
+
+func TestProblemsListsEveryFieldAtFaultOnce(t *testing.T) {
+	job := Job{Name: "a b", Type: config.BackupPostgres, Port: 70000, Schedule: "daily 25:00"}
+	var fields []string
+	for _, problem := range Problems(&job, Known{Repositories: []string{"s3"}}) {
+		fields = append(fields, problem.Field)
+	}
+	if got, want := strings.Join(fields, ","), "name,database,port,schedule,repositories"; got != want {
+		t.Errorf("problem fields = %s, want %s", got, want)
 	}
 }

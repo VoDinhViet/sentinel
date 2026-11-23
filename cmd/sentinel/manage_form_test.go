@@ -46,40 +46,58 @@ func formModel(t *testing.T) (manageModel, *fakeConfig) {
 	return model.(manageModel), configFile
 }
 
-func fillField(t *testing.T, screen manageModel, text string) manageModel {
+// keys presses named keys in order.
+func keys(t *testing.T, screen manageModel, names ...string) manageModel {
 	t.Helper()
-	screen = typeText(t, screen, text)
-	model, _ := screen.onKey("tab", "")
-	return model.(manageModel)
+	for _, name := range names {
+		model, _ := screen.onKey(name, "")
+		screen = model.(manageModel)
+	}
+	return screen
+}
+
+func openAddForm(t *testing.T, screen manageModel) manageModel {
+	t.Helper()
+	return keys(t, screen, "a")
 }
 
 func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
-	model, _ := screen.onKey("a", "")
-	screen = model.(manageModel)
+	screen = openAddForm(t, screen)
 	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Add a database job") {
 		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
-	model, _ = screen.onKey("right", "") // type: postgres -> mysql
-	screen = model.(manageModel)
+	screen = keys(t, screen, "right") // type: postgres -> mysql
 	if screen.form.field("type").value != config.BackupMySQL || !strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
 		t.Fatalf("type-specific fields wrong:\n%s", plain(screen.render()))
 	}
-	model, _ = screen.onKey("tab", "") // -> name
-	screen = model.(manageModel)
-	for _, input := range []string{"shop", "shopdb", "", "", "dump", "MYSQL_PW", "30 2 * * *", "s3, local", "daily=7 weekly=4"} {
-		screen = fillField(t, screen, input)
-	}
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "shop")
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "shopdb")
+	screen = keys(t, screen, "tab", "tab", "tab") // host, port, user
+	screen = typeText(t, screen, "dump")
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "MYSQL_PW")
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "daily 02:30")
+	screen = keys(t, screen, "tab")             // repositories: local, s3
+	screen = keys(t, screen, " ", "right", " ") // tick both
+	screen = keys(t, screen, "tab")             // retention: last, daily, weekly...
+	screen = keys(t, screen, "right")
+	screen = typeText(t, screen, "7")
+	screen = keys(t, screen, "right")
+	screen = typeText(t, screen, "4")
+	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "disabled") // TLS, the last visible field
-	model, _ = screen.onKey("enter", "")
-	screen = model.(manageModel)
+	screen = keys(t, screen, "enter")
 	if len(configFile.saved) != 1 {
-		t.Fatalf("not saved (mode %d): %s", screen.mode, screen.form.problem)
+		t.Fatalf("not saved (mode %d): %+v\n%s", screen.mode, screen.form.problems(), plain(screen.render()))
 	}
 	got := configFile.saved[0]
 	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.BackupMySQL || got.Database != "shopdb" || got.User != "dump" ||
-		got.PasswordEnv != "MYSQL_PW" || got.Schedule != "30 2 * * *" || strings.Join(got.Repositories, ",") != "s3,local" ||
-		got.Retention.Daily != 7 || got.Retention.Weekly != 4 || got.TLS != "disabled" {
+		got.PasswordEnv != "MYSQL_PW" || got.Schedule != "daily 02:30" || strings.Join(got.Repositories, ",") != "local,s3" ||
+		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" {
 		t.Errorf("job saved = %+v", got)
 	}
 	if screen.mode != modeTable || !strings.Contains(screen.notice, "Added job shop") || !strings.Contains(screen.notice, "Restart the daemon") {
@@ -89,66 +107,166 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 
 func TestEditFormIsPrefilledKeepsTheTypeFixedAndExplainsLiteralPasswords(t *testing.T) {
 	screen, configFile := formModel(t)
-	model, _ := screen.onKey("e", "")
-	screen = model.(manageModel)
+	screen = keys(t, screen, "e")
 	view := plain(screen.render())
-	for _, want := range []string{"Edit appdb", "appdb", "5433", "daily=7", "s3"} {
+	for _, want := range []string{"Edit appdb", "appdb", "5433", "[x] s3", "[ ] local", "daily"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("form lacks %q:\n%s", want, view)
 		}
 	}
-	model, _ = screen.onKey("right", "")
-	if model.(manageModel).form.field("type").value != config.BackupPostgres {
+	if screen = keys(t, screen, "right"); screen.form.field("type").value != config.BackupPostgres {
 		t.Error("the type of an existing job cannot be cycled")
 	}
-	screen = model.(manageModel)
-	for range 6 { // move to the password env field
-		model, _ = screen.onKey("tab", "")
-		screen = model.(manageModel)
-	}
+	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab") // to the password env field
 	if !strings.Contains(plain(screen.render()), "literal password") {
 		t.Errorf("the literal-password hint is missing:\n%s", plain(screen.render()))
 	}
-	screen.onKey("ctrl+s", "")
+	keys(t, screen, "ctrl+s")
 	if len(configFile.saved) != 1 || configFile.savedFrom[0] != "appdb" || !configFile.saved[0].PasswordLiteral || configFile.saved[0].PasswordEnv != "" {
 		t.Errorf("saved = %+v from %v (an untouched literal password must be kept)", configFile.saved, configFile.savedFrom)
 	}
 }
 
-func TestFormShowsValidationProblemsAndStaysOpen(t *testing.T) {
+func TestFormShowsProblemsUnderTheFieldOnlyOnceVisitedOrTried(t *testing.T) {
 	screen, configFile := formModel(t)
-	configFile.saveErr = &configedit.InvalidError{Message: "database name is required"}
-	model, _ := screen.onKey("a", "")
-	model, _ = model.(manageModel).onKey("ctrl+s", "")
-	screen = model.(manageModel)
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "database name is required") {
-		t.Errorf("want the problem in the form (mode %d):\n%s", screen.mode, plain(screen.render()))
+	screen = openAddForm(t, screen)
+	if view := plain(screen.render()); strings.Contains(view, "✗") {
+		t.Errorf("a pristine form must not shout:\n%s", view)
+	}
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "a b")
+	if view := plain(screen.render()); !strings.Contains(view, "✗ invalid job name") {
+		t.Errorf("the name problem shows as soon as it is typed:\n%s", view)
+	}
+	if strings.Contains(plain(screen.render()), "database name is required") {
+		t.Error("the database field has not been visited yet")
 	}
 
-	screen.form.field("port").value = "abc"
-	model, _ = screen.onKey("ctrl+s", "")
-	screen = model.(manageModel)
-	if !strings.Contains(screen.form.problem, "not a number") || len(configFile.saved) != 1 {
-		t.Errorf("port problem = %q, saves = %d (a bad number must not reach the save)", screen.form.problem, len(configFile.saved))
+	screen = keys(t, screen, "ctrl+s") // a save attempt shows everything and jumps to the first problem
+	if screen.mode != modeForm || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "name" || !screen.form.attempted {
+		t.Fatalf("an invalid form must stay open on the first problem (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
 	}
-	screen.form.field("port").value = ""
-	screen.form.field("retention").value = "daily=x"
-	model, _ = screen.onKey("ctrl+s", "")
-	if !strings.Contains(model.(manageModel).form.problem, "retention") {
-		t.Errorf("retention problem = %q", model.(manageModel).form.problem)
+	screen.form.field("name").value = "ok"
+	if view := plain(screen.render()); !strings.Contains(view, "✗ database name is required") {
+		t.Errorf("after a save attempt every problem shows:\n%s", view)
+	}
+}
+
+func TestFormRefusesLettersInNumberFieldsAndNegativeCounts(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen)
+	screen = keys(t, screen, "tab", "tab", "tab", "tab") // port
+	screen = typeText(t, screen, "5x4y3")
+	if got := screen.form.field("port").value; got != "543" {
+		t.Errorf("port = %q, digits only", got)
+	}
+	screen.form.fields[screen.form.focus].value = ""
+	retention := screen.form.field("retention")
+	for i := 0; i < 8; i++ {
+		screen.form.typeInto(retention, "9", "9")
+	}
+	if len(retention.counts[0]) != 4 {
+		t.Errorf("a count has at most 4 digits: %q", retention.counts[0])
+	}
+}
+
+func TestSaveRefusedByTheConfigStaysInTheFormUnderItsField(t *testing.T) {
+	screen, configFile := formModel(t)
+	configFile.saveErr = &configedit.InvalidError{Message: "the change makes the config invalid"}
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
+	screen.form.field("repositories").ticked[1] = true
+	screen = keys(t, screen, "ctrl+s")
+	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "the change makes the config invalid") || len(configFile.saved) != 1 {
+		t.Errorf("want the config's refusal in the form (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 }
 
 func TestUnexpectedSaveFailureLeavesTheFormWithANotice(t *testing.T) {
 	screen, configFile := formModel(t)
 	configFile.saveErr = errors.New("permission denied")
-	model, _ := screen.onKey("a", "")
-	screen = typeText(t, model.(manageModel), "")
-	screen.form.field("name").value, screen.form.field("database").value, screen.form.field("repositories").value = "x", "x", "s3"
-	model, _ = screen.onKey("ctrl+s", "")
-	screen = model.(manageModel)
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
+	screen.form.field("repositories").ticked[1] = true
+	screen = keys(t, screen, "ctrl+s")
 	if screen.mode != modeTable || !screen.noticeBad || !strings.Contains(screen.notice, "permission denied") {
 		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
+	}
+}
+
+func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
+	screen, configFile := formModel(t)
+	configFile.listing.Defaults = config.Defaults{Schedule: "daily 02:00", Retention: config.Retention{Daily: 7}}
+	configFile.listing.InheritedRepositories = []string{"local"}
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "inherits", "x"
+	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab", "tab") // schedule
+	if view := plain(screen.render()); !strings.Contains(view, "default: daily 02:00") || !strings.Contains(view, "→ every day at 02:00") {
+		t.Errorf("an empty schedule shows the default and what it means:\n%s", view)
+	}
+	screen = keys(t, screen, "right")
+	if got := screen.form.field("schedule").value; got != "daily 02:00" {
+		t.Errorf("→ starts at the first preset: %q", got)
+	}
+	screen = keys(t, screen, "right", "right", "right")
+	if got := screen.form.field("schedule").value; got != "weekly sun 03:00" {
+		t.Errorf("the presets cycle: %q", got)
+	}
+	if view := plain(screen.render()); !strings.Contains(view, "every Sunday at 03:00") {
+		t.Errorf("preview:\n%s", view)
+	}
+	screen = typeText(t, screen, " nonsense")
+	if view := plain(screen.render()); !strings.Contains(view, "✗ invalid schedule") {
+		t.Errorf("a bad schedule is flagged as it is typed:\n%s", view)
+	}
+
+	// With defaults in the config a job needs no repository of its own.
+	screen.form.field("schedule").value = ""
+	screen = keys(t, screen, "ctrl+s")
+	if len(configFile.saved) != 1 || len(configFile.saved[0].Repositories) != 0 || configFile.saved[0].Schedule != "" {
+		t.Errorf("saved %+v: nothing ticked and no schedule means the defaults", configFile.saved)
+	}
+}
+
+func TestMouseOperatesTheForm(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+
+	screen, _ = clickOn(t, screen, "step:0:1") // the › of the type
+	if screen.form.field("type").value != config.BackupMySQL {
+		t.Errorf("clicking › chooses the next type: %q", screen.form.field("type").value)
+	}
+	screen, _ = clickOn(t, screen, "toggle:8:1") // tick s3
+	if !screen.form.field("repositories").ticked[1] {
+		t.Error("clicking a repository ticks it")
+	}
+	screen, _ = clickOn(t, screen, "toggle:8:1")
+	if screen.form.field("repositories").ticked[1] {
+		t.Error("clicking again unticks it")
+	}
+	screen, _ = clickOn(t, screen, "focus:9:3") // the monthly count
+	if screen.form.fields[screen.form.focus].key != "retention" || screen.form.field("retention").sub != 3 {
+		t.Errorf("clicking a count focuses it: %+v", screen.form.field("retention"))
+	}
+	screen = typeText(t, screen, "6")
+	if screen.form.field("retention").counts[3] != "6" {
+		t.Errorf("typing goes to the clicked count: %+v", screen.form.field("retention").counts)
+	}
+	screen, _ = clickOn(t, screen, "focus:1")
+	if screen.form.fields[screen.form.focus].key != "name" {
+		t.Error("clicking a field focuses it")
+	}
+
+	screen.form.field("name").value, screen.form.field("database").value = "shop", "shop"
+	screen.form.field("repositories").ticked[0] = true
+	screen, _ = clickOn(t, screen, "ctrl+s") // the [ Save ] button
+	if len(configFile.saved) != 1 || screen.mode != modeTable {
+		t.Errorf("the Save button saves (mode %d, saved %d)", screen.mode, len(configFile.saved))
+	}
+	screen = openAddForm(t, screen)
+	screen, _ = clickOn(t, screen, "esc") // [ Cancel ]
+	if screen.mode != modeTable {
+		t.Error("the Cancel button closes the form")
 	}
 }
 
@@ -198,17 +316,5 @@ func TestFormKeysOnOtherTabsDoNothing(t *testing.T) {
 	model, _ = model.(manageModel).onKey("a", "")
 	if model.(manageModel).mode != modeTable {
 		t.Error("a on the Uptime tab must not open the form")
-	}
-}
-
-func TestParseRetention(t *testing.T) {
-	got, err := parseRetention("daily=7, weekly=4 last=2")
-	if err != nil || got.Daily != 7 || got.Weekly != 4 || got.Last != 2 {
-		t.Errorf("got %+v, %v", got, err)
-	}
-	for _, bad := range []string{"daily", "daily=x", "daily=-1", "hourly=3"} {
-		if _, err := parseRetention(bad); err == nil {
-			t.Errorf("%q must be refused", bad)
-		}
 	}
 }
