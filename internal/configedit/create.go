@@ -106,6 +106,12 @@ func EnsureSecret(envFile, name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if info, err := file.Stat(); err == nil && info.Mode().Perm() != tightenedMode(info.Mode().Perm()) {
+		if err := file.Chmod(tightenedMode(info.Mode().Perm())); err != nil {
+			file.Close()
+			return false, err
+		}
+	}
 	prefix := ""
 	if len(raw) > 0 && !strings.HasSuffix(string(raw), "\n") {
 		prefix = "\n"

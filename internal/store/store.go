@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -67,10 +68,21 @@ var migrations = []string{
 	UPDATE alerts SET key = 'stale:' || substr(key, 14) WHERE substr(key, 1, 13) = 'backup-stale:';`,
 }
 
+// walSuffixes are the files SQLite keeps next to a database in WAL mode.
+var walSuffixes = []string{"-wal", "-shm"}
+
 // Open opens (creating if needed) the database at path and applies migrations.
+// The database holds restic and dump error text, so it and its WAL files are
+// readable by their owner only, whatever the umask and whatever mode an older
+// version left on an existing file.
 func Open(path string) (*Store, error) {
-	if path != ":memory:" {
+	onDisk := path != ":memory:"
+	if onDisk {
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, err
+		}
+		// SQLite gives the -wal and -shm files the mode of the database file.
+		if err := createPrivate(path); err != nil {
 			return nil, err
 		}
 	}
@@ -86,7 +98,29 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if onDisk {
+		// A WAL file left by an older version keeps its own mode.
+		for _, suffix := range walSuffixes {
+			if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				db.Close()
+				return nil, err
+			}
+		}
+	}
 	return s, nil
+}
+
+// createPrivate creates the file when it is missing and sets its mode to 0600.
+func createPrivate(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func (s *Store) Close() error { return s.db.Close() }
