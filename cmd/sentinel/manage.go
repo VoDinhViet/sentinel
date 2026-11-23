@@ -25,26 +25,34 @@ func (a *app) manageCmd() *cobra.Command {
 		Aliases: []string{"tui"},
 		Short:   "Interactive terminal manager: backups, snapshots, restore, uptime checks and alerts",
 		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if stdoutInfo, err := os.Stdout.Stat(); err != nil || stdoutInfo.Mode()&os.ModeCharDevice == 0 {
-				return fmt.Errorf("manage needs a terminal; use `sentinel status --output json` in scripts")
-			}
-			cfg, err := a.loadConfig()
-			if err != nil {
-				return err
-			}
-			st, err := a.openStore(cfg)
-			if err != nil {
-				return err
-			}
-			defer st.Close()
-			ctx := cmd.Context()
-			load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
-			model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))
-			_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
-			return err
-		},
+		RunE:    func(cmd *cobra.Command, _ []string) error { return a.runManage(cmd) },
 	}
+}
+
+// runManage opens the terminal manager on the loaded config.
+func (a *app) runManage(cmd *cobra.Command) error {
+	if !stdoutIsTerminal() {
+		return fmt.Errorf("manage needs a terminal; use `sentinel status --output json` in scripts")
+	}
+	cfg, err := a.loadConfig()
+	if err != nil {
+		return err
+	}
+	st, err := a.openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := cmd.Context()
+	load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
+	model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))
+	_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
+	return err
+}
+
+func stdoutIsTerminal() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // Severity of one manager line, shown as a colour.

@@ -115,7 +115,7 @@ func TestPrintInitOutcomeTellsWhatToDoNext(t *testing.T) {
 	t.Setenv("RESTIC_PASSWORD", "")
 	var output strings.Builder
 	printInitOutcome(&output, &initOutcome{path: "/home/me/.config/sentinel/config.yaml", passwordEnv: "RESTIC_PASSWORD", jobName: "documents"})
-	for _, want := range []string{"Wrote /home/me/.config/sentinel/config.yaml", "export RESTIC_PASSWORD=", "sentinel backup init documents", "sentinel doctor", "sentinel manage"} {
+	for _, want := range []string{"Wrote /home/me/.config/sentinel/config.yaml", "asks for RESTIC_PASSWORD", "sentinel backup init documents", "sentinel doctor", "sentinel manage"} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, output.String())
 		}

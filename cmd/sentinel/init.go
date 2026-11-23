@@ -17,6 +17,25 @@ import (
 	"sentinel/internal/status"
 )
 
+// runInitForm shows the init form and tells what was written.
+func (a *app) runInitForm(cmd *cobra.Command, force bool) error {
+	root := os.Geteuid() == 0
+	path := config.DefaultLocations(a.configFlag).WritePath(root)
+	if _, err := os.Stat(path); err == nil && !force {
+		return fmt.Errorf("%s already exists: edit it with `sentinel manage`, or use --force to replace it (the old one is kept as %s.old)", path, path)
+	}
+	outcome, err := runInit(cmd.Context(), path, root, force)
+	if err != nil {
+		return err
+	}
+	if outcome == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "Nothing written.")
+		return nil
+	}
+	printInitOutcome(cmd.OutOrStdout(), outcome)
+	return nil
+}
+
 // initOutcome is what a finished init tells the user.
 type initOutcome struct {
 	path, envFile string
@@ -35,23 +54,7 @@ func (a *app) initCmd() *cobra.Command {
 			"Root writes /etc/sentinel/config.yaml (and a random repository password into sentinel.env);\n" +
 			"anyone else writes ~/.config/sentinel/config.yaml. --config or $SENTINEL_CONFIG choose another file.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			root := os.Geteuid() == 0
-			path := config.DefaultLocations(a.configFlag).WritePath(root)
-			if _, err := os.Stat(path); err == nil && !force {
-				return fmt.Errorf("%s already exists: edit it with `sentinel manage`, or use --force to replace it (the old one is kept as %s.old)", path, path)
-			}
-			outcome, err := runInit(cmd.Context(), path, root, force)
-			if err != nil {
-				return err
-			}
-			if outcome == nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "Nothing written.")
-				return nil
-			}
-			printInitOutcome(cmd.OutOrStdout(), outcome)
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, _ []string) error { return a.runInitForm(cmd, force) },
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing config file (the old one is kept as .old)")
 	return cmd
@@ -125,7 +128,9 @@ func printInitOutcome(w io.Writer, outcome *initOutcome) {
 			"Keep a copy somewhere else: losing it means losing every backup.\n\n", outcome.envFile, outcome.passwordEnv)
 		fmt.Fprintf(w, "Next:\n  set -a; . %s; set +a\n", outcome.envFile)
 	case os.Getenv(outcome.passwordEnv) == "":
-		fmt.Fprintf(w, "Next:\n  export %s='a-long-passphrase'   # losing it means losing the backups\n", outcome.passwordEnv)
+		fmt.Fprintf(w, "Next: sentinel asks for %s the first time it needs it, and can keep it in %s.\n"+
+			"Use a long passphrase and keep a copy somewhere else: losing it means losing the backups.\n",
+			outcome.passwordEnv, filepath.Join(filepath.Dir(outcome.path), config.EnvFileName))
 	default:
 		fmt.Fprintln(w, "Next:")
 	}

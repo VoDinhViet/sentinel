@@ -163,3 +163,18 @@ func TestLoadConfigReadsTheEnvFileBesideTheConfig(t *testing.T) {
 		t.Errorf("prompts = %q", script.prompts)
 	}
 }
+
+func TestBareSentinelPrintsHelpWithoutATerminal(t *testing.T) {
+	cli := &app{term: (&terminalScript{}).terminal(false)}
+	root := newRootCmd()
+	var output strings.Builder
+	root.SetOut(&output)
+	root.SetArgs([]string{})
+	// newRootCmd builds its own app, so drive the same entry point directly.
+	if err := cli.runDefault(root); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Available Commands") {
+		t.Errorf("want the help, got %q", output.String())
+	}
+}

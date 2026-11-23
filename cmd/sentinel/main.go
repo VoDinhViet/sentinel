@@ -44,6 +44,8 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE:          func(cmd *cobra.Command, _ []string) error { return cli.runDefault(cmd) },
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			var level slog.Level
 			if err := level.UnmarshalText([]byte(cli.logLevel)); err != nil {
@@ -58,6 +60,18 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd())
 	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
+}
+
+// runDefault is `sentinel` with no command: on a terminal it opens the form that creates the
+// config when there is none, and the manager when there is one; otherwise it prints the help.
+func (a *app) runDefault(cmd *cobra.Command) error {
+	if !a.term.isTerminal() || !stdoutIsTerminal() {
+		return cmd.Help()
+	}
+	if _, err := os.Stat(a.configPath); a.configErr != nil || err != nil {
+		return a.runInitForm(cmd, false)
+	}
+	return a.runManage(cmd)
 }
 
 func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
