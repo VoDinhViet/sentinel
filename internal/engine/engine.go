@@ -133,9 +133,9 @@ func writeSecretFile(pattern, content string) (path string, cleanup func(), err 
 	if err != nil {
 		return "", nil, err
 	}
-	cleanup = func() { os.Remove(file.Name()) }
+	cleanup = func() { _ = os.Remove(file.Name()) } // best effort: nothing to do if it is already gone
 	if _, err := file.WriteString(content); err != nil {
-		file.Close()
+		_ = file.Close() // the write error is the one to report
 		cleanup()
 		return "", nil, err
 	}

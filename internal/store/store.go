@@ -95,14 +95,14 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close() // the migration error is the one to report
 		return nil, err
 	}
 	if onDisk {
 		// A WAL file left by an older version keeps its own mode.
 		for _, suffix := range walSuffixes {
 			if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				db.Close()
+				_ = db.Close()
 				return nil, err
 			}
 		}
@@ -117,7 +117,7 @@ func createPrivate(path string) error {
 		return err
 	}
 	if err := file.Chmod(0o600); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	return file.Close()
