@@ -20,17 +20,17 @@ func (s *Server) routesUsers() {
 }
 
 type userDTO struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	Role      string    `json:"role"`
-	Disabled  bool      `json:"disabled"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int64      `json:"id"`
+	Username  string     `json:"username"`
+	Role      string     `json:"role"`
+	Disabled  bool       `json:"disabled"`
+	CreatedAt *time.Time `json:"created_at"` // null for the bootstrap admin
 	// Bootstrap marks the admin from server.yaml, which is not editable here.
 	Bootstrap bool `json:"bootstrap,omitempty"`
 }
 
 func toUserDTO(u service.User) userDTO {
-	return userDTO{ID: u.ID, Username: u.Username, Role: u.Role, Disabled: u.Disabled, CreatedAt: u.CreatedAt}
+	return userDTO{ID: u.ID, Username: u.Username, Role: u.Role, Disabled: u.Disabled, CreatedAt: &u.CreatedAt}
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {

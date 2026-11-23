@@ -119,7 +119,7 @@ export function AuditPage() {
               <TableHead>User</TableHead>
               <TableHead>Action</TableHead>
               <TableHead className="hidden md:table-cell">Server / job</TableHead>
-              <TableHead>Outcome</TableHead>
+              <TableHead className="hidden md:table-cell">Outcome</TableHead>
               <TableHead className="hidden lg:table-cell">Details</TableHead>
               <TableHead className="hidden lg:table-cell">IP</TableHead>
             </TableHeader>
@@ -127,12 +127,17 @@ export function AuditPage() {
               {entries.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell className="whitespace-nowrap text-muted-foreground">{dateTime(e.at)}</TableCell>
-                  <TableCell className="font-semibold">{e.username || '—'}</TableCell>
+                  <TableCell className="font-semibold">
+                    {e.username || '—'}
+                    <div className="mt-1 md:hidden">
+                      <Pill tone={outcomeTone[e.outcome] ?? 'idle'}>{e.outcome}</Pill>
+                    </div>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{e.action}</TableCell>
                   <TableCell className="hidden md:table-cell">
                     {e.agent_name || e.job ? [e.agent_name, e.job].filter(Boolean).join(' / ') : '—'}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <Pill tone={outcomeTone[e.outcome] ?? 'idle'}>{e.outcome}</Pill>
                   </TableCell>
                   <TableCell className="hidden max-w-80 truncate text-xs text-muted-foreground lg:table-cell">

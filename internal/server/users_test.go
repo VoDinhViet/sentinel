@@ -200,11 +200,16 @@ func TestUserManagementAPI(t *testing.T) {
 
 	var users []struct {
 		userRow
-		Bootstrap bool `json:"bootstrap"`
+		Bootstrap bool    `json:"bootstrap"`
+		CreatedAt *string `json:"created_at"`
 	}
 	admin.call("GET", "/api/ui/users", nil, &users)
 	if len(users) != 2 || !users[0].Bootstrap || users[0].Username != "admin" || users[1].Username != "bob" {
 		t.Fatalf("users = %+v", users)
+	}
+
+	if users[0].CreatedAt != nil || users[1].CreatedAt == nil {
+		t.Errorf("created_at must be null for the bootstrap admin only: %+v", users)
 	}
 
 	// Demotion applies to the open session at once.

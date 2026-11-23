@@ -136,16 +136,32 @@ export function UsersPage() {
             <TableHeader>
               <TableHead isRowHeader>Username</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead className="hidden md:table-cell">Status</TableHead>
               <TableHead className="hidden md:table-cell">Created</TableHead>
-              <TableHead aria-label="Actions" />
+              <TableHead aria-label="Actions" className="hidden md:table-cell" />
             </TableHeader>
             <TableBody>
-              {users.data.map((u) => (
+              {users.data.map((u) => {
+                const statusPill = u.disabled ? <Pill tone="bad">disabled</Pill> : <Pill tone="ok">active</Pill>
+                const actions = !u.bootstrap && (
+                  <div className="flex gap-2 md:justify-end">
+                    <Button variant="outline" size="sm" onPress={() => setPasswordFor(u)}>
+                      Set password
+                    </Button>
+                    <Button variant="outline" size="sm" onPress={() => update.mutate({ user: u, patch: { disabled: !u.disabled } })}>
+                      {u.disabled ? 'Enable' : 'Disable'}
+                    </Button>
+                  </div>
+                )
+                return (
                 <TableRow key={u.username}>
                   <TableCell className="font-semibold">
                     {u.username}
                     {u.bootstrap && <span className="ml-2 text-xs font-normal text-muted-foreground">from server.yaml</span>}
+                    <div className="mt-2 flex flex-col items-start gap-2 md:hidden">
+                      {statusPill}
+                      {actions}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {u.bootstrap ? (
@@ -154,22 +170,12 @@ export function UsersPage() {
                       <RoleSelect label={`Role of ${u.username}`} value={u.role} onChange={(r) => update.mutate({ user: u, patch: { role: r } })} />
                     )}
                   </TableCell>
-                  <TableCell>{u.disabled ? <Pill tone="bad">disabled</Pill> : <Pill tone="ok">active</Pill>}</TableCell>
+                  <TableCell className="hidden md:table-cell">{statusPill}</TableCell>
                   <TableCell className="hidden text-muted-foreground md:table-cell">{u.created_at ? dateTime(u.created_at) : '—'}</TableCell>
-                  <TableCell>
-                    {!u.bootstrap && (
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onPress={() => setPasswordFor(u)}>
-                          Set password
-                        </Button>
-                        <Button variant="outline" size="sm" onPress={() => update.mutate({ user: u, patch: { disabled: !u.disabled } })}>
-                          {u.disabled ? 'Enable' : 'Disable'}
-                        </Button>
-                      </div>
-                    )}
-                  </TableCell>
+                  <TableCell className="hidden md:table-cell">{actions}</TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
         )}
