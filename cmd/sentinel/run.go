@@ -33,6 +33,9 @@ func (a *app) runCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			if a.configErr != nil {
+				return a.configErr
+			}
 			localRaw, err := os.ReadFile(a.configPath)
 			if err != nil {
 				return err

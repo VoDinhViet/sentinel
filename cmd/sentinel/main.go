@@ -20,7 +20,9 @@ import (
 var version = "dev"
 
 type app struct {
-	configPath string
+	configFlag string // --config as given
+	configPath string // the file actually used, resolved before each command runs
+	configErr  error  // why no config file could be chosen
 	logLevel   string
 }
 
@@ -47,16 +49,20 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("--log-level: %w", err)
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+			a.configPath, a.configErr = currentConfigLocations(a.configFlag).resolve()
 			return nil
 		},
 	}
-	root.PersistentFlags().StringVarP(&a.configPath, "config", "c", "/etc/sentinel/config.yaml", "config file")
+	root.PersistentFlags().StringVarP(&a.configFlag, "config", "c", "", "config file (default: $SENTINEL_CONFIG, /etc/sentinel/config.yaml or ~/.config/sentinel/config.yaml, the first that exists)")
 	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd(), a.statusCmd(), a.manageCmd())
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
 }
 
 func (a *app) loadConfig() (*config.Config, error) {
+	if a.configErr != nil {
+		return nil, a.configErr
+	}
 	return config.Load(a.configPath)
 }
 

@@ -101,7 +101,7 @@ func (a *app) doctorCmd() *cobra.Command {
 			w := cmd.OutOrStdout()
 			cfg, err := a.loadConfig()
 			if err != nil {
-				fmt.Fprintf(w, "  FAIL  %-28s %v\n", "config "+a.configPath, err)
+				fmt.Fprintf(w, "  FAIL  %-28s %v\n", strings.TrimSpace("config "+a.configPath), err)
 				return errors.New("doctor found problems")
 			}
 			fs := []finding{{name: "config", info: a.configPath}}
