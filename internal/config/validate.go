@@ -132,11 +132,30 @@ func (c *Config) validate() error {
 	if smtp := c.Notifiers.SMTP; smtp != nil && (smtp.Host == "" || len(smtp.To) == 0) {
 		add("notifiers.smtp: host and to are required")
 	}
-	if discord := c.Notifiers.Discord; discord != nil && discord.URL == "" {
-		add("notifiers.discord: webhook is required")
+	if discord := c.Notifiers.Discord; discord != nil {
+		if problem := webhookProblem(discord.URL); problem != "" {
+			add("notifiers.discord: %s", problem)
+		}
 	}
-	if slack := c.Notifiers.Slack; slack != nil && slack.URL == "" {
-		add("notifiers.slack: webhook is required")
+	if slack := c.Notifiers.Slack; slack != nil {
+		if problem := webhookProblem(slack.URL); problem != "" {
+			add("notifiers.slack: %s", problem)
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// webhookProblem says what is wrong with a chat webhook URL, "" when nothing is. The URL is the secret that
+// lets anyone post to the channel, so it must not travel over plain http. A value that is still a ${VAR}
+// reference (the config editor reads files without expanding) is checked once it has a value.
+func webhookProblem(webhook string) string {
+	switch {
+	case webhook == "":
+		return "webhook is required"
+	case strings.Contains(webhook, "${"):
+		return ""
+	case !strings.HasPrefix(webhook, "https://"):
+		return "webhook must start with https://"
+	}
+	return ""
 }

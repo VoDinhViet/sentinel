@@ -4,6 +4,7 @@ package uptime
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,9 @@ type Result struct {
 
 // maxBody bounds how much of a response is searched for the keyword.
 const maxBody = 1 << 20
+
+// maxRedirects is how many redirects a check follows (the limit net/http applies by default).
+const maxRedirects = 10
 
 // Probe runs one check, bounded by check.Timeout.
 func Probe(ctx context.Context, check config.UptimeCheck) Result {
@@ -88,13 +92,40 @@ func probeHTTP(ctx context.Context, check config.UptimeCheck) (Result, error) {
 		return result, errors.New("invalid URL")
 	}
 	req.Header.Set("User-Agent", "sentinel-uptime/1")
-	resp, err := (&http.Client{Transport: httpTransport}).Do(req)
+	// Redirects are followed, but not from https to http (the site would no longer be shown to be served
+	// over TLS), and the certificate that is watched is the one of the address in the config, not of
+	// wherever a redirect ends.
+	var redirected bool
+	var configuredTLS *tls.ConnectionState
+	client := &http.Client{
+		Transport: httpTransport,
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if len(via) == 1 {
+				redirected = true
+				if next.Response != nil {
+					configuredTLS = next.Response.TLS
+				}
+			}
+			switch {
+			case len(via) >= maxRedirects:
+				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			case via[0].URL.Scheme == "https" && next.URL.Scheme != "https":
+				return errors.New("redirected from https to http: the site is no longer served over TLS")
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return result, simplifyErr(err)
 	}
 	defer resp.Body.Close()
-	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-		result.CertExpiry = resp.TLS.PeerCertificates[0].NotAfter
+	tlsState := resp.TLS
+	if redirected {
+		tlsState = configuredTLS
+	}
+	if tlsState != nil && len(tlsState.PeerCertificates) > 0 {
+		result.CertExpiry = tlsState.PeerCertificates[0].NotAfter
 	}
 	if resp.StatusCode != check.ExpectStatus {
 		return result, fmt.Errorf("HTTP %d (expected %d)", resp.StatusCode, check.ExpectStatus)

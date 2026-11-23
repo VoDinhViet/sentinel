@@ -19,6 +19,9 @@ notifiers:                               # remove the notifiers you don't use
     user: "${SMTP_USER}"
     pass: "${SMTP_PASS}"                 # Gmail: an app password
     to: [ops@example.com]
+    # A server that is not this machine must offer STARTTLS (or use port 465). For a relay that cannot,
+    # e.g. inside a private network, allow plaintext on purpose:
+    # insecure_plaintext: true
   discord:
     webhook: "${DISCORD_WEBHOOK}"
   slack:

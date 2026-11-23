@@ -105,6 +105,10 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		if err := client.StartTLS(&tls.Config{ServerName: settings.Host}); err != nil {
 			return fmt.Errorf("starttls: %w", err)
 		}
+	} else if settings.Port != 465 && !settings.InsecurePlaintext && !isLoopbackHost(settings.Host) {
+		// Port 465 is already inside TLS. Anywhere else, a server that does not offer STARTTLS (or whose
+		// greeting someone on the path edited to hide it) would get the alert in the clear.
+		return fmt.Errorf("smtp server %s does not offer STARTTLS, so the mail would go out unencrypted: use a server with TLS, or set notifiers.smtp.insecure_plaintext: true", settings.Host)
 	}
 	if settings.User != "" {
 		// PlainAuth refuses to send credentials over an unencrypted
@@ -132,6 +136,16 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		return err
 	}
 	return client.Quit()
+}
+
+// isLoopbackHost reports whether host is this machine: "localhost" or a loopback address. It is a variable
+// so a test can make a fake server on 127.0.0.1 look remote.
+var isLoopbackHost = func(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func buildMail(from string, to []string, msg Message) string {

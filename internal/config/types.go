@@ -57,6 +57,9 @@ type SMTP struct {
 	Pass string   `yaml:"pass"`
 	From string   `yaml:"from"`
 	To   []string `yaml:"to"`
+	// InsecurePlaintext lets a mail go out unencrypted when a server that is not this machine offers no
+	// STARTTLS. Off by default: the alert text quotes file names and error output.
+	InsecurePlaintext bool `yaml:"insecure_plaintext"`
 }
 
 type Webhook struct {

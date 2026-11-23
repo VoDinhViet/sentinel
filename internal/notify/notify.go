@@ -152,13 +152,14 @@ type statusError struct {
 func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Code, e.Body) }
 
 // isPermanent reports whether retrying cannot help: the service understood the
-// request and refused it (bad token, bad chat id). Timeouts, 429 and 5xx retry.
+// request and refused it (bad token, bad chat id), or answered with a redirect
+// that will not change. Timeouts, 429 and 5xx retry.
 func isPermanent(err error) bool {
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) {
 		return false
 	}
-	return statusErr.Code >= 400 && statusErr.Code < 500 && statusErr.Code != http.StatusTooManyRequests && statusErr.Code != http.StatusRequestTimeout
+	return statusErr.Code >= 300 && statusErr.Code < 500 && statusErr.Code != http.StatusTooManyRequests && statusErr.Code != http.StatusRequestTimeout
 }
 
 // withoutURL drops the request URL from a failed HTTP call's error. The URL of a
@@ -172,7 +173,12 @@ func withoutURL(err error) error {
 	return err
 }
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+// httpClient does not follow redirects: Go would send a 307/308 request again, body included, to the address
+// in the answer, so an alert could reach a host the config never named. A redirect is reported as a failure.
+var httpClient = &http.Client{
+	Timeout:       30 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 func postJSON(ctx context.Context, endpoint string, payload any) error {
 	body, err := json.Marshal(payload)
