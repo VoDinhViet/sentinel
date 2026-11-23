@@ -203,9 +203,15 @@ type message struct {
 	BytesDone      int64   `json:"bytes_done"`
 }
 
-// errorMessage prefers restic's JSON exit_error, then per-item errors, then
-// the last non-empty stderr line.
+// errorMessage is the reason a restic command failed, with credentials masked: it is stored,
+// logged and sent in alerts.
 func errorMessage(stdout, stderr []byte) string {
+	return redact(pickErrorMessage(stdout, stderr))
+}
+
+// pickErrorMessage prefers restic's JSON exit_error, then per-item errors, then
+// the last non-empty stderr line.
+func pickErrorMessage(stdout, stderr []byte) string {
 	var exitMsg string
 	var itemErrs []string
 	for _, msg := range parseMessages(append(append([]byte{}, stdout...), stderr...)) {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +80,12 @@ func probeHTTP(ctx context.Context, check config.UptimeCheck) (Result, error) {
 	var result Result
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.URL, nil)
 	if err != nil {
-		return result, err
+		// Go's parse error quotes the whole URL, secrets included; keep only what is wrong with it.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			return result, fmt.Errorf("invalid URL: %w", urlErr.Err)
+		}
+		return result, errors.New("invalid URL")
 	}
 	req.Header.Set("User-Agent", "sentinel-uptime/1")
 	resp, err := (&http.Client{Transport: httpTransport}).Do(req)
@@ -154,14 +160,37 @@ func probePing(ctx context.Context, host string) error {
 	return nil
 }
 
-// Endpoint is the human-readable address a check probes.
+// Endpoint is the human-readable address a check probes. An HTTP URL is shown without its user and
+// password, query values and fragment: the secret of a health-check URL often sits there, and the
+// endpoint is printed by `sentinel check` and sent in alerts to every notifier.
 func Endpoint(check config.UptimeCheck) string {
 	switch check.Type {
 	case config.CheckHTTP:
-		return check.URL
+		return redactURL(check.URL)
 	case config.CheckTCP:
 		return check.Address
 	default:
 		return check.Host
 	}
+}
+
+// redactURL keeps the scheme, host, port and path and masks the query values.
+func redactURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "(invalid URL)"
+	}
+	shown := url.URL{Scheme: parsed.Scheme, Host: parsed.Host, Path: parsed.Path, RawPath: parsed.RawPath}
+	if parsed.RawQuery != "" {
+		parts := strings.Split(parsed.RawQuery, "&")
+		for i, part := range parts {
+			if name, _, hasValue := strings.Cut(part, "="); hasValue {
+				parts[i] = name + "=***"
+			} else {
+				parts[i] = "***"
+			}
+		}
+		shown.RawQuery = strings.Join(parts, "&")
+	}
+	return shown.String()
 }
