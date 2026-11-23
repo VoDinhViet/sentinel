@@ -53,8 +53,8 @@ func openBrowser(t *testing.T, value string) (manageModel, tea.Cmd) {
 
 func typeFilter(t *testing.T, screen manageModel, text string) manageModel {
 	t.Helper()
-	for _, r := range text {
-		model, _ := screen.onKey(string(r), string(r))
+	for _, char := range text {
+		model, _ := screen.onKey(string(char), string(char))
 		screen = model.(manageModel)
 	}
 	return screen

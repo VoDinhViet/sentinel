@@ -27,21 +27,21 @@ func (a *app) checkCmd() *cobra.Command {
 			}
 			results := uptime.ProbeAll(cmd.Context(), cfg.UptimeChecks)
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tENDPOINT\tSTATUS\tLATENCY\tDETAIL")
+			table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(table, "NAME\tENDPOINT\tSTATUS\tLATENCY\tDETAIL")
 			failed := 0
-			for i, c := range cfg.UptimeChecks {
-				r := results[i]
+			for i, check := range cfg.UptimeChecks {
+				result := results[i]
 				status, detail := "UP", ""
-				if !r.OK {
-					status, detail, failed = "DOWN", r.Error, failed+1
+				if !result.OK {
+					status, detail, failed = "DOWN", result.Error, failed+1
 				}
-				if !r.CertExpiry.IsZero() {
-					detail = strings.TrimSpace(detail + " cert expires " + r.CertExpiry.Format("2006-01-02"))
+				if !result.CertExpiry.IsZero() {
+					detail = strings.TrimSpace(detail + " cert expires " + result.CertExpiry.Format("2006-01-02"))
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.Name, uptime.Endpoint(c), status, r.Latency.Round(time.Millisecond), detail)
+				fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", check.Name, uptime.Endpoint(check), status, result.Latency.Round(time.Millisecond), detail)
 			}
-			w.Flush()
+			table.Flush()
 			if failed > 0 {
 				return fmt.Errorf("%d of %d checks failed", failed, len(cfg.UptimeChecks))
 			}

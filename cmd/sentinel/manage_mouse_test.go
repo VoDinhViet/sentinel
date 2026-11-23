@@ -7,9 +7,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func click(t *testing.T, m manageModel, x, y int) (manageModel, tea.Cmd) {
+func click(t *testing.T, screen manageModel, col, row int) (manageModel, tea.Cmd) {
 	t.Helper()
-	model, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	model, cmd := screen.Update(tea.MouseClickMsg{X: col, Y: row, Button: tea.MouseLeft})
 	return model.(manageModel), cmd
 }
 

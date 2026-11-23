@@ -82,18 +82,18 @@ func (a *app) backupCmd() *cobra.Command {
 			defer st.Close()
 			runs := (&backup.Runner{Config: cfg, Store: st}).Run(cmd.Context(), job)
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
+			table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 			failed := 0
-			for _, r := range runs {
-				result := r.Summary()
-				if !r.Success {
+			for _, run := range runs {
+				summary := run.Summary()
+				if !run.Success {
 					failed++
 				}
-				fmt.Fprintf(w, "%s\t%s\t%.8s\t%s\t%s\n", r.Repository, result, r.SnapshotID,
-					humanBytes(r.BytesAdded), r.FinishedAt.Sub(r.StartedAt).Round(time.Second))
+				fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, summary, run.SnapshotID,
+					humanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 			}
-			w.Flush()
+			table.Flush()
 			if failed > 0 {
 				return fmt.Errorf("%d of %d repositories failed", failed, len(runs))
 			}
@@ -115,8 +115,8 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			runner := &backup.Runner{Config: cfg}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "REPOSITORY\tSNAPSHOT\tTIME\tSIZE")
+			table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(table, "REPOSITORY\tSNAPSHOT\tTIME\tSIZE")
 			var errs []error
 			for _, name := range job.Repositories {
 				rc, _ := runner.Restic(name)
@@ -125,15 +125,15 @@ func (a *app) backupCmd() *cobra.Command {
 					errs = append(errs, fmt.Errorf("%s: %w", name, err))
 					continue
 				}
-				for _, s := range snaps {
+				for _, snap := range snaps {
 					size := ""
-					if s.Summary != nil {
-						size = humanBytes(s.Summary.TotalBytes)
+					if snap.Summary != nil {
+						size = humanBytes(snap.Summary.TotalBytes)
 					}
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, s.ShortID, s.Time.Local().Format("2006-01-02 15:04"), size)
+					fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", name, snap.ShortID, snap.Time.Local().Format("2006-01-02 15:04"), size)
 				}
 			}
-			w.Flush()
+			table.Flush()
 			return errors.Join(errs...)
 		},
 	}
@@ -173,22 +173,22 @@ func (a *app) backupCmd() *cobra.Command {
 	restoreCmd.Flags().StringVar(&target, "target", "", "directory to restore into (required)")
 	restoreCmd.MarkFlagRequired("target")
 
-	for _, c := range []*cobra.Command{initCmd, runCmd, listCmd, restoreCmd} {
-		c.Flags().StringVarP(&repoFlag, "repository", "r", "", "only this repository (default: all of the job's)")
-		cmd.AddCommand(c)
+	for _, sub := range []*cobra.Command{initCmd, runCmd, listCmd, restoreCmd} {
+		sub.Flags().StringVarP(&repoFlag, "repository", "r", "", "only this repository (default: all of the job's)")
+		cmd.AddCommand(sub)
 	}
 	return cmd
 }
 
-func humanBytes(n int64) string {
+func humanBytes(size int64) string {
 	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
 	}
 	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
+	for scaled := size / unit; scaled >= unit; scaled /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }

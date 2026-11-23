@@ -180,6 +180,6 @@ func TestSuggestionTargetsStayOnTheScreenAndDoNotOverlap(t *testing.T) {
 	}
 }
 
-func itoa(n int) string { return strconv.Itoa(n) }
+func itoa(num int) string { return strconv.Itoa(num) }
 
 func tea5Size(width int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: width, Height: 30} }

@@ -147,13 +147,13 @@ func TestManageEmptyAndNarrow(t *testing.T) {
 }
 
 func TestPrintStatusAndJSONReport(t *testing.T) {
-	var out strings.Builder
-	if err := printStatus(&out, sampleReport()); err != nil {
+	var output strings.Builder
+	if err := printStatus(&output, sampleReport()); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Server: web-01", "Open alerts: 1", "appdb", "01234567", "FAILED: restic exited 1", "DOWN: connection refused"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("status lacks %q:\n%s", want, out.String())
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, output.String())
 		}
 	}
 }

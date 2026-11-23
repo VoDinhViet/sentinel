@@ -30,11 +30,11 @@ func (a *app) runCmd() *cobra.Command {
 			if failed := printFindings(os.Stderr, doctor.Tools(ctx, cfg)); failed > 0 {
 				return errors.New("required tools are missing; run `sentinel doctor` for details")
 			}
-			d, err := daemon.New(ctx, cfg, st)
+			dm, err := daemon.New(ctx, cfg, st)
 			if err != nil {
 				return err
 			}
-			return d.Run(ctx)
+			return dm.Run(ctx)
 		},
 	}
 }

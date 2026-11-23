@@ -64,7 +64,7 @@ func folderRows(dir string) []browseRow {
 	for _, child := range children {
 		path := filepath.Join(dir, child.Name())
 		if !child.IsDir() {
-			if info, err := os.Stat(path); child.Type()&os.ModeSymlink == 0 || err != nil || !info.IsDir() {
+			if fileInfo, err := os.Stat(path); child.Type()&os.ModeSymlink == 0 || err != nil || !fileInfo.IsDir() {
 				continue
 			}
 		}
@@ -330,18 +330,18 @@ func (b browseState) sizeNote(row browseRow) string {
 }
 
 func (m manageModel) renderBrowse() []string {
-	b := m.browse
+	browse := m.browse
 	title := titleStyle.Render("Choose folders to back up")
-	chosen := fmt.Sprintf("%d chosen", len(b.marks))
+	chosen := fmt.Sprintf("%d chosen", len(browse.marks))
 	where := ""
 	if room := m.width - lipgloss.Width("Choose folders to back up") - len(chosen) - 10; room >= 12 {
-		where = tailOf(b.dir, room) + "  ·  " // too narrow a screen drops the folder: the last line shows it
+		where = tailOf(browse.dir, room) + "  ·  " // too narrow a screen drops the folder: the last line shows it
 	}
 	screenLines := []string{
 		title + dimStyle.Render("  "+where+chosen),
-		"Search: " + b.filter + lipglossAccent("▏"),
+		"Search: " + browse.filter + lipglossAccent("▏"),
 	}
-	rows := b.rows()
+	rows := browse.rows()
 	folders := 0
 	for _, row := range rows {
 		if row.kind != browseUp {
@@ -349,7 +349,7 @@ func (m manageModel) renderBrowse() []string {
 		}
 	}
 	visible := max(m.height-9, 3)
-	first := firstVisible(b.cursor, visible)
+	first := firstVisible(browse.cursor, visible)
 	deeperShown := false
 	for i := first; i < min(first+visible, len(rows)); i++ {
 		row := rows[i]
@@ -361,38 +361,38 @@ func (m manageModel) renderBrowse() []string {
 	}
 	if folders == 0 {
 		message := "no folders here"
-		if b.filter != "" {
-			message = "no folder matches \"" + b.filter + "\""
+		if browse.filter != "" {
+			message = "no folder matches \"" + browse.filter + "\""
 		}
 		screenLines = append(screenLines, dimStyle.Render("  "+message))
 	}
 	if hidden := len(rows) - (first + visible); hidden > 0 {
 		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 	}
-	if b.cursor < len(rows) {
-		screenLines = append(screenLines, "", dimStyle.Render(tailOf(rows[b.cursor].path, m.width-2)))
+	if browse.cursor < len(rows) {
+		screenLines = append(screenLines, "", dimStyle.Render(tailOf(rows[browse.cursor].path, m.width-2)))
 	}
 	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "select", "space", "mark", "enter", "open", "←", "up", "ctrl+s", "done", "esc", "cancel"))
 }
 
 // browseLine draws one row: marker, tick box, name and the note at the right edge.
 func (m manageModel) browseLine(screenRow, index int, row browseRow) string {
-	b := m.browse
+	browse := m.browse
 	box := "   "
 	if row.kind != browseUp && !row.denied {
 		box = "[ ]"
-		if b.marked(row.path) {
+		if browse.marked(row.path) {
 			box = "[✓]"
 		}
 		m.hits.add(screenRow, 2, 3, fmt.Sprintf("bmark:%d", index))
 	}
 	m.hits.add(screenRow, 0, m.width, fmt.Sprintf("bro:%d", index))
-	selected := index == b.cursor
+	selected := index == browse.cursor
 	marker := "  "
 	if selected {
 		marker = "› "
 	}
-	note := b.sizeNote(row)
+	note := browse.sizeNote(row)
 	name := truncate(row.name, max(m.width-lipgloss.Width(note)-10, 8))
 	left := marker + box + " " + name
 	gap := strings.Repeat(" ", max(m.width-lipgloss.Width(left)-lipgloss.Width(note)-1, 1))

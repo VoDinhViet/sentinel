@@ -30,9 +30,9 @@ func (h *hitMap) reset() {
 }
 
 // add records a target on a row counted from the first line of the current renderer.
-func (h *hitMap) add(row, from, width int, action string) {
+func (h *hitMap) add(screenRow, from, width int, action string) {
 	if h != nil && action != "" && width > 0 {
-		h.targets = append(h.targets, clickTarget{row: h.offset + row, from: from, to: from + width, action: action})
+		h.targets = append(h.targets, clickTarget{row: h.offset + screenRow, from: from, to: from + width, action: action})
 	}
 }
 
@@ -44,18 +44,18 @@ func (h *hitMap) safeTargets() []clickTarget {
 }
 
 // truncate forgets the targets recorded after the first n.
-func (h *hitMap) truncate(n int) {
-	if h != nil && n <= len(h.targets) {
-		h.targets = h.targets[:n]
+func (h *hitMap) truncate(count int) {
+	if h != nil && count <= len(h.targets) {
+		h.targets = h.targets[:count]
 	}
 }
 
-func (h *hitMap) at(x, y int) (string, bool) {
+func (h *hitMap) at(col, row int) (string, bool) {
 	if h == nil {
 		return "", false
 	}
 	for _, target := range h.targets {
-		if target.row == y && x >= target.from && x < target.to {
+		if target.row == row && col >= target.from && col < target.to {
 			return target.action, true
 		}
 	}
@@ -77,12 +77,12 @@ func actionIndex(action, prefix string) (int, bool) {
 	return index, found && err == nil
 }
 
-func (m manageModel) onClick(x, y int, left bool) (tea.Model, tea.Cmd) {
+func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 	if !left {
 		return m, nil
 	}
 	m.render() // rebuild the targets for what is on screen now
-	action, ok := m.hits.at(x, y)
+	action, ok := m.hits.at(col, row)
 	if !ok {
 		return m, nil
 	}

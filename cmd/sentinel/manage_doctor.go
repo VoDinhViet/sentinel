@@ -42,11 +42,11 @@ func (m manageModel) startDoctor() (manageModel, tea.Cmd) {
 }
 
 // doctorSeverity maps a finding to the colour of its line.
-func doctorSeverity(f doctor.Finding) severity {
+func doctorSeverity(finding doctor.Finding) severity {
 	switch {
-	case f.Err == nil:
+	case finding.Err == nil:
 		return sevOK
-	case f.Warn:
+	case finding.Warn:
 		return sevWarn
 	}
 	return sevBad
@@ -55,8 +55,8 @@ func doctorSeverity(f doctor.Finding) severity {
 // doctorProblems counts the findings that are failures.
 func (m manageModel) doctorProblems() int {
 	failed := 0
-	for _, f := range m.doctor.findings {
-		if doctorSeverity(f) == sevBad {
+	for _, finding := range m.doctor.findings {
+		if doctorSeverity(finding) == sevBad {
 			failed++
 		}
 	}
@@ -65,21 +65,21 @@ func (m manageModel) doctorProblems() int {
 
 func (m manageModel) buildDoctorTab() manageTab {
 	tab := manageTab{title: "Doctor", headers: []string{"CHECK", "STATUS", "DETAIL"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0}
-	for _, f := range m.doctor.findings {
-		level := doctorSeverity(f)
-		status, message := "ok", f.Info
+	for _, finding := range m.doctor.findings {
+		level := doctorSeverity(finding)
+		status, message := "ok", finding.Info
 		switch level {
 		case sevBad:
-			status, message = "FAIL", f.Err.Error()
+			status, message = "FAIL", finding.Err.Error()
 		case sevWarn:
-			status, message = "warn", f.Err.Error()
+			status, message = "warn", finding.Err.Error()
 		}
-		detail := f.Name + ": " + message
-		if f.Hint != "" && level != sevOK {
-			detail += "  → " + f.Hint
+		detail := finding.Name + ": " + message
+		if finding.Hint != "" && level != sevOK {
+			detail += "  → " + finding.Hint
 		}
 		tab.lines = append(tab.lines, manageLine{
-			cells:    []string{f.Name, status, strings.TrimSpace(message)},
+			cells:    []string{finding.Name, status, strings.TrimSpace(message)},
 			severity: level,
 			detail:   detail,
 		})

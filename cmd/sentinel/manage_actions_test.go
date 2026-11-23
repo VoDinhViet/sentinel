@@ -48,8 +48,8 @@ func feed(t *testing.T, screen manageModel, messages []tea.Msg) manageModel {
 
 func typeText(t *testing.T, screen manageModel, text string) manageModel {
 	t.Helper()
-	for _, r := range text {
-		model, _ := screen.onKey(string(r), string(r))
+	for _, char := range text {
+		model, _ := screen.onKey(string(char), string(char))
 		screen = model.(manageModel)
 	}
 	return screen

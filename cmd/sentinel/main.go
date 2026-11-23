@@ -36,7 +36,7 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	a := &app{}
+	cli := &app{}
 	root := &cobra.Command{
 		Use:           "sentinel",
 		Short:         "Server maintenance: backups, uptime checks, alerts",
@@ -45,17 +45,17 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			var level slog.Level
-			if err := level.UnmarshalText([]byte(a.logLevel)); err != nil {
+			if err := level.UnmarshalText([]byte(cli.logLevel)); err != nil {
 				return fmt.Errorf("--log-level: %w", err)
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
-			a.configPath, a.configErr = config.DefaultLocations(a.configFlag).Resolve()
+			cli.configPath, cli.configErr = config.DefaultLocations(cli.configFlag).Resolve()
 			return nil
 		},
 	}
-	root.PersistentFlags().StringVarP(&a.configFlag, "config", "c", "", "config file (default: $SENTINEL_CONFIG, /etc/sentinel/config.yaml or ~/.config/sentinel/config.yaml, the first that exists)")
-	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd(), a.statusCmd(), a.manageCmd(), a.initCmd())
-	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "info", "debug, info, warn or error")
+	root.PersistentFlags().StringVarP(&cli.configFlag, "config", "c", "", "config file (default: $SENTINEL_CONFIG, /etc/sentinel/config.yaml or ~/.config/sentinel/config.yaml, the first that exists)")
+	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd())
+	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
 }
 
@@ -67,9 +67,9 @@ func (a *app) loadConfig() (*config.Config, error) {
 }
 
 func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
-	s, err := store.Open(cfg.StorePath)
+	st, err := store.Open(cfg.StorePath)
 	if err != nil {
 		return nil, fmt.Errorf("open store %s: %w", cfg.StorePath, err)
 	}
-	return s, nil
+	return st, nil
 }

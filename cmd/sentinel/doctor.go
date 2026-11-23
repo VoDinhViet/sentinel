@@ -31,13 +31,13 @@ func (a *app) doctorCmd() *cobra.Command {
 		Short: "Check config, tools, repositories and storage",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			w := cmd.OutOrStdout()
+			stdout := cmd.OutOrStdout()
 			cfg, err := a.loadConfig()
 			if err != nil {
-				fmt.Fprintf(w, "  FAIL  %-28s %v\n", strings.TrimSpace("config "+a.configPath), err)
+				fmt.Fprintf(stdout, "  FAIL  %-28s %v\n", strings.TrimSpace("config "+a.configPath), err)
 				return errors.New("doctor found problems")
 			}
-			if printFindings(w, doctor.Run(cmd.Context(), cfg, a.configPath, a.openStore)) > 0 {
+			if printFindings(stdout, doctor.Run(cmd.Context(), cfg, a.configPath, a.openStore)) > 0 {
 				return errors.New("doctor found problems")
 			}
 			return nil

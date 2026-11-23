@@ -168,11 +168,11 @@ func newUptimeForm(check configedit.Uptime, original string) form {
 	}
 	only := func(types ...string) (string, []string) { return "type", types }
 	field := func(key, label, hint, value, placeholder string, kind fieldKind, types ...string) formField {
-		f := formField{key: key, label: label, hint: hint, value: value, placeholder: placeholder, kind: kind}
+		field := formField{key: key, label: label, hint: hint, value: value, placeholder: placeholder, kind: kind}
 		if len(types) > 0 {
-			f.onField, f.only = only(types...)
+			field.onField, field.only = only(types...)
 		}
-		return f
+		return field
 	}
 	return form{kind: formUptime, title: title, original: original, touched: map[string]bool{}, fields: []formField{
 		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: check.Name},

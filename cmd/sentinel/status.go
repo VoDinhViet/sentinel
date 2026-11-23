@@ -68,34 +68,34 @@ func relativeAgo(t, now time.Time) string {
 	return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
 }
 
-func printStatus(out io.Writer, report status.Report) error {
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+func printStatus(w io.Writer, report status.Report) error {
+	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	now := report.GeneratedAt
 
-	fmt.Fprintf(out, "Server: %s\n\n", report.Server)
+	fmt.Fprintf(w, "Server: %s\n\n", report.Server)
 
-	fmt.Fprintf(out, "Open alerts: %d\n", len(report.Alerts))
+	fmt.Fprintf(w, "Open alerts: %d\n", len(report.Alerts))
 	for _, alert := range report.Alerts {
-		fmt.Fprintf(w, "  %s\t%s\tsince %s\n", alert.Key, alert.Message, ago(alert.Since, now))
+		fmt.Fprintf(table, "  %s\t%s\tsince %s\n", alert.Key, alert.Message, ago(alert.Since, now))
 	}
-	w.Flush()
+	table.Flush()
 
-	fmt.Fprintln(out, "\nLast backups:")
+	fmt.Fprintln(w, "\nLast backups:")
 	if len(report.Jobs) == 0 {
-		fmt.Fprintln(out, "  none yet")
+		fmt.Fprintln(w, "  none yet")
 	}
 	for _, backup := range report.Jobs {
-		result := backup.Result
+		summary := backup.Result
 		if backup.Success {
-			result += fmt.Sprintf("  %.8s", backup.SnapshotID)
+			summary += fmt.Sprintf("  %.8s", backup.SnapshotID)
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", backup.Job, backup.Repository, ago(backup.FinishedAt, now), result)
+		fmt.Fprintf(table, "  %s\t%s\t%s\t%s\n", backup.Job, backup.Repository, ago(backup.FinishedAt, now), summary)
 	}
-	w.Flush()
+	table.Flush()
 
-	fmt.Fprintln(out, "\nUptime checks:")
+	fmt.Fprintln(w, "\nUptime checks:")
 	if len(report.Checks) == 0 {
-		fmt.Fprintln(out, "  none yet")
+		fmt.Fprintln(w, "  none yet")
 	}
 	for _, check := range report.Checks {
 		state := "UP"
@@ -103,7 +103,7 @@ func printStatus(out io.Writer, report status.Report) error {
 			state = "DOWN: " + check.Error
 		}
 		latency := (time.Duration(check.LatencyMs) * time.Millisecond).Round(time.Millisecond)
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", check.Name, state, latency, ago(check.At, now))
+		fmt.Fprintf(table, "  %s\t%s\t%s\t%s\n", check.Name, state, latency, ago(check.At, now))
 	}
-	return w.Flush()
+	return table.Flush()
 }

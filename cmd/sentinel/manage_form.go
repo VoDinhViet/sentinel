@@ -190,13 +190,13 @@ func (f form) visible() []int {
 
 // splitList splits a comma separated list, dropping blanks.
 func splitList(text string) []string {
-	var items []string
-	for _, item := range strings.Split(text, ",") {
-		if item = strings.TrimSpace(item); item != "" {
-			items = append(items, item)
+	var parts []string
+	for _, part := range strings.Split(text, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
 		}
 	}
-	return items
+	return parts
 }
 
 func (f form) field(key string) *formField {
@@ -409,11 +409,11 @@ func (f *form) step(index, delta int) {
 	f.touched[field.key] = true
 }
 
-func (f *form) toggle(index, item int) {
+func (f *form) toggle(index, sub int) {
 	field := &f.fields[index]
-	if field.kind == fieldChecklist && item >= 0 && item < len(field.ticked) {
-		field.ticked[item] = !field.ticked[item]
-		field.sub = item
+	if field.kind == fieldChecklist && sub >= 0 && sub < len(field.ticked) {
+		field.ticked[sub] = !field.ticked[sub]
+		field.sub = sub
 	}
 	f.touched[field.key] = true
 }
@@ -548,51 +548,51 @@ func (m manageModel) renderForm() []string {
 		if _, bad := problems[field.key]; bad {
 			label = severityStyle(sevBad).Render(label)
 		}
-		row := len(screenLines)
+		screenRow := len(screenLines)
 		var value string
 		switch field.kind {
 		case fieldChoice:
 			value = inputStyle(focused, "‹ "+field.value+" ›", 0)
 			if !field.fixed {
-				m.hits.add(row, valueColumn, 1, fmt.Sprintf("step:%d:-1", index))
-				m.hits.add(row, valueColumn+lipgloss.Width(field.value)+3, 1, fmt.Sprintf("step:%d:1", index))
+				m.hits.add(screenRow, valueColumn, 1, fmt.Sprintf("step:%d:-1", index))
+				m.hits.add(screenRow, valueColumn+lipgloss.Width(field.value)+3, 1, fmt.Sprintf("step:%d:1", index))
 			}
-			m.hits.add(row, 0, valueColumn, fmt.Sprintf("focus:%d", index))
+			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldChecklist:
 			column := valueColumn
-			var items []string
+			var boxes []string
 			for i, choice := range field.choices {
 				box := "[ ] " + choice
 				if field.ticked[i] {
 					box = "[x] " + choice
 				}
-				items = append(items, inputStyle(focused && field.sub == i, box, 0))
-				m.hits.add(row, column, lipgloss.Width(box), fmt.Sprintf("toggle:%d:%d", index, i))
+				boxes = append(boxes, inputStyle(focused && field.sub == i, box, 0))
+				m.hits.add(screenRow, column, lipgloss.Width(box), fmt.Sprintf("toggle:%d:%d", index, i))
 				column += lipgloss.Width(box) + 2
 			}
-			value = strings.Join(items, "  ")
+			value = strings.Join(boxes, "  ")
 			if len(field.choices) == 0 {
 				value = dimStyle.Render("no repository in the config yet")
 			} else if inherited := m.form.defaults.repositories; len(inherited) > 0 && !slicesAny(field.ticked) {
 				value += dimStyle.Render("   default: " + strings.Join(inherited, ", "))
 			}
-			m.hits.add(row, 0, valueColumn, fmt.Sprintf("focus:%d", index))
+			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldRetention:
 			column := valueColumn
-			var items []string
+			var boxes []string
 			for i, name := range retentionKeys {
 				current := focused && field.sub == i
 				box := inputStyle(current, fmt.Sprintf("%4s", field.counts[i]), 4)
 				if field.counts[i] == "" && !current {
 					box = dimStyle.Render(fmt.Sprintf("%4s", m.retentionPlaceholder(i)))
 				}
-				items = append(items, dimStyle.Render(name+" ")+box)
+				boxes = append(boxes, dimStyle.Render(name+" ")+box)
 				width := lipgloss.Width(name) + 1 + 4
-				m.hits.add(row, column, width, fmt.Sprintf("focus:%d:%d", index, i))
+				m.hits.add(screenRow, column, width, fmt.Sprintf("focus:%d:%d", index, i))
 				column += width + 2
 			}
-			value = strings.Join(items, "  ")
-			m.hits.add(row, 0, valueColumn, fmt.Sprintf("focus:%d", index))
+			value = strings.Join(boxes, "  ")
+			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		default: // text, number, schedule
 			value = field.value
 			if focused {
@@ -601,7 +601,7 @@ func (m manageModel) renderForm() []string {
 			if field.value == "" && field.placeholder != "" {
 				value += dimStyle.Render(field.placeholder)
 			}
-			m.hits.add(row, 0, m.width, fmt.Sprintf("focus:%d", index))
+			m.hits.add(screenRow, 0, m.width, fmt.Sprintf("focus:%d", index))
 		}
 		screenLines = append(screenLines, marker+label+" "+value)
 		if message, bad := problems[field.key]; bad {
@@ -649,11 +649,11 @@ func folderNote(folder string) string {
 		return ""
 	}
 	existing, created := folder, false
-	var info os.FileInfo
+	var fileInfo os.FileInfo
 	for {
 		stat, err := os.Stat(existing)
 		if err == nil && stat.IsDir() {
-			info = stat
+			fileInfo = stat
 			break
 		}
 		parent := filepath.Dir(existing)
@@ -667,7 +667,7 @@ func folderNote(folder string) string {
 	if syscall.Statfs(existing, &disk) == nil {
 		free = " · " + humanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " free on this disk"
 	}
-	writable := canWrite(info)
+	writable := canWrite(fileInfo)
 	switch {
 	case !writable:
 		return severityStyle(sevBad).Render("✗ " + existing + " is not writable by you" + free)
@@ -678,9 +678,9 @@ func folderNote(folder string) string {
 }
 
 // canWrite guesses from the owner, group and mode whether the current user can create files in a folder.
-func canWrite(info os.FileInfo) bool {
-	mode := info.Mode().Perm()
-	stat, ok := info.Sys().(*syscall.Stat_t)
+func canWrite(fileInfo os.FileInfo) bool {
+	mode := fileInfo.Mode().Perm()
+	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
 	switch {
 	case os.Geteuid() == 0 || !ok:
 		return true
@@ -696,14 +696,14 @@ func canWrite(info os.FileInfo) bool {
 // suggestionLines are the lines under a focused Paths field: the folders worth adding and the
 // [ Browse ] chip, each a click target. On a narrow screen the chip gets a line of its own.
 // row is the first line's row within the form's lines.
-func (m manageModel) suggestionLines(row, index int, value string) []string {
+func (m manageModel) suggestionLines(screenRow, index int, value string) []string {
 	const browse = "[ Browse ]"
 	indent := 2 + formLabelWidth + 1
 	pad := strings.Repeat(" ", indent)
 	wide := m.width >= 80
 	line, column := pad, indent
 	if wide {
-		m.hits.add(row, indent, len(browse), "browse")
+		m.hits.add(screenRow, indent, len(browse), "browse")
 		line, column = line+keyStyle.Render(browse)+"  ", column+len(browse)+2
 	}
 	suggestions := suggestFolders(splitList(value))
@@ -718,7 +718,7 @@ func (m manageModel) suggestionLines(row, index int, value string) []string {
 		if column+lipgloss.Width(chip) > m.width {
 			break
 		}
-		m.hits.add(row, column, lipgloss.Width(chip), fmt.Sprintf("suggest:%d:%d", index, number+1))
+		m.hits.add(screenRow, column, lipgloss.Width(chip), fmt.Sprintf("suggest:%d:%d", index, number+1))
 		line += keyStyle.Render(strconv.Itoa(number+1)) + dimStyle.Render(" "+folder) + "  "
 		column += lipgloss.Width(chip) + 2
 	}
@@ -729,14 +729,14 @@ func (m manageModel) suggestionLines(row, index int, value string) []string {
 	if len(suggestions) > 0 {
 		lines = append(lines, line)
 	}
-	m.hits.add(row+len(lines), indent, len(browse), "browse")
+	m.hits.add(screenRow+len(lines), indent, len(browse), "browse")
 	return append(lines, pad+keyStyle.Render(browse))
 }
 
 // pathsNote says whether the listed paths exist on this machine.
-func pathsNote(list string) string {
+func pathsNote(pathsText string) string {
 	var missing []string
-	paths := splitList(list)
+	paths := splitList(pathsText)
 	for _, path := range paths {
 		if _, err := os.Stat(os.ExpandEnv(path)); err != nil {
 			missing = append(missing, path)
@@ -786,16 +786,16 @@ func (m manageModel) schedulePreview(spec string) string {
 }
 
 // inFuture is a rough "in 13h" for a duration ahead.
-func inFuture(d time.Duration) string {
+func inFuture(dur time.Duration) string {
 	switch {
-	case d < time.Minute:
+	case dur < time.Minute:
 		return "in under a minute"
-	case d < time.Hour:
-		return fmt.Sprintf("in %dm", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("in %dh", int(d.Hours()))
+	case dur < time.Hour:
+		return fmt.Sprintf("in %dm", int(dur.Minutes()))
+	case dur < 48*time.Hour:
+		return fmt.Sprintf("in %dh", int(dur.Hours()))
 	}
-	return fmt.Sprintf("in %dd", int(d.Hours()/24))
+	return fmt.Sprintf("in %dd", int(dur.Hours()/24))
 }
 
 // refreshPairs re-reads the config so new jobs show up (and removed ones go).

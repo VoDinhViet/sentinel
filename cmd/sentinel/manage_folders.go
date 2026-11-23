@@ -21,8 +21,8 @@ const maxSuggestions = 8
 
 // readableDir reports whether path is a folder this process can list.
 func readableDir(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
+	fileInfo, err := os.Stat(path)
+	if err != nil || !fileInfo.IsDir() {
 		return false
 	}
 	dir, err := os.Open(path)
@@ -61,8 +61,8 @@ func suggestFolders(have []string) []string {
 }
 
 // addPath appends folder to a comma separated list of paths, once.
-func addPath(list, folder string) string {
-	paths := splitList(list)
+func addPath(pathsText, folder string) string {
+	paths := splitList(pathsText)
 	if !slices.Contains(paths, folder) {
 		paths = append(paths, folder)
 	}
@@ -91,11 +91,11 @@ func skippedTree(path string) bool {
 func dirSize(root string, maxFiles int, maxTime time.Duration) (bytes int64, complete bool) {
 	deadline := time.Now().Add(maxTime)
 	files := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, dirEntry fs.DirEntry, err error) error {
 		switch {
-		case err != nil || entry.Type()&fs.ModeSymlink != 0:
+		case err != nil || dirEntry.Type()&fs.ModeSymlink != 0:
 			return nil // unreadable or a link: not counted
-		case entry.IsDir():
+		case dirEntry.IsDir():
 			if skippedTree(path) {
 				return filepath.SkipDir
 			}
@@ -105,8 +105,8 @@ func dirSize(root string, maxFiles int, maxTime time.Duration) (bytes int64, com
 		if files > maxFiles || time.Now().After(deadline) {
 			return fs.SkipAll
 		}
-		if info, err := entry.Info(); err == nil {
-			bytes += info.Size()
+		if fileInfo, err := dirEntry.Info(); err == nil {
+			bytes += fileInfo.Size()
 		}
 		return nil
 	})

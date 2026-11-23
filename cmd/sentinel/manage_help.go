@@ -42,8 +42,8 @@ func (m manageModel) helpFor() (title string, keys []keyHelp) {
 func (m manageModel) renderHelp() []string {
 	title, keys := m.helpFor()
 	screenLines := []string{titleStyle.Render(title), ""}
-	for _, entry := range keys {
-		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", entry.key)), wrap(entry.does, max(m.width-18, 20))))
+	for _, help := range keys {
+		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", help.key)), wrap(help.does, max(m.width-18, 20))))
 	}
 	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "close"))
 }

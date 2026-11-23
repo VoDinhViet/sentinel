@@ -85,7 +85,7 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
 		doctor: func(ctx context.Context) []doctor.Finding {
-			return doctor.Run(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
+			return doctor.Run(ctx, cfg, configPath, func(cfg *config.Config) (*store.Store, error) { return store.Open(cfg.StorePath) })
 		},
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
 			job, err := cfg.FindJob(jobName)

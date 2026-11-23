@@ -113,16 +113,16 @@ func TestInitFormCancelWritesNothing(t *testing.T) {
 
 func TestPrintInitOutcomeTellsWhatToDoNext(t *testing.T) {
 	t.Setenv("RESTIC_PASSWORD", "")
-	var out strings.Builder
-	printInitOutcome(&out, &initOutcome{path: "/home/me/.config/sentinel/config.yaml", passwordEnv: "RESTIC_PASSWORD", jobName: "documents"})
+	var output strings.Builder
+	printInitOutcome(&output, &initOutcome{path: "/home/me/.config/sentinel/config.yaml", passwordEnv: "RESTIC_PASSWORD", jobName: "documents"})
 	for _, want := range []string{"Wrote /home/me/.config/sentinel/config.yaml", "export RESTIC_PASSWORD=", "sentinel backup init documents", "sentinel doctor", "sentinel manage"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, output.String())
 		}
 	}
-	out.Reset()
-	printInitOutcome(&out, &initOutcome{path: "/etc/sentinel/config.yaml", envFile: "/etc/sentinel/sentinel.env", passwordEnv: "RESTIC_PASSWORD", secretWritten: true, jobName: "documents"})
-	if !strings.Contains(out.String(), "random repository password") || !strings.Contains(out.String(), ". /etc/sentinel/sentinel.env") || strings.Contains(out.String(), "export RESTIC_PASSWORD") {
-		t.Errorf("root output:\n%s", out.String())
+	output.Reset()
+	printInitOutcome(&output, &initOutcome{path: "/etc/sentinel/config.yaml", envFile: "/etc/sentinel/sentinel.env", passwordEnv: "RESTIC_PASSWORD", secretWritten: true, jobName: "documents"})
+	if !strings.Contains(output.String(), "random repository password") || !strings.Contains(output.String(), ". /etc/sentinel/sentinel.env") || strings.Contains(output.String(), "export RESTIC_PASSWORD") {
+		t.Errorf("root output:\n%s", output.String())
 	}
 }

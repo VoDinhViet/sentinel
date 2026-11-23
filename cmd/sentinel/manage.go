@@ -28,7 +28,7 @@ func (a *app) manageCmd() *cobra.Command {
 		Short:   "Interactive terminal manager: backups, snapshots, restore, uptime checks and alerts",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if info, err := os.Stdout.Stat(); err != nil || info.Mode()&os.ModeCharDevice == 0 {
+			if stdoutInfo, err := os.Stdout.Stat(); err != nil || stdoutInfo.Mode()&os.ModeCharDevice == 0 {
 				return fmt.Errorf("manage needs a terminal; use `sentinel status --output json` in scripts")
 			}
 			cfg, err := a.loadConfig()
@@ -587,8 +587,8 @@ func (m manageModel) summary() string {
 	const separator = " · "
 	for len(parts) > 1 {
 		total := len(separator) * (len(parts) - 1)
-		for _, p := range parts {
-			total += lipgloss.Width(p.text)
+		for _, part := range parts {
+			total += lipgloss.Width(part.text)
 		}
 		if total <= m.width {
 			break
@@ -596,8 +596,8 @@ func (m manageModel) summary() string {
 		parts = parts[:len(parts)-1]
 	}
 	rendered := make([]string, len(parts))
-	for i, p := range parts {
-		rendered[i] = severityStyle(p.level).Render(p.text)
+	for i, part := range parts {
+		rendered[i] = severityStyle(part.level).Render(part.text)
 	}
 	return strings.Join(rendered, dimStyle.Render(separator))
 }
@@ -643,8 +643,8 @@ var (
 	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
 )
 
-func severityStyle(s severity) lipgloss.Style {
-	switch s {
+func severityStyle(level severity) lipgloss.Style {
+	switch level {
 	case sevBad:
 		return lipgloss.NewStyle().Foreground(colourBad).Bold(true)
 	case sevWarn:
@@ -654,9 +654,9 @@ func severityStyle(s severity) lipgloss.Style {
 }
 
 // selectedSeverityStyle is severityStyle on the selected line's background.
-func selectedSeverityStyle(s severity) lipgloss.Style {
-	bright := map[severity]string{sevOK: "10", sevWarn: "11", sevBad: "9"}[s]
-	return selectedStyle.Foreground(lipgloss.Color(bright)).Bold(s != sevOK)
+func selectedSeverityStyle(level severity) lipgloss.Style {
+	bright := map[severity]string{sevOK: "10", sevWarn: "11", sevBad: "9"}[level]
+	return selectedStyle.Foreground(lipgloss.Color(bright)).Bold(level != sevOK)
 }
 
 func (m manageModel) View() tea.View {
@@ -776,8 +776,8 @@ func (m manageModel) tabLabels() []string {
 			if names || i == m.tab {
 				label += " " + tab.title
 			}
-			if n := len(tab.lines); counts && n > 0 && i != configTab {
-				label += fmt.Sprintf(" %d", n)
+			if count := len(tab.lines); counts && count > 0 && i != configTab {
+				label += fmt.Sprintf(" %d", count)
 			}
 			labels = append(labels, label)
 		}
@@ -930,7 +930,7 @@ func outcomeGlyph(outcome string) (string, severity) {
 // keyBar renders key hints ("b", "backup", "s", "snapshots", ...) as a footer line; row is the
 // line's row within the current renderer's lines. When the screen is too narrow the labels are
 // dropped and only the keys remain. Each hint is a click target that presses its key.
-func (m manageModel) keyBar(row int, pairs ...string) string {
+func (m manageModel) keyBar(screenRow int, pairs ...string) string {
 	type chip struct{ key, label, action string }
 	var chips []chip
 	for i := 0; i+1 < len(pairs); i += 2 {
@@ -952,15 +952,15 @@ func (m manageModel) keyBar(row int, pairs ...string) string {
 		}
 		var parts []string
 		column := 0
-		for _, c := range chips {
-			text, width := keyStyle.Render(c.key), lipgloss.Width(c.key)
+		for _, chip := range chips {
+			text, width := keyStyle.Render(chip.key), lipgloss.Width(chip.key)
 			if withLabels {
-				text += " " + dimStyle.Render(c.label)
-				width += 1 + lipgloss.Width(c.label)
+				text += " " + dimStyle.Render(chip.label)
+				width += 1 + lipgloss.Width(chip.label)
 			}
 			parts = append(parts, text)
 			if m.hits != nil && width > 0 {
-				m.hits.add(row, column, width, c.action)
+				m.hits.add(screenRow, column, width, chip.action)
 			}
 			column += width + len(separator)
 		}
@@ -981,9 +981,9 @@ func fitWidths(widths []int, total, gap int) {
 	for {
 		used := gap * (len(widths) - 1)
 		widest := 0
-		for i, w := range widths {
-			used += w
-			if w > widths[widest] {
+		for i, width := range widths {
+			used += width
+			if width > widths[widest] {
 				widest = i
 			}
 		}
