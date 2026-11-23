@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"sentinel/internal/backup"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -70,16 +70,16 @@ func (f *fakeActions) actions() manageActions {
 			}
 			return []store.BackupRun{{Job: job, Repository: repository, Success: true, SnapshotID: "aabbccddeeff0011"}}, nil
 		},
-		snapshots: func(context.Context, string, string) ([]backup.Snapshot, error) {
+		snapshots: func(context.Context, string, string) ([]restic.Snapshot, error) {
 			if f.failWith != nil {
 				return nil, f.failWith
 			}
-			return []backup.Snapshot{
+			return []restic.Snapshot{
 				{ID: "newest0000000000", Time: time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)},
 				{ID: "older00000000000", Time: time.Date(2026, 11, 21, 3, 0, 0, 0, time.UTC)},
 			}, nil
 		},
-		restore: func(_ context.Context, job, repository string, snapshot backup.Snapshot, target string) (string, error) {
+		restore: func(_ context.Context, job, repository string, snapshot restic.Snapshot, target string) (string, error) {
 			f.restored = append(f.restored, job+"/"+repository+"/"+snapshot.ID)
 			f.restoreTo = target
 			if f.failWith != nil {

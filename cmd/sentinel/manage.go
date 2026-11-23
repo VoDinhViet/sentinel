@@ -11,7 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"sentinel/internal/backup"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -116,9 +116,9 @@ type manageModel struct {
 	noticeBad bool
 
 	snapshotJob, snapshotRepo string
-	snapshots                 []backup.Snapshot // newest first
+	snapshots                 []restic.Snapshot // newest first
 	snapshotCursor            int
-	chosen                    backup.Snapshot
+	chosen                    restic.Snapshot
 	target, confirm           string
 	inputError                string
 
@@ -159,7 +159,7 @@ type (
 	}
 	snapshotsMsg struct {
 		job, repository string
-		snapshots       []backup.Snapshot
+		snapshots       []restic.Snapshot
 		err             error
 	}
 	restoreDoneMsg struct {

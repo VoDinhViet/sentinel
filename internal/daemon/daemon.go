@@ -168,7 +168,7 @@ func (d *Daemon) CheckRepositories(ctx context.Context) {
 	for _, repoName := range slices.Sorted(maps.Keys(usedRepos)) {
 		resticClient, err := d.Backups.Restic(repoName)
 		if err == nil {
-			err = resticClient.Check(ctx)
+			err = resticClient.Verify(ctx)
 		}
 		if ctx.Err() != nil {
 			return

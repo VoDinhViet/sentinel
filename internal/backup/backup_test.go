@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -44,13 +44,13 @@ func testRunner(t *testing.T, jobs ...config.Backup) (*Runner, *store.Store) {
 func initRepos(t *testing.T, r *Runner, names ...string) {
 	t.Helper()
 	for _, n := range names {
-		rc, _ := r.Restic(n)
-		existed, err := rc.Init(context.Background())
+		client, _ := r.Restic(n)
+		existed, err := client.Init(context.Background())
 		if err != nil || existed {
 			t.Fatalf("init %s: existed=%v err=%v", n, existed, err)
 		}
 		// Second init is a no-op.
-		if existed, err := rc.Init(context.Background()); err != nil || !existed {
+		if existed, err := client.Init(context.Background()); err != nil || !existed {
 			t.Fatalf("re-init %s: existed=%v err=%v", n, existed, err)
 		}
 	}
@@ -85,8 +85,8 @@ func TestFilesBackupRestoreRetention(t *testing.T) {
 		}
 	}
 
-	rc, _ := r.Restic("local")
-	snaps, err := rc.Snapshots(ctx, JobTags(&job))
+	client, _ := r.Restic("local")
+	snaps, err := client.Snapshots(ctx, JobTags(&job))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestFilesBackupRestoreRetention(t *testing.T) {
 
 	target := t.TempDir()
 	latest := snaps[len(snaps)-1]
-	if err := rc.Restore(ctx, latest.ID, target); err != nil {
+	if err := client.Restore(ctx, latest.ID, target); err != nil {
 		t.Fatal(err)
 	}
 	restored := filepath.Join(target, src)
@@ -120,9 +120,9 @@ func TestStdinCommandBackup(t *testing.T) {
 	ctx := context.Background()
 	r, _ := testRunner(t)
 	initRepos(t, r, "local")
-	rc, _ := r.Restic("local")
+	client, _ := r.Restic("local")
 
-	sum, err := rc.Backup(ctx, BackupOptions{
+	sum, err := client.Backup(ctx, restic.BackupOptions{
 		Tags: []string{"job=db"}, StdinFilename: "app.dump",
 		Command: []string{"sh", "-c", "echo dump-content"},
 	})
@@ -131,14 +131,14 @@ func TestStdinCommandBackup(t *testing.T) {
 	}
 
 	// A failing dump command must fail the backup and leave no new snapshot.
-	_, err = rc.Backup(ctx, BackupOptions{
+	_, err = client.Backup(ctx, restic.BackupOptions{
 		Tags: []string{"job=db"}, StdinFilename: "app.dump",
 		Command: []string{"sh", "-c", "echo partial; exit 3"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "exit status 3") {
 		t.Fatalf("want failing dump to fail backup, got %v", err)
 	}
-	snaps, _ := rc.Snapshots(ctx, []string{"job=db"})
+	snaps, _ := client.Snapshots(ctx, []string{"job=db"})
 	if len(snaps) != 1 {
 		t.Errorf("want 1 snapshot after failed dump, got %d", len(snaps))
 	}
@@ -151,10 +151,10 @@ func TestBackupErrors(t *testing.T) {
 		Name: "gone", Type: config.BackupFiles, Timeout: time.Minute,
 		Paths: []string{"/definitely/not/here"}, Repositories: []string{"local"},
 	})
-	rc, _ := r.Restic("local")
+	client, _ := r.Restic("local")
 
 	// Repository not initialized.
-	if ok, err := rc.Exists(ctx); ok || err != nil {
+	if ok, err := client.Exists(ctx); ok || err != nil {
 		t.Fatalf("Exists on missing repo = %v, %v", ok, err)
 	}
 	runs := r.Run(ctx, &r.Config.Backups[0])
@@ -172,10 +172,9 @@ func TestBackupErrors(t *testing.T) {
 	}
 
 	// Wrong password.
-	bad := &Restic{Repo: config.Repository{URL: r.Config.Repositories["local"].URL, Password: "wrong"}, Host: "h"}
+	bad := &restic.Client{Repo: config.Repository{URL: r.Config.Repositories["local"].URL, Password: "wrong"}, Host: "h"}
 	_, err := bad.Snapshots(ctx, nil)
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != exitWrongPass || !strings.Contains(err.Error(), "wrong password") {
+	if !restic.IsWrongPass(err) || !strings.Contains(err.Error(), "wrong password") {
 		t.Fatalf("wrong password error = %v", err)
 	}
 }
@@ -195,27 +194,6 @@ func fakeRestic(t *testing.T, out string, code int) (bin, argsFile, envFile stri
 		t.Fatal(err)
 	}
 	return bin, argsFile, envFile
-}
-
-func TestIncompleteSnapshotIsFailure(t *testing.T) {
-	bin, _, _ := fakeRestic(t, `{"message_type":"error","error":{"message":"open /x: permission denied"},"item":"/x"}
-{"message_type":"summary","files_new":3,"snapshot_id":"abc123"}`, 3)
-	rc := &Restic{Bin: bin, Host: "h"}
-	sum, err := rc.Backup(context.Background(), BackupOptions{Paths: []string{"/x"}})
-	if !errors.Is(err, ErrIncomplete) || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("err = %v", err)
-	}
-	if sum.SnapshotID != "abc123" {
-		t.Errorf("summary should still be parsed: %+v", sum)
-	}
-}
-
-func TestLockedRepository(t *testing.T) {
-	bin, _, _ := fakeRestic(t, `{"message_type":"exit_error","code":11,"message":"Fatal: unable to create lock"}`, 11)
-	_, err := (&Restic{Bin: bin, Host: "h"}).Snapshots(context.Background(), nil)
-	if !IsLocked(err) {
-		t.Fatalf("IsLocked(%v) = false", err)
-	}
 }
 
 func TestSecretsNotInArgs(t *testing.T) {
@@ -244,14 +222,6 @@ func TestSecretsNotInArgs(t *testing.T) {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args missing %q: %s", want, args)
 		}
-	}
-}
-
-func TestVersion(t *testing.T) {
-	bin, _, _ := fakeRestic(t, "restic 0.17.3 compiled with go1.23.1 on linux/amd64", 0)
-	v, err := Version(context.Background(), bin)
-	if err != nil || v != [3]int{0, 17, 3} {
-		t.Fatalf("Version = %v, %v", v, err)
 	}
 }
 

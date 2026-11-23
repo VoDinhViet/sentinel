@@ -10,8 +10,11 @@ Complements the user's global naming rules (name a value after what it holds; pl
 callback params; `xByY` maps; no generic `rows`/`data`/`result`/`out`). The migration to these names is in progress, so code
 you touch should already use them.
 
-**Short names.** Use the shortest name that still says what the value is. The package gives context (`store.Prune`, not
-`store.PruneCheckHistory`). Rename only when the old name is wrong or means two things; never lengthen a name for its own sake.
+**Short names, abbreviations welcome.** Use the shortest name that still says what the value is. Prefer the usual
+abbreviation of the thing over spelling it out: `repo`, `cfg`, `opts`, `msg`, `snap`/`snaps`, `st` (store), `sum`, `dur`,
+`ver`, `errs`. The package gives context (`store.Prune`, not `store.PruneCheckHistory`). Rename only when the old name is
+wrong or means two things; never lengthen a name for its own sake. An abbreviation must still name the entity: generic
+shapes (`r`, `x`, `v`, `row`, `data`, `result`, `list`, `items`) stay banned.
 
 ## Terms: one word per concept
 
@@ -19,7 +22,7 @@ you touch should already use them.
 |---|---|---|
 | Configured backup unit | `job` (`config.Job`, YAML `jobs:`) | `backup` for the config, `task` |
 | One execution of a job into one repo | `BackupRun` | `result`, `entry` |
-| restic copy; its id string | `snapshot`; `snapshotID` | `snap`; `snapshot` for a string |
+| restic copy; its id string | `snap` or `snapshot`; `snapID` | `snapshot` for a string |
 | restic repository | `repo` in Go identifiers; `repository` in YAML, CLI, docs, DB columns | mixing both in code |
 | Repo integrity check | `verify` (`Restic.Verify`, alert key `verify:`) | `check` |
 | Uptime | check (config) → `probe` (run it) → `CheckResult` (DB row); address is `endpoint` | `monitor`, `target` |

@@ -17,6 +17,7 @@ import (
 	"sentinel/internal/config"
 	"sentinel/internal/engine"
 	"sentinel/internal/notify"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -43,7 +44,7 @@ func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 
 	if needRestic {
 		f := finding{name: "restic"}
-		v, err := backup.Version(ctx, "")
+		v, err := restic.Version(ctx, "")
 		switch {
 		case err != nil:
 			f.err = fmt.Errorf("not usable: %w", err)
@@ -116,9 +117,9 @@ func runDoctor(ctx context.Context, cfg *config.Config, configPath string, openS
 	runner := &backup.Runner{Config: cfg}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Repositories)) {
 		repoFinding := finding{name: "repository " + name}
-		restic, _ := runner.Restic(name)
+		client, _ := runner.Restic(name)
 		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		initialized, err := restic.Exists(checkCtx)
+		initialized, err := client.Exists(checkCtx)
 		cancel()
 		switch {
 		case err != nil:

@@ -13,6 +13,7 @@ import (
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
 	"sentinel/internal/engine"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -35,9 +36,9 @@ func configuredJobRepositories(cfg *config.Config) []jobRepository {
 // are fields so tests can replace them.
 type manageActions struct {
 	runBackup func(ctx context.Context, job, repository string) ([]store.BackupRun, error)
-	snapshots func(ctx context.Context, job, repository string) ([]backup.Snapshot, error)
+	snapshots func(ctx context.Context, job, repository string) ([]restic.Snapshot, error)
 	// restore returns the command that loads a restored database dump, or "".
-	restore func(ctx context.Context, job, repository string, snapshot backup.Snapshot, target string) (string, error)
+	restore func(ctx context.Context, job, repository string, snapshot restic.Snapshot, target string) (string, error)
 	// The config file: read the jobs, save a database job, remove one.
 	listJobs  func() (configedit.Listing, error)
 	saveJob   func(original string, job configedit.Job) error
@@ -58,13 +59,13 @@ type manageActions struct {
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
-	jobAndRestic := func(jobName, repository string) (*config.Backup, *backup.Restic, error) {
+	jobAndRestic := func(jobName, repository string) (*config.Backup, *restic.Client, error) {
 		job, err := cfg.FindBackup(jobName)
 		if err != nil {
 			return nil, nil, err
 		}
-		restic, err := (&backup.Runner{Config: cfg}).Restic(repository)
-		return job, restic, err
+		client, err := (&backup.Runner{Config: cfg}).Restic(repository)
+		return job, client, err
 	}
 	return manageActions{
 		listJobs:  func() (configedit.Listing, error) { return configedit.List(configPath) },
@@ -95,12 +96,12 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			// The runner's job lock keeps this from overlapping the daemon or a CLI run.
 			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, &jobCopy), nil
 		},
-		snapshots: func(ctx context.Context, jobName, repository string) ([]backup.Snapshot, error) {
-			job, restic, err := jobAndRestic(jobName, repository)
+		snapshots: func(ctx context.Context, jobName, repository string) ([]restic.Snapshot, error) {
+			job, client, err := jobAndRestic(jobName, repository)
 			if err != nil {
 				return nil, err
 			}
-			snapshots, err := restic.Snapshots(ctx, backup.JobTags(job))
+			snapshots, err := client.Snapshots(ctx, backup.JobTags(job))
 			if err != nil {
 				return nil, err
 			}
@@ -109,20 +110,20 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			}
 			return snapshots, nil
 		},
-		restore: func(ctx context.Context, jobName, repository string, snapshot backup.Snapshot, target string) (string, error) {
-			job, restic, err := jobAndRestic(jobName, repository)
+		restore: func(ctx context.Context, jobName, repository string, snapshot restic.Snapshot, target string) (string, error) {
+			job, client, err := jobAndRestic(jobName, repository)
 			if err != nil {
 				return "", err
 			}
 			// Look the snapshot up among the job's own, as `backup restore` does.
-			own, err := restic.JobSnapshot(ctx, backup.JobTags(job), snapshot.ID)
-			if errors.Is(err, backup.ErrForeignSnapshot) {
+			own, err := client.JobSnapshot(ctx, backup.JobTags(job), snapshot.ID)
+			if errors.Is(err, restic.ErrForeignSnapshot) {
 				return "", fmt.Errorf("snapshot %s is not a snapshot of job %q in %s", shortID(snapshot.ID), jobName, repository)
 			}
 			if err != nil {
 				return "", err
 			}
-			if err := restic.Restore(ctx, own.ID, target); err != nil {
+			if err := client.Restore(ctx, own.ID, target); err != nil {
 				return "", err
 			}
 			if dbEngine, ok := engine.For(job.Type); ok {

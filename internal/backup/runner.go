@@ -1,3 +1,5 @@
+// Package backup runs configured backup jobs: dump, restic backup, retention, job
+// locking and recording the outcome of each run.
 package backup
 
 import (
@@ -8,6 +10,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/engine"
+	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
 
@@ -36,12 +39,12 @@ func JobTags(job *config.Backup) []string {
 }
 
 // Restic returns a client for one of the configured repositories.
-func (r *Runner) Restic(repoName string) (*Restic, error) {
+func (r *Runner) Restic(repoName string) (*restic.Client, error) {
 	repo, ok := r.Config.Repositories[repoName]
 	if !ok {
 		return nil, fmt.Errorf("unknown repository %q", repoName)
 	}
-	return &Restic{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName}, nil
+	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName}, nil
 }
 
 // Run backs the job up to each of its repositories in turn and applies
@@ -77,20 +80,20 @@ func (r *Runner) Run(ctx context.Context, job *config.Backup) []store.BackupRun 
 
 func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string) store.BackupRun {
 	run := store.BackupRun{Job: job.Name, Repository: repoName, StartedAt: r.now()}
-	log := slog.With("job", job.Name, "repository", repoName)
-	log.Info("backup started")
+	logger := slog.With("job", job.Name, "repository", repoName)
+	logger.Info("backup started")
 
 	fail := func(err error) store.BackupRun {
 		run.FinishedAt, run.Error = r.now(), err.Error()
-		log.Error("backup failed", "error", err)
+		logger.Error("backup failed", "error", err)
 		return run
 	}
 
-	rc, err := r.Restic(repoName)
+	client, err := r.Restic(repoName)
 	if err != nil {
 		return fail(err)
 	}
-	opts := BackupOptions{Tags: JobTags(job)}
+	opts := restic.BackupOptions{Tags: JobTags(job)}
 	if job.Type == config.BackupFiles {
 		opts.Paths, opts.Excludes = job.Paths, job.Exclude
 	} else {
@@ -106,18 +109,18 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 			defer dump.Cleanup()
 		}
 		opts.Command, opts.StdinFilename = dump.Command, dump.Filename
-		rc.ExtraEnv = append(rc.ExtraEnv, dump.Env...)
+		client.ExtraEnv = append(client.ExtraEnv, dump.Env...)
 	}
 
-	sum, err := rc.Backup(ctx, opts)
-	for try := 0; IsLocked(err) && try < r.LockRetries; try++ {
-		log.Warn("repository locked, retrying", "in", r.LockRetryDelay)
+	sum, err := client.Backup(ctx, opts)
+	for attempt := 0; restic.IsLocked(err) && attempt < r.LockRetries; attempt++ {
+		logger.Warn("repository locked, retrying", "in", r.LockRetryDelay)
 		select {
 		case <-ctx.Done():
 			return fail(fmt.Errorf("%w (gave up waiting for lock: %w)", err, ctx.Err()))
 		case <-time.After(r.LockRetryDelay):
 		}
-		sum, err = rc.Backup(ctx, opts)
+		sum, err = client.Backup(ctx, opts)
 	}
 	run.SnapshotID, run.FilesNew, run.FilesChanged = sum.SnapshotID, sum.FilesNew, sum.FilesChanged
 	run.BytesAdded, run.TotalBytes = sum.BytesAdded, sum.TotalBytes
@@ -126,14 +129,14 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 	}
 
 	run.Success = true
-	if err := rc.Forget(ctx, JobTags(job), job.Retention); err != nil {
+	if err := client.Forget(ctx, JobTags(job), job.Retention); err != nil {
 		// The new snapshot is safe, so the backup counts as successful; Error
 		// carries the retention failure and retention catches up next run.
 		run.Error = fmt.Sprintf("retention failed: %v", err)
-		log.Error("retention failed", "snapshot", sum.SnapshotID, "error", err)
+		logger.Error("retention failed", "snapshot", sum.SnapshotID, "error", err)
 	}
 	run.FinishedAt = r.now()
-	log.Info("backup finished", "snapshot", sum.SnapshotID[:min(8, len(sum.SnapshotID))],
+	logger.Info("backup finished", "snapshot", sum.SnapshotID[:min(8, len(sum.SnapshotID))],
 		"bytes_added", sum.BytesAdded, "duration", run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 	return run
 }

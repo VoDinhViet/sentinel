@@ -11,6 +11,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/engine"
+	"sentinel/internal/restic"
 )
 
 func (a *app) backupCmd() *cobra.Command {
@@ -176,7 +177,7 @@ func (a *app) backupCmd() *cobra.Command {
 				snapshot = snaps[len(snaps)-1].ID
 			} else {
 				jobSnapshot, err := rc.JobSnapshot(cmd.Context(), backup.JobTags(job), snapshot)
-				if errors.Is(err, backup.ErrForeignSnapshot) {
+				if errors.Is(err, restic.ErrForeignSnapshot) {
 					return fmt.Errorf("snapshot %s is not a snapshot of job %q in %s (see `sentinel backup list %s`)", snapshot, job.Name, repos[0], job.Name)
 				}
 				if err != nil {

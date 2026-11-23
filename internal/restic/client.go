@@ -1,0 +1,298 @@
+// Package restic drives the restic CLI against one repository.
+package restic
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
+
+	"sentinel/internal/config"
+)
+
+// restic exit codes (restic >= 0.17).
+const (
+	exitIncomplete   = 3  // snapshot created, but some source files could not be read
+	exitNoRepository = 10 // repository does not exist
+	exitLocked       = 11 // failed to lock repository
+	exitWrongPass    = 12
+)
+
+// ExitError is a non-zero restic exit with the most useful message we found.
+type ExitError struct {
+	Code    int
+	Message string
+}
+
+func (e *ExitError) Error() string {
+	return fmt.Sprintf("restic exit %d: %s", e.Code, e.Message)
+}
+
+// IsLocked reports whether err is restic failing to lock the repository.
+func IsLocked(err error) bool {
+	var exitErr *ExitError
+	return errors.As(err, &exitErr) && exitErr.Code == exitLocked
+}
+
+// IsWrongPass reports whether err is restic rejecting the repository password.
+func IsWrongPass(err error) bool {
+	var exitErr *ExitError
+	return errors.As(err, &exitErr) && exitErr.Code == exitWrongPass
+}
+
+// Client runs restic against a single repository.
+type Client struct {
+	Bin  string // default "restic"
+	Repo config.Repository
+	Host string
+	// ExtraEnv is appended to the environment (e.g. PGPASSWORD for pg_dump,
+	// which restic launches as a child process).
+	ExtraEnv []string
+}
+
+func (c *Client) bin() string {
+	if c.Bin == "" {
+		return "restic"
+	}
+	return c.Bin
+}
+
+// env passes the repository and secrets through the environment so they never
+// appear in the process list.
+func (c *Client) env() []string {
+	env := append(os.Environ(),
+		"RESTIC_REPOSITORY="+c.Repo.URL,
+		"RESTIC_PASSWORD="+c.Repo.Password,
+	)
+	for name, value := range c.Repo.Env {
+		env = append(env, name+"="+value)
+	}
+	return append(env, c.ExtraEnv...)
+}
+
+// run executes restic and returns stdout. On failure the error carries
+// restic's exit code and the message from its JSON error output or stderr.
+func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, c.bin(), args...)
+	cmd.Env = c.env()
+	// On cancel, ask restic to stop cleanly so it can release its lock.
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = 30 * time.Second
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	if err == nil {
+		return stdout.Bytes(), nil
+	}
+	if ctx.Err() != nil {
+		// restic retries backend errors for a long time; its last log line
+		// usually says why (e.g. "connection refused", "bucket does not exist").
+		if reason := errorMessage(stdout.Bytes(), stderr.Bytes()); reason != "" {
+			return stdout.Bytes(), fmt.Errorf("restic %s: %w (last output: %s)", args[0], ctx.Err(), reason)
+		}
+		return stdout.Bytes(), fmt.Errorf("restic %s: %w", args[0], ctx.Err())
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return stdout.Bytes(), fmt.Errorf("run restic: %w", err)
+	}
+	return stdout.Bytes(), &ExitError{Code: exitErr.ExitCode(), Message: errorMessage(stdout.Bytes(), stderr.Bytes())}
+}
+
+// message is one JSON line of restic's --json output.
+type message struct {
+	MessageType string `json:"message_type"`
+	Message     string `json:"message"`
+	Error       struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Item string `json:"item"`
+
+	// summary fields
+	FilesNew            int64  `json:"files_new"`
+	FilesChanged        int64  `json:"files_changed"`
+	DataAdded           int64  `json:"data_added"`
+	TotalBytesProcessed int64  `json:"total_bytes_processed"`
+	SnapshotID          string `json:"snapshot_id"`
+}
+
+// errorMessage prefers restic's JSON exit_error, then per-item errors, then
+// the last non-empty stderr line.
+func errorMessage(stdout, stderr []byte) string {
+	var exitMsg string
+	var itemErrs []string
+	for _, msg := range parseMessages(append(append([]byte{}, stdout...), stderr...)) {
+		switch msg.MessageType {
+		case "exit_error":
+			exitMsg = strings.TrimPrefix(msg.Message, "Fatal: ")
+		case "error":
+			itemErrs = append(itemErrs, msg.Error.Message)
+		}
+	}
+	if exitMsg != "" {
+		return exitMsg
+	}
+	if len(itemErrs) > 0 {
+		return strings.Join(itemErrs, "; ")
+	}
+	errLines := strings.Split(strings.TrimSpace(string(stderr)), "\n")
+	return strings.TrimSpace(errLines[len(errLines)-1])
+}
+
+func parseMessages(output []byte) []message {
+	var msgs []message
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var msg message
+		if json.Unmarshal(line, &msg) == nil && msg.MessageType != "" {
+			msgs = append(msgs, msg)
+		}
+	}
+	return msgs
+}
+
+type Summary struct {
+	SnapshotID   string
+	FilesNew     int64
+	FilesChanged int64
+	BytesAdded   int64
+	TotalBytes   int64
+}
+
+type BackupOptions struct {
+	Tags     []string
+	Paths    []string
+	Excludes []string
+	// Command, when set, is run by restic and its stdout is stored as
+	// StdinFilename. A non-zero exit fails the backup.
+	Command       []string
+	StdinFilename string
+}
+
+// ErrIncomplete means restic made a snapshot but could not read every file.
+var ErrIncomplete = errors.New("snapshot is incomplete: some files could not be read")
+
+func (c *Client) Backup(ctx context.Context, opts BackupOptions) (Summary, error) {
+	args := []string{"backup", "--json", "--host", c.Host}
+	for _, tag := range opts.Tags {
+		args = append(args, "--tag", tag)
+	}
+	for _, pattern := range opts.Excludes {
+		args = append(args, "--exclude", pattern)
+	}
+	if len(opts.Command) > 0 {
+		args = append(args, "--stdin-filename", opts.StdinFilename, "--stdin-from-command", "--")
+		args = append(args, opts.Command...)
+	} else {
+		args = append(args, "--")
+		args = append(args, opts.Paths...)
+	}
+
+	stdout, err := c.run(ctx, args...)
+	var sum Summary
+	for _, msg := range parseMessages(stdout) {
+		if msg.MessageType == "summary" {
+			sum = Summary{
+				SnapshotID:   msg.SnapshotID,
+				FilesNew:     msg.FilesNew,
+				FilesChanged: msg.FilesChanged,
+				BytesAdded:   msg.DataAdded,
+				TotalBytes:   msg.TotalBytesProcessed,
+			}
+		}
+	}
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) && exitErr.Code == exitIncomplete {
+		return sum, fmt.Errorf("%w (%s)", ErrIncomplete, exitErr.Message)
+	}
+	if err != nil {
+		return sum, err
+	}
+	if sum.SnapshotID == "" {
+		return sum, errors.New("restic reported success but no snapshot id")
+	}
+	return sum, nil
+}
+
+// Forget applies the retention policy to snapshots with the given tags on
+// this host, then prunes unreferenced data.
+func (c *Client) Forget(ctx context.Context, tags []string, retention config.Retention) error {
+	if retention.Empty() {
+		return nil
+	}
+	args := []string{"forget", "--json", "--prune", "--host", c.Host, "--group-by", "host,tags"}
+	if len(tags) > 0 {
+		args = append(args, "--tag", strings.Join(tags, ","))
+	}
+	for flag, keepN := range map[string]int{
+		"--keep-last": retention.Last, "--keep-daily": retention.Daily, "--keep-weekly": retention.Weekly,
+		"--keep-monthly": retention.Monthly, "--keep-yearly": retention.Yearly,
+	} {
+		if keepN > 0 {
+			args = append(args, flag, strconv.Itoa(keepN))
+		}
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+func (c *Client) Restore(ctx context.Context, snapshotID, targetDir string) error {
+	_, err := c.run(ctx, "restore", "--json", snapshotID, "--target", targetDir)
+	return err
+}
+
+// Init creates the repository (and the S3 bucket if needed). existed is true
+// if it was already initialized.
+func (c *Client) Init(ctx context.Context) (existed bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, initTimeout)
+	defer cancel()
+	_, err = c.run(ctx, "init", "--json")
+	var exitErr *ExitError
+	// The wording differs by backend: "config file already exists" (local),
+	// "repository master key and config already initialized" (s3).
+	if errors.As(err, &exitErr) && (strings.Contains(exitErr.Message, "already exists") ||
+		strings.Contains(exitErr.Message, "already initialized")) {
+		return true, nil
+	}
+	return false, err
+}
+
+// restic retries backend errors for ~15 minutes; these bound the calls that
+// should be quick so a misconfigured repository fails fast.
+const (
+	existsTimeout = 90 * time.Second
+	initTimeout   = 5 * time.Minute
+)
+
+// Exists reports whether the repository is initialized and the password works.
+func (c *Client) Exists(ctx context.Context) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, existsTimeout)
+	defer cancel()
+	_, err := c.run(ctx, "cat", "config", "--no-lock")
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) && exitErr.Code == exitNoRepository {
+		return false, nil
+	}
+	if err != nil && strings.Contains(err.Error(), "bucket does not exist") {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Verify checks repository integrity (structure only, no data read).
+func (c *Client) Verify(ctx context.Context) error {
+	_, err := c.run(ctx, "check", "--json")
+	return err
+}

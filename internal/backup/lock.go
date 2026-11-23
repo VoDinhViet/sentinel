@@ -21,11 +21,11 @@ func (r *Runner) lockJob(jobName string) (held bool, release func(), err error) 
 	if r.Config == nil || r.Config.Store == "" {
 		return true, func() {}, nil // no state directory (tests): nothing to lock
 	}
-	dir := filepath.Join(filepath.Dir(r.Config.Store), "locks")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	lockDir := filepath.Join(filepath.Dir(r.Config.Store), "locks")
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return false, func() {}, fmt.Errorf("create lock directory: %w", err)
 	}
-	lockFile, err := os.OpenFile(filepath.Join(dir, "job-"+url.PathEscape(jobName)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lockFile, err := os.OpenFile(filepath.Join(lockDir, "job-"+url.PathEscape(jobName)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return false, func() {}, fmt.Errorf("open job lock: %w", err)
 	}
