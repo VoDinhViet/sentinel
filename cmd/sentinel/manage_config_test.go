@@ -116,7 +116,7 @@ func TestAddAnS3RepositoryFromTheConfigTab(t *testing.T) {
 	if got.Name != "offsite" || got.URL != "s3:s3.amazonaws.com/my-bucket/web-01" || got.PasswordEnv != "RESTIC_PW" || got.Env[awsKeyID] != "S3_ID" || got.Env[awsSecretKey] != "S3_SECRET" {
 		t.Errorf("saved repository = %+v", got)
 	}
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "Added repository offsite") {
+	if screen.mode != modeTable || !strings.Contains(screen.notice, "Đã thêm repository offsite") {
 		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
 	}
 }
@@ -127,7 +127,7 @@ func TestRepositoryFormShowsEveryMissingPartAtOnce(t *testing.T) {
 	screen.form.field("password_env").value = ""
 	screen = keys(t, screen, "ctrl+s")
 	view := plain(screen.render())
-	for _, want := range []string{"✗ invalid repository name", "✗ cần nhập thư mục", "✗ name the environment variable"} {
+	for _, want := range []string{"✗ tên repository", "✗ cần nhập thư mục", "✗ nhập tên biến môi trường"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the form lacks %q after a save attempt:\n%s", want, view)
 		}
@@ -172,7 +172,7 @@ func TestRemoveRepositoryRefusesOneInUse(t *testing.T) {
 	}
 	screen = typeText(t, screen, "local")
 	screen = keys(t, screen, "enter")
-	if len(configFile.removed) != 1 || configFile.removed[0] != "repository local" || screen.mode != modeTable || !strings.Contains(screen.notice, "Removed repository local") {
+	if len(configFile.removed) != 1 || configFile.removed[0] != "repository local" || screen.mode != modeTable || !strings.Contains(screen.notice, "Đã xoá repository local") {
 		t.Errorf("removed %v mode %d notice %q", configFile.removed, screen.mode, screen.notice)
 	}
 }
@@ -212,7 +212,7 @@ func TestNotifierFormAsksForVariableNamesAndKeepsLiteralSecrets(t *testing.T) {
 	screen.form.field("smtp.host").value = "smtp.example.com"
 	screen.form.field("smtp.pass").value = "SMTP_PASS"
 	screen = keys(t, screen, "ctrl+s")
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "✗ to is required") {
+	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "là bắt buộc") {
 		t.Errorf("a notifier without recipients stays open (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen.form.field("smtp.to").value = "ops@example.com, dev@example.com"

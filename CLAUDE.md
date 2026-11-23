@@ -5,5 +5,5 @@ alerts). It is a CLI plus a daemon (`sentinel run`) driven by a YAML config; the
 
 - **Done means `make test` is green.** `make e2e` and `make e2e-engines` need docker.
 - No AI/LLM features in the product: status and alerts are rule-based (thresholds, schedules).
-- README, runbooks and `gm/` are Vietnamese, and so are the command and flag descriptions in `--help`; the screens of `sentinel manage` are in English; messages, errors, logs, code, comments and commit messages are English.
+- README, runbooks and `gm/` are Vietnamese, and so are the command and flag descriptions in `--help` and the screens of `sentinel manage` and `sentinel init` (technical terms such as job, backup, snapshot, restore, repository, retention and schedule stay in English); log lines, restic/engine errors, code, comments and commit messages are English.
 - Path-scoped rules live in `.claude/rules/` (Go code, deploy/ops).

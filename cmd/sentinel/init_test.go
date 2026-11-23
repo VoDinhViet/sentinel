@@ -78,7 +78,7 @@ func TestInitFormAsksForADatabaseWhenTheJobIsOne(t *testing.T) {
 	if program.saved || len(*written) != 0 || program.form.fields[program.form.focus].key != "job_database" {
 		t.Fatalf("a database job needs a database (saved %v, focus %q)", program.saved, program.form.fields[program.form.focus].key)
 	}
-	if !strings.Contains(plain(program.render()), "✗ database name is required") {
+	if !strings.Contains(plain(program.render()), "✗ cần nhập tên database") {
 		t.Errorf("problem under the field:\n%s", plain(program.render()))
 	}
 	program.form.field("job_database").value = "app"
@@ -96,7 +96,7 @@ func TestInitFormShowsEveryProblemOnItsOwnField(t *testing.T) {
 	program.form.field("job_name").value = ""
 	program = pressInit(t, program, "ctrl+s")
 	view := plain(program.render())
-	for _, want := range []string{"✗ invalid repository name", "✗ cần nhập thư mục", "✗ invalid schedule", "✗ invalid job name"} {
+	for _, want := range []string{"✗ tên repository", "✗ cần nhập thư mục", "✗ schedule không hợp lệ", "✗ tên job"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("init form lacks %q:\n%s", want, view)
 		}

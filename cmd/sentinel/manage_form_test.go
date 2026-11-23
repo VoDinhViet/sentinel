@@ -182,10 +182,10 @@ func TestFormShowsProblemsUnderTheFieldOnlyOnceVisitedOrTried(t *testing.T) {
 	}
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "a b")
-	if view := plain(screen.render()); !strings.Contains(view, "✗ invalid job name") {
+	if view := plain(screen.render()); !strings.Contains(view, "✗ tên job") {
 		t.Errorf("the name problem shows as soon as it is typed:\n%s", view)
 	}
-	if strings.Contains(plain(screen.render()), "database name is required") {
+	if strings.Contains(plain(screen.render()), "cần nhập tên database") {
 		t.Error("the database field has not been visited yet")
 	}
 
@@ -194,7 +194,7 @@ func TestFormShowsProblemsUnderTheFieldOnlyOnceVisitedOrTried(t *testing.T) {
 		t.Fatalf("an invalid form must stay open on the first problem (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
 	}
 	screen.form.field("name").value = "ok"
-	if view := plain(screen.render()); !strings.Contains(view, "✗ database name is required") {
+	if view := plain(screen.render()); !strings.Contains(view, "✗ cần nhập tên database") {
 		t.Errorf("after a save attempt every problem shows:\n%s", view)
 	}
 }
@@ -248,7 +248,7 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "inherits", "x"
 	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab", "tab") // schedule
-	if view := plain(screen.render()); !strings.Contains(view, "mặc định: daily 02:00") || !strings.Contains(view, "→ every day at 02:00") {
+	if view := plain(screen.render()); !strings.Contains(view, "mặc định: daily 02:00") || !strings.Contains(view, "→ mỗi ngày lúc 02:00") {
 		t.Errorf("an empty schedule shows the default and what it means:\n%s", view)
 	}
 	screen = keys(t, screen, "right")
@@ -264,11 +264,11 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 		t.Errorf("alt+↑ moves the time, alt+→ the weekday: %q", got)
 	}
 	view := plain(screen.render())
-	if !strings.Contains(view, "every Monday at 03:00") || !strings.Contains(view, "sau đó ") || len(runDates.FindAllString(view, -1)) < 3 {
+	if !strings.Contains(view, "mỗi Thứ Hai lúc 03:00") || !strings.Contains(view, "sau đó ") || len(runDates.FindAllString(view, -1)) < 3 {
 		t.Errorf("preview names the schedule and lists three runs:\n%s", view)
 	}
 	screen = typeText(t, screen, " nonsense")
-	if view := plain(screen.render()); !strings.Contains(view, "✗ invalid schedule") {
+	if view := plain(screen.render()); !strings.Contains(view, "✗ schedule không hợp lệ") {
 		t.Errorf("a bad schedule is flagged as it is typed:\n%s", view)
 	}
 
@@ -364,7 +364,7 @@ func TestNewFilesJobNeedsAPath(t *testing.T) {
 	if screen.mode != modeForm || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "paths" {
 		t.Fatalf("a files job without a path must stay in the form on the paths (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
 	}
-	if !strings.Contains(plain(screen.render()), "✗ give at least one path") {
+	if !strings.Contains(plain(screen.render()), "✗ nhập ít nhất một đường dẫn") {
 		t.Errorf("the problem is shown under Paths:\n%s", plain(screen.render()))
 	}
 }

@@ -103,7 +103,7 @@ func TestPathsFieldShowsSuggestionsAndAddsThemByKeyAndByClick(t *testing.T) {
 	screen := pathsForm(t)
 	screen.width = 300 // the temporary folders have long names
 	view := plain(screen.render())
-	if !strings.Contains(view, "add: 1 "+filepath.Join(root, "etc")) || !strings.Contains(view, "2 "+filepath.Join(root, "var/www")) {
+	if !strings.Contains(view, "thêm: 1 "+filepath.Join(root, "etc")) || !strings.Contains(view, "2 "+filepath.Join(root, "var/www")) {
 		t.Fatalf("the suggestions are not under the focused Paths field:\n%s", view)
 	}
 
@@ -111,7 +111,7 @@ func TestPathsFieldShowsSuggestionsAndAddsThemByKeyAndByClick(t *testing.T) {
 	if got := screen.form.field("paths").value; got != filepath.Join(root, "var/www") {
 		t.Fatalf("alt+2 adds the second suggestion: %q", got)
 	}
-	if view := plain(screen.render()); strings.Contains(view, "2 "+filepath.Join(root, "var/www")) && strings.Contains(view, "add: 1 "+filepath.Join(root, "etc")+"  2 "+filepath.Join(root, "var/www")) {
+	if view := plain(screen.render()); strings.Contains(view, "2 "+filepath.Join(root, "var/www")) && strings.Contains(view, "thêm: 1 "+filepath.Join(root, "etc")+"  2 "+filepath.Join(root, "var/www")) {
 		t.Errorf("a folder in the field is no longer suggested:\n%s", view)
 	}
 
@@ -129,12 +129,12 @@ func TestSuggestionsShowOnlyOnTheFocusedPathsFieldAndOnlyForFilesJobs(t *testing
 	fakeServer(t)
 	screen := pathsForm(t)
 	screen.form.focus = fieldIndex(screen, "name")
-	if view := plain(screen.render()); strings.Contains(view, "add: 1") {
+	if view := plain(screen.render()); strings.Contains(view, "thêm: 1") {
 		t.Errorf("suggestions belong to the focused Paths field:\n%s", view)
 	}
 	screen.form.field("type").value = config.JobPostgres
 	screen.form.focus = fieldIndex(screen, "database")
-	if view := plain(screen.render()); strings.Contains(view, "add: 1") || strings.Contains(view, "Paths") {
+	if view := plain(screen.render()); strings.Contains(view, "thêm: 1") || strings.Contains(view, "Đường dẫn") {
 		t.Errorf("a database job has no Paths:\n%s", view)
 	}
 }
@@ -144,7 +144,7 @@ func TestInitFormSuggestsFoldersForTheFirstJob(t *testing.T) {
 	program, _ := initScreen(t, false)
 	program.form.focus = fieldIndex(program.manageModel, "job_paths")
 	program.width = 300
-	if view := plain(program.render()); !strings.Contains(view, "add: 1 "+filepath.Join(root, "etc")) {
+	if view := plain(program.render()); !strings.Contains(view, "thêm: 1 "+filepath.Join(root, "etc")) {
 		t.Errorf("init suggests folders too:\n%s", view)
 	}
 	program = pressInit(t, program, "alt+1")

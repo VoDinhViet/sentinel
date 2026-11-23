@@ -133,7 +133,7 @@ func translate(spec string) (expression, description string, err error) {
 		if err != nil || interval < time.Minute {
 			return invalid("khoảng cách phải là một khoảng thời gian tối thiểu 1m, ví dụ `every 6h`")
 		}
-		return "@every " + interval.String(), "every " + interval.String(), nil
+		return "@every " + interval.String(), "mỗi " + interval.String(), nil
 	}
 	return trimmedSpec, "cron " + trimmedSpec, nil
 }
