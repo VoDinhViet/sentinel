@@ -28,26 +28,58 @@ func screenRow(m manageModel, y int) string {
 	return rows[y]
 }
 
-func TestMouseTabBarAndTableRowsLineUpWithTheScreen(t *testing.T) {
+// targetFor renders the screen and returns the click target with that action.
+func targetFor(t *testing.T, m manageModel, action string) clickTarget {
+	t.Helper()
+	m.render()
+	for _, target := range m.hits.targets {
+		if target.action == action {
+			return target
+		}
+	}
+	t.Fatalf("no click target %q on the screen: %+v", action, m.hits.targets)
+	return clickTarget{}
+}
+
+// clickOn clicks the middle of the target with that action.
+func clickOn(t *testing.T, m manageModel, action string) (manageModel, tea.Cmd) {
+	t.Helper()
+	target := targetFor(t, m, action)
+	return click(t, m, (target.from+target.to)/2, target.row)
+}
+
+func TestMouseTargetsLineUpWithTheScreen(t *testing.T) {
 	m := loadedModel(t)
-	if !strings.Contains(screenRow(m, tabBarRow), "1 Backups") || !strings.Contains(screenRow(m, firstTableRow), "appdb") {
-		t.Fatalf("the geometry constants do not match the screen:\ntab bar row: %q\nfirst line: %q", screenRow(m, tabBarRow), screenRow(m, firstTableRow))
+	if row := screenRow(m, targetFor(t, m, "tab:0").row); !strings.Contains(row, "1 Backups") || !strings.Contains(row, "2 Uptime") {
+		t.Errorf("the tab targets are not on the tab bar: %q", row)
+	}
+	if row := screenRow(m, targetFor(t, m, "row:0").row); !strings.Contains(row, "appdb") {
+		t.Errorf("row 0 is not the first job: %q", row)
+	}
+	if row := screenRow(m, targetFor(t, m, "row:2").row); !strings.Contains(row, "mongo") {
+		t.Errorf("row 2 is not the third job: %q", row)
+	}
+	if row := screenRow(m, targetFor(t, m, "b").row); !strings.Contains(row, "b backup") {
+		t.Errorf("the b chip is not in the footer: %q", row)
 	}
 
-	m, _ = click(t, m, 16, tabBarRow) // "2 Uptime"
+	m, _ = clickOn(t, m, "tab:1")
 	if m.tab != 1 || m.cursor != 0 {
 		t.Fatalf("clicking the second tab: tab %d cursor %d", m.tab, m.cursor)
 	}
-	m, _ = click(t, m, 1, tabBarRow) // "1 Backups"
+	if row := screenRow(m, targetFor(t, m, "row:1").row); !strings.Contains(row, "api") {
+		t.Errorf("the Uptime rows are targets too: %q", row)
+	}
+	m, _ = clickOn(t, m, "tab:0")
 	if m.tab != 0 {
 		t.Fatalf("clicking the first tab: tab %d", m.tab)
 	}
-	m, _ = click(t, m, 1, tabBarRow-1) // the summary line
+	m, _ = click(t, m, 1, 1) // the summary line
 	if m.tab != 0 {
 		t.Error("only the tab bar row switches tabs")
 	}
 
-	m, cmd := click(t, m, 5, firstTableRow+1) // the second job
+	m, cmd := clickOn(t, m, "row:1")
 	if m.cursor != 1 || cmd != nil {
 		t.Fatalf("clicking a line selects it: cursor %d", m.cursor)
 	}
@@ -56,14 +88,69 @@ func TestMouseTabBarAndTableRowsLineUpWithTheScreen(t *testing.T) {
 	}
 }
 
+func TestMouseTargetsFollowAScrolledTableAndNarrowFooter(t *testing.T) {
+	m := loadedModel(t)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 44, Height: 14}) // 3 visible rows
+	m = model.(manageModel)
+	m.cursor = 2
+	for _, action := range []string{"row:0", "row:1", "row:2", "b", "s", "q"} {
+		target := targetFor(t, m, action)
+		if target.to > 44 {
+			t.Errorf("target %q reaches column %d on a 44-column screen", action, target.to)
+		}
+	}
+	if m2, cmd := clickOn(t, modelWithNarrow(t), "s"); m2.mode != modeBusy || cmd == nil {
+		t.Errorf("clicking the s chip lists the snapshots (mode %d)", m2.mode)
+	}
+}
+
+// modelWithNarrow is a 44-column screen with working actions.
+func modelWithNarrow(t *testing.T) manageModel {
+	t.Helper()
+	model, _ := modelWith(t, &fakeActions{}).Update(tea.WindowSizeMsg{Width: 44, Height: 14})
+	return model.(manageModel)
+}
+
+func TestMouseFooterChipsPressTheirKeys(t *testing.T) {
+	m := loadedModel(t)
+	m, _ = clickOn(t, m, "?")
+	if m.mode != modeHelp {
+		t.Fatalf("the ? chip opens the help (mode %d)", m.mode)
+	}
+	m, _ = clickOn(t, m, "esc") // "any key" closes
+	if m.mode != modeTable {
+		t.Fatalf("clicking the help footer closes it (mode %d)", m.mode)
+	}
+	m, cmd := clickOn(t, m, "q")
+	if !m.quitting || cmd == nil {
+		t.Error("the q chip quits")
+	}
+}
+
+func TestSelectedLineHasABackground(t *testing.T) {
+	m := loadedModel(t)
+	rows := strings.Split(m.render(), "\n")
+	selected := rows[targetFor(t, m, "row:0").row]
+	other := rows[targetFor(t, m, "row:1").row]
+	if !strings.Contains(selected, "48;5;18") {
+		t.Errorf("the selected line has no background: %q", selected)
+	}
+	if strings.Contains(other, "48;5;18") {
+		t.Errorf("only the selected line has the background: %q", other)
+	}
+	if width := len([]rune(plain(selected))); width != m.width {
+		t.Errorf("the background covers %d of %d columns", width, m.width)
+	}
+}
+
 func TestMouseSecondClickOpensTheJobSnapshots(t *testing.T) {
 	fake := &fakeActions{}
 	m := modelWith(t, fake)
-	m, _ = click(t, m, 5, firstTableRow+1)
+	m, _ = clickOn(t, m, "row:1")
 	if m.mode != modeTable || m.cursor != 1 {
 		t.Fatal("a click on another line only selects it")
 	}
-	m, cmd := click(t, m, 5, firstTableRow+1)
+	m, cmd := clickOn(t, m, "row:1")
 	if m.mode != modeBusy || cmd == nil {
 		t.Fatalf("a second click on the selected job opens it (mode %d)", m.mode)
 	}
@@ -72,14 +159,14 @@ func TestMouseSecondClickOpensTheJobSnapshots(t *testing.T) {
 		t.Fatalf("snapshot list missing (mode %d)", m.mode)
 	}
 
-	if !strings.Contains(screenRow(m, snapshotListTop), "newest00") {
-		t.Fatalf("snapshot rows do not start at row %d:\n%s", snapshotListTop, plain(m.render()))
+	if row := screenRow(m, targetFor(t, m, "snap:0").row); !strings.Contains(row, "newest00") {
+		t.Fatalf("snapshot 0 is not at its target row: %q\n%s", row, plain(m.render()))
 	}
-	m, _ = click(t, m, 5, snapshotListTop+1)
+	m, _ = clickOn(t, m, "snap:1")
 	if m.snapshotCursor != 1 {
 		t.Errorf("clicking a snapshot selects it: %d", m.snapshotCursor)
 	}
-	m, _ = click(t, m, 5, snapshotListTop+1)
+	m, _ = clickOn(t, m, "snap:1")
 	if m.mode != modeTarget || m.chosen.ID != "older00000000000" {
 		t.Errorf("a second click starts the restore (mode %d, chosen %q)", m.mode, m.chosen.ID)
 	}
@@ -99,7 +186,8 @@ func TestMouseWheelScrollsAndStaysInRange(t *testing.T) {
 
 func TestMouseIsIgnoredWhileTypingAndForOtherButtons(t *testing.T) {
 	m := loadedModel(t)
-	model, _ := m.Update(tea.MouseClickMsg{X: 16, Y: tabBarRow, Button: tea.MouseRight})
+	tabTarget := targetFor(t, m, "tab:1")
+	model, _ := m.Update(tea.MouseClickMsg{X: tabTarget.from, Y: tabTarget.row, Button: tea.MouseRight})
 	if model.(manageModel).tab != 0 {
 		t.Error("only the left button clicks")
 	}
@@ -107,9 +195,13 @@ func TestMouseIsIgnoredWhileTypingAndForOtherButtons(t *testing.T) {
 	form, _ := withConfig.onKey("a", "")
 	typing := form.(manageModel)
 	before := typing.form.focus
-	typing, _ = click(t, typing, 5, firstTableRow)
+	typing, _ = click(t, typing, 5, 4)
 	if typing.mode != modeForm || typing.form.focus != before {
-		t.Error("a click must not touch the form")
+		t.Error("a click must not touch the form fields")
+	}
+	typing, _ = clickOn(t, typing, "esc")
+	if typing.mode != modeTable {
+		t.Error("the cancel chip of the form works with the mouse")
 	}
 }
 
@@ -162,5 +254,25 @@ func TestHelpKeyIsTextInForms(t *testing.T) {
 func TestFooterMentionsHelp(t *testing.T) {
 	if !strings.Contains(plain(loadedModel(t).render()), "? help") {
 		t.Error("the footer should point to the help")
+	}
+}
+
+func TestClickTargetsNeverOverlap(t *testing.T) {
+	for _, width := range []int{44, 80, 120} {
+		m := loadedModel(t)
+		model, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 30})
+		m = model.(manageModel)
+		for tab := range m.tabs() {
+			m.tab = tab
+			m.render()
+			targets := m.hits.targets
+			for i, one := range targets {
+				for _, other := range targets[i+1:] {
+					if one.row == other.row && one.from < other.to && other.from < one.to {
+						t.Errorf("width %d, tab %d: %+v overlaps %+v", width, tab, one, other)
+					}
+				}
+			}
+		}
 	}
 }

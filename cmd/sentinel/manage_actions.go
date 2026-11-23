@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
@@ -117,20 +119,17 @@ func (m manageModel) renderBusy() []string {
 	return []string{
 		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
 		"",
-		m.keyBar("ctrl+c", "cancel"),
+		m.keyBar(2, "ctrl+c", "cancel"),
 	}
 }
 
 func (m manageModel) renderSnapshots() []string {
 	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", m.snapshotJob, m.snapshotRepo)), ""}
 	if len(m.snapshots) == 0 {
-		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", m.keyBar("esc", "back"))
+		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", m.keyBar(len(screenLines)+2, "esc", "back"))
 	}
 	visible := max(m.height-8, 3)
-	first := 0
-	if m.snapshotCursor >= visible {
-		first = m.snapshotCursor - visible + 1
-	}
+	first := firstVisible(m.snapshotCursor, visible)
 	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "TIME", "SIZE")))
 	for i := first; i < min(first+visible, len(m.snapshots)); i++ {
 		snapshot := m.snapshots[i]
@@ -139,8 +138,10 @@ func (m manageModel) renderSnapshots() []string {
 			size = humanBytes(snapshot.Summary.TotalBytes)
 		}
 		line := fmt.Sprintf("%-10s %-17s %s", shortID(snapshot.ID), snapshot.Time.Local().Format("2006-01-02 15:04"), size)
+		m.hits.add(len(screenLines), 0, m.width, fmt.Sprintf("snap:%d", i))
 		if i == m.snapshotCursor {
-			screenLines = append(screenLines, selectedStyle.Render("› "+line))
+			text := "› " + line
+			screenLines = append(screenLines, selectedStyle.Render(text+strings.Repeat(" ", max(m.width-lipgloss.Width(text), 0))))
 		} else {
 			screenLines = append(screenLines, "  "+line)
 		}
@@ -148,7 +149,7 @@ func (m manageModel) renderSnapshots() []string {
 	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
 		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 	}
-	return append(screenLines, "", m.keyBar("↑↓", "select", "enter", "restore…", "esc", "back"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "select", "enter", "restore…", "esc", "back"))
 }
 
 func (m manageModel) renderTarget() []string {
@@ -161,7 +162,7 @@ func (m manageModel) renderTarget() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar("enter", "continue", "esc", "back"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "continue", "esc", "back"))
 }
 
 func (m manageModel) renderConfirm() []string {
@@ -178,7 +179,7 @@ func (m manageModel) renderConfirm() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar("enter", "restore", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "restore", "esc", "cancel"))
 }
 
 func (m manageModel) renderResult() []string {
@@ -191,7 +192,7 @@ func (m manageModel) renderResult() []string {
 	if rest != "" {
 		screenLines = append(screenLines, rest)
 	}
-	return append(screenLines, "", m.keyBar("any key", "continue"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "continue"))
 }
 
 func lipglossAccent(text string) string {

@@ -375,7 +375,7 @@ func (m manageModel) renderForm() []string {
 	if m.form.problem != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(wrap(m.form.problem, m.width-2)))
 	}
-	return append(screenLines, "", m.keyBar("tab", "next", "enter", "next/save", "ctrl+s", "save", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "next", "enter", "next/save", "ctrl+s", "save", "esc", "cancel"))
 }
 
 func (m manageModel) renderDelete() []string {
@@ -390,5 +390,5 @@ func (m manageModel) renderDelete() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar("enter", "remove", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "remove", "esc", "cancel"))
 }

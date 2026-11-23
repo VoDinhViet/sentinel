@@ -45,5 +45,5 @@ func (m manageModel) renderHelp() []string {
 	for _, entry := range keys {
 		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", entry.key)), wrap(entry.does, max(m.width-18, 20))))
 	}
-	return append(screenLines, "", m.keyBar("any key", "close"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "close"))
 }

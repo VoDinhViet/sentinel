@@ -134,6 +134,8 @@ type manageModel struct {
 	helpReturn manageMode // the screen the key list was opened from
 
 	doctor doctorState
+
+	hits *hitMap // where a click lands, rebuilt by every render
 }
 
 type (
@@ -160,7 +162,7 @@ type (
 )
 
 func newManageModel(ctx context.Context, load func() (statusReport, error), actions manageActions, jobRepositories []jobRepository) manageModel {
-	return manageModel{ctx: ctx, load: load, actions: actions, jobRepositories: jobRepositories, width: 100, height: 30}
+	return manageModel{ctx: ctx, load: load, actions: actions, jobRepositories: jobRepositories, width: 100, height: 30, hits: &hitMap{}}
 }
 
 func (m manageModel) Init() tea.Cmd {
@@ -596,10 +598,13 @@ var (
 	colourBad  = lipgloss.Color("1")
 	colourAcc  = lipgloss.Color("4")
 
-	titleStyle          = lipgloss.NewStyle().Bold(true)
-	dimStyle            = lipgloss.NewStyle().Faint(true)
-	headerStyle         = lipgloss.NewStyle().Bold(true).Faint(true)
-	selectedStyle       = lipgloss.NewStyle().Reverse(true)
+	titleStyle  = lipgloss.NewStyle().Bold(true)
+	dimStyle    = lipgloss.NewStyle().Faint(true)
+	headerStyle = lipgloss.NewStyle().Bold(true).Faint(true)
+	// The selected line is painted with a background; the severity colours on it are the
+	// bright ones so that red, green and yellow stay readable on that background.
+	colourSelected      = lipgloss.Color("18")
+	selectedStyle       = lipgloss.NewStyle().Background(colourSelected).Foreground(lipgloss.Color("15"))
 	activeTab           = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
 	keyStyle            = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
 	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
@@ -615,6 +620,12 @@ func severityStyle(s severity) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(colourOK)
 }
 
+// selectedSeverityStyle is severityStyle on the selected line's background.
+func selectedSeverityStyle(s severity) lipgloss.Style {
+	bright := map[severity]string{sevOK: "10", sevWarn: "11", sevBad: "9"}[s]
+	return selectedStyle.Foreground(lipgloss.Color(bright)).Bold(s != sevOK)
+}
+
 func (m manageModel) View() tea.View {
 	view := tea.NewView(m.render())
 	view.AltScreen = true
@@ -626,7 +637,9 @@ func (m manageModel) render() string {
 	if m.quitting {
 		return ""
 	}
+	m.hits.reset()
 	screenLines := m.renderHeader()
+	m.hits.offset = len(screenLines)
 	switch m.mode {
 	case modeBusy:
 		screenLines = append(screenLines, m.renderBusy()...)
@@ -666,7 +679,10 @@ func (m manageModel) renderTabs() []string {
 	tabs := m.tabs()
 	var screenLines []string
 	var tabBar []string
+	column := 0
 	for i, label := range m.tabLabels() {
+		m.hits.add(0, column, lipgloss.Width(label), fmt.Sprintf("tab:%d", i))
+		column += lipgloss.Width(label) + lipgloss.Width(m.tabGap())
 		switch {
 		case i == m.tab:
 			tabBar = append(tabBar, activeTab.Render(label))
@@ -686,7 +702,7 @@ func (m manageModel) renderTabs() []string {
 	tab := tabs[m.tab]
 	// Lines available for the table: the screen minus title, summary, tabs, rules,
 	// column header, detail, notice and footer.
-	screenLines = append(screenLines, m.renderTable(tab, m.visibleRows())...)
+	screenLines = append(screenLines, m.renderTable(tab, m.visibleRows(), len(screenLines))...)
 
 	screenLines = append(screenLines, rule)
 	if len(tab.lines) > 0 {
@@ -701,13 +717,14 @@ func (m manageModel) renderTabs() []string {
 		}
 		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
-	footer := m.keyBar("tab", "switch", "↑↓", "select", "r", "refresh", "?", "help", "q", "quit")
-	if m.tab == doctorTab {
-		footer = m.keyBar("tab", "switch", "↑↓", "select", "r", "run checks", "?", "help", "q", "quit")
+	footerKeys := []string{"tab", "switch", "↑↓", "select", "r", "refresh", "?", "help", "q", "quit"}
+	switch m.tab {
+	case doctorTab:
+		footerKeys = []string{"tab", "switch", "↑↓", "select", "r", "run checks", "?", "help", "q", "quit"}
+	case 0:
+		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit"}
 	}
-	if m.tab == 0 {
-		footer = m.keyBar("b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit")
-	}
+	footer := m.keyBar(len(screenLines)+1, footerKeys...)
 	return append(screenLines, "", footer)
 }
 
@@ -747,7 +764,8 @@ func (m manageModel) emptyText(tab int) string {
 	}[tab]
 }
 
-func (m manageModel) renderTable(tab manageTab, visible int) []string {
+// renderTable writes the table; base is the row of its header line within the screen's lines.
+func (m manageModel) renderTable(tab manageTab, visible, base int) []string {
 	if len(tab.lines) == 0 {
 		return nil
 	}
@@ -773,34 +791,46 @@ func (m manageModel) renderTable(tab manageTab, visible int) []string {
 	widths = widths[:keep]
 	fitWidths(widths, m.width-prefix, gap)
 
-	// cell renders one cell padded to its column; plainOnly leaves out colours (for the selected line).
-	cell := func(col int, line manageLine, plainOnly bool) string {
+	// cell renders one cell padded to its column; on the selected line every piece carries the background.
+	cell := func(col int, line manageLine, selected bool) string {
+		plainStyle := func(text string) string {
+			if selected {
+				return selectedStyle.Render(text)
+			}
+			return text
+		}
+		levelStyle := func(level severity) lipgloss.Style {
+			if selected {
+				return selectedSeverityStyle(level)
+			}
+			return severityStyle(level)
+		}
 		if col == tab.historyCol {
 			glyphs := line.history[max(len(line.history)-widths[col], 0):]
 			var text strings.Builder
 			for _, outcome := range glyphs {
 				glyph, level := outcomeGlyph(outcome)
-				if plainOnly {
-					text.WriteString(glyph)
-				} else {
-					text.WriteString(severityStyle(level).Render(glyph))
-				}
+				text.WriteString(levelStyle(level).Render(glyph))
 			}
-			return text.String() + strings.Repeat(" ", widths[col]-len(glyphs))
+			return text.String() + plainStyle(strings.Repeat(" ", widths[col]-len(glyphs)))
 		}
 		text := truncate(line.cells[col], widths[col])
 		text += strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0))
-		if col == tab.statusCol && !plainOnly {
-			return severityStyle(line.severity).Render(text)
+		if col == tab.statusCol {
+			return levelStyle(line.severity).Render(text)
 		}
-		return text
+		return plainStyle(text)
 	}
-	joined := func(line manageLine, plainOnly bool) string {
+	joined := func(line manageLine, selected bool) string {
 		parts := make([]string, keep)
 		for col := range parts {
-			parts[col] = cell(col, line, plainOnly)
+			parts[col] = cell(col, line, selected)
 		}
-		return strings.Join(parts, strings.Repeat(" ", gap))
+		gapText := strings.Repeat(" ", gap)
+		if selected {
+			gapText = selectedStyle.Render(gapText)
+		}
+		return strings.Join(parts, gapText)
 	}
 
 	header := make([]string, keep)
@@ -809,15 +839,13 @@ func (m manageModel) renderTable(tab manageTab, visible int) []string {
 		header[col] = headerStyle.Render(text + strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0)))
 	}
 	screenLines := []string{strings.Repeat(" ", prefix) + strings.Join(header, strings.Repeat(" ", gap))}
-	first := 0
-	if m.cursor >= visible {
-		first = m.cursor - visible + 1
-	}
+	first := firstVisible(m.cursor, visible)
 	for i := first; i < min(first+visible, len(tab.lines)); i++ {
 		line := tab.lines[i]
+		m.hits.add(base+len(screenLines), 0, m.width, fmt.Sprintf("row:%d", i))
 		if i == m.cursor {
-			// Reverse video on plain text keeps the selection readable on any terminal theme.
-			screenLines = append(screenLines, selectedStyle.Render("› ● "+joined(line, true)))
+			text := selectedStyle.Render("› ") + selectedSeverityStyle(line.severity).Render("●") + selectedStyle.Render(" ") + joined(line, true)
+			screenLines = append(screenLines, text+selectedStyle.Render(strings.Repeat(" ", max(m.width-lipgloss.Width(text), 0))))
 			continue
 		}
 		screenLines = append(screenLines, "  "+severityStyle(line.severity).Render("●")+" "+joined(line, false))
@@ -839,18 +867,48 @@ func outcomeGlyph(outcome string) (string, severity) {
 	return "✓", sevOK
 }
 
-// keyBar renders key hints ("b", "backup", "s", "snapshots", ...) as a footer line;
-// when the screen is too narrow the labels are dropped and only the keys remain.
-func (m manageModel) keyBar(pairs ...string) string {
-	var full, keysOnly []string
+// keyBar renders key hints ("b", "backup", "s", "snapshots", ...) as a footer line; row is the
+// line's row within the current renderer's lines. When the screen is too narrow the labels are
+// dropped and only the keys remain. Each hint is a click target that presses its key.
+func (m manageModel) keyBar(row int, pairs ...string) string {
+	type chip struct{ key, label, action string }
+	var chips []chip
 	for i := 0; i+1 < len(pairs); i += 2 {
-		key, label := pairs[i], pairs[i+1]
-		full = append(full, keyStyle.Render(key)+" "+dimStyle.Render(label))
-		keysOnly = append(keysOnly, keyStyle.Render(key))
+		action := pairs[i]
+		switch action {
+		case "↑↓":
+			action = "" // two keys: nothing to click
+		case "any key":
+			action = "esc"
+		}
+		chips = append(chips, chip{pairs[i], pairs[i+1], action})
 	}
-	bar := strings.Join(full, "  ")
-	if lipgloss.Width(bar) > m.width {
-		bar = strings.Join(keysOnly, " ")
+	build := func(withLabels bool) (string, int) {
+		separator := " "
+		if withLabels {
+			separator = "  "
+		}
+		var parts []string
+		column := 0
+		for _, c := range chips {
+			text, width := keyStyle.Render(c.key), lipgloss.Width(c.key)
+			if withLabels {
+				text += " " + dimStyle.Render(c.label)
+				width += 1 + lipgloss.Width(c.label)
+			}
+			parts = append(parts, text)
+			if m.hits != nil && width > 0 {
+				m.hits.add(row, column, width, c.action)
+			}
+			column += width + len(separator)
+		}
+		return strings.Join(parts, separator), column - len(separator)
+	}
+	mark := len(m.hits.safeTargets())
+	bar, width := build(true)
+	if width > m.width {
+		m.hits.truncate(mark)
+		bar, _ = build(false)
 	}
 	return bar
 }
