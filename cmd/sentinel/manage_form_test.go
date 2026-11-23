@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -127,14 +128,15 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "MYSQL_PW")
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "daily 02:30")
-	screen = keys(t, screen, "tab") // retention: last, daily, weekly...
+	screen = keys(t, screen, "tab", "tab", "right", "right") // time, then storage: automatic -> folder -> repository
+	screen = keys(t, screen, "tab")                          // repositories: local, s3
+	screen = keys(t, screen, " ", "right", " ")              // tick both
+	screen = keys(t, screen, "tab")                          // retention: last, daily, weekly...
 	screen = keys(t, screen, "right")
 	screen = typeText(t, screen, "7")
 	screen = keys(t, screen, "right")
 	screen = typeText(t, screen, "4")
-	screen = keys(t, screen, "tab", "tab")      // store at (left empty), then repositories: local, s3
-	screen = keys(t, screen, " ", "right", " ") // tick both
-	screen = keys(t, screen, "tab", "enter")    // the advanced line, opened
+	screen = keys(t, screen, "tab", "enter") // the advanced line, opened
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "disabled") // TLS, the last visible field
 	screen = keys(t, screen, "enter")
@@ -222,7 +224,7 @@ func TestSaveRefusedByTheConfigStaysInTheFormUnderItsField(t *testing.T) {
 	configFile.saveErr = &configedit.InvalidError{Message: "the change makes the config invalid"}
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
-	screen.form.field("repositories").ticked[1] = true
+	screen.form.field("storage").value, screen.form.field("repositories").ticked[1] = storageRepository, true
 	screen = keys(t, screen, "ctrl+s")
 	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "the change makes the config invalid") || len(configFile.saved) != 1 {
 		t.Errorf("want the config's refusal in the form (mode %d):\n%s", screen.mode, plain(screen.render()))
@@ -234,7 +236,7 @@ func TestUnexpectedSaveFailureLeavesTheFormWithANotice(t *testing.T) {
 	configFile.saveErr = errors.New("permission denied")
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
-	screen.form.field("repositories").ticked[1] = true
+	screen.form.field("storage").value, screen.form.field("repositories").ticked[1] = storageRepository, true
 	screen = keys(t, screen, "ctrl+s")
 	if screen.mode != modeTable || !screen.noticeBad || !strings.Contains(screen.notice, "permission denied") {
 		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
@@ -294,9 +296,14 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
 
-	screen, _ = clickOn(t, screen, "step:0:1") // the › of the type
+	screen, _ = clickOn(t, screen, "step:0:1") // the box of the type
 	if screen.form.field("type").value != config.JobMySQL {
-		t.Errorf("clicking › chooses the next type: %q", screen.form.field("type").value)
+		t.Errorf("clicking the box chooses the next type: %q", screen.form.field("type").value)
+	}
+	screen, _ = clickOn(t, screen, fmt.Sprintf("step:%d:1", fieldIndex(screen, "storage"))) // automatic -> folder
+	screen, _ = clickOn(t, screen, fmt.Sprintf("step:%d:1", fieldIndex(screen, "storage"))) // -> repository
+	if screen.form.field("storage").value != storageRepository {
+		t.Errorf("clicking Storage steps through its choices: %q", screen.form.field("storage").value)
 	}
 	screen, _ = clickOn(t, screen, fmt.Sprintf("toggle:%d:1", fieldIndex(screen, "repositories"))) // tick s3
 	if !screen.form.field("repositories").ticked[1] {
@@ -306,6 +313,7 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	if screen.form.field("repositories").ticked[1] {
 		t.Error("clicking again unticks it")
 	}
+	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d", fieldIndex(screen, "retention")))   // the summary opens the counts
 	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d:3", fieldIndex(screen, "retention"))) // the monthly count
 	if screen.form.fields[screen.form.focus].key != "retention" || screen.form.field("retention").sub != 3 {
 		t.Errorf("clicking a count focuses it: %+v", screen.form.field("retention"))
@@ -503,6 +511,7 @@ func TestStoreAtCreatesTheRepositoryAndTicksItForTheJob(t *testing.T) {
 	screen = typeText(t, screen, "orders")
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "ordersdb")
+	screen.form.field("storage").value = storageFolder
 	screen.form.field("store_at").value = t.TempDir() + "/dumps"
 	if problems := screen.form.problems(); len(problems) != 0 {
 		t.Fatalf("a Store at folder stands in for a ticked repository: %v", problems)
@@ -525,6 +534,7 @@ func TestStoreAtRefusesAnExistingRepositoryName(t *testing.T) {
 	screen = openAddForm(t, screen)
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "local") // a repository of that name exists
+	screen.form.field("storage").value = storageFolder
 	screen.form.field("store_at").value = "/srv/backups"
 	if message := screen.form.problems()["store_at"]; !strings.Contains(message, `"local" đã tồn tại`) {
 		t.Errorf("problems = %v", screen.form.problems())
@@ -570,23 +580,62 @@ func TestDatabaseJobWithoutARepositoryGetsAnAutomaticFolder(t *testing.T) {
 	}
 }
 
-func TestAutomaticFolderIsOnlyForDatabaseJobsWithNoRepository(t *testing.T) {
+func TestAutomaticFolderIsOnlyForAutomaticStorageWithNoDefaultRepository(t *testing.T) {
 	screen, _ := formModel(t)
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "files1", "x"
 	screen.form.field("type").value = config.JobFiles
 	screen.form.field("paths").value = "/etc"
-	if message := screen.form.problems()["repositories"]; message == "" {
-		t.Error("a files job still has to choose a repository")
+	if _, _, repo, _ := screen.form.jobWithStore(); repo.URL != autoStoreBase()+"/files1" {
+		t.Errorf("a files job with automatic storage gets a folder too: %+v", repo)
 	}
-	screen.form.field("type").value = config.JobPostgres
+	screen.form.field("storage").value = storageRepository
+	if message := screen.form.problems()["repositories"]; message == "" {
+		t.Error("choosing Repository without ticking one is refused")
+	}
 	screen.form.field("repositories").ticked[0] = true
 	if _, _, repo, _ := screen.form.jobWithStore(); repo.URL != "" {
 		t.Errorf("a ticked repository means no automatic one: %+v", repo)
 	}
-	screen.form.field("repositories").ticked[0] = false
+	screen.form.field("storage").value = storageAuto
 	screen.form.known.InheritsRepositories = true
 	if _, _, repo, _ := screen.form.jobWithStore(); repo.URL != "" {
 		t.Errorf("repositories from the defaults mean no automatic one: %+v", repo)
+	}
+}
+
+func TestTimeAndDayRowsFollowTheSchedule(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen)
+	schedule := screen.form.field("schedule")
+	for _, key := range []string{"schedule_time", "schedule_day"} {
+		if slices.Contains(screen.form.visible(), fieldIndex(screen, key)) {
+			t.Errorf("%s shows with no schedule", key)
+		}
+	}
+	schedule.value = "weekly mon 03:00"
+	screen.form.syncSchedules()
+	if got := screen.form.field("schedule_time").value; got != "03:00" {
+		t.Errorf("time row = %q", got)
+	}
+	if got := screen.form.field("schedule_day").value; got != "Thứ Hai" {
+		t.Errorf("day row = %q", got)
+	}
+	screen.form.focus = fieldIndex(screen, "schedule_time")
+	screen = typeText(t, screen, "9:45")
+	if got := screen.form.field("schedule").value; got != "weekly mon 09:45" {
+		t.Errorf("typing a time rewrites the schedule: %q", got)
+	}
+	screen = keys(t, screen, "right")
+	if got := screen.form.field("schedule").value; got != "weekly mon 10:15" {
+		t.Errorf("→ on the time moves 30 minutes: %q", got)
+	}
+	screen.form.focus = fieldIndex(screen, "schedule_day")
+	screen = keys(t, screen, "right")
+	if got := screen.form.field("schedule").value; got != "weekly tue 10:15" {
+		t.Errorf("→ on the day moves the weekday: %q", got)
+	}
+	if view := plain(screen.render()); !strings.Contains(view, "[ Weekly ▾ ]") || !strings.Contains(view, "[ 10:15") || !strings.Contains(view, "[ Thứ Ba ▾ ]") {
+		t.Errorf("the schedule is drawn as boxes:\n%s", view)
 	}
 }

@@ -276,3 +276,46 @@ func NextRuns(spec string, now time.Time, n int) []time.Time {
 	}
 	return runs
 }
+
+// Plain is a schedule in one of the plain forms a screen can show as a choice (Daily, Weekly,
+// ...) plus its time of day, weekday and day of month.
+type Plain struct {
+	Label        string // Manual, Every 15m, Hourly, Every 6h, Daily, Weekly or Monthly
+	Kind         string // manual, every, hourly, daily, weekly or monthly
+	Hour, Minute int
+	Weekday, Day int // Weekday counts from Sunday = 0; Day is 1 to 28
+}
+
+// Read takes a schedule apart; ok is false for a cron expression or anything else it does not
+// know as a plain form.
+func Read(spec string) (plain Plain, ok bool) {
+	sh := shapeOf(spec)
+	if sh.kind == "other" {
+		return Plain{}, false
+	}
+	plain = Plain{Kind: sh.kind, Hour: sh.hour, Minute: sh.minute, Weekday: sh.weekday, Day: sh.day}
+	switch sh.kind {
+	case "manual":
+		plain.Label = "Manual"
+	case "every":
+		plain.Label = "Every " + strings.TrimPrefix(sh.spec(), "every ")
+	case "hourly":
+		plain.Label = "Hourly"
+	default:
+		plain.Label = strings.ToUpper(sh.kind[:1]) + sh.kind[1:]
+	}
+	return plain, true
+}
+
+// SetTime puts a time of day on a daily, weekly or monthly schedule; ok is false for any other.
+func SetTime(spec string, hour, minute int) (string, bool) {
+	sh := shapeOf(spec)
+	if (sh.kind != "daily" && sh.kind != "weekly" && sh.kind != "monthly") || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return spec, false
+	}
+	sh.hour, sh.minute = hour, minute
+	return sh.spec(), true
+}
+
+// WeekdayName is the Vietnamese name of a weekday counted from Sunday = 0.
+func WeekdayName(weekday int) string { return weekdayNames[((weekday%7)+7)%7] }

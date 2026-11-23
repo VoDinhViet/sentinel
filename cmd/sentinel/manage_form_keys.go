@@ -96,6 +96,7 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 	}
 	m.form.touched[focused.key] = true
 	m.form.problem = ""
+	m.form.syncSchedules()
 	return m, nil
 }
 
@@ -115,6 +116,19 @@ func (f *form) typeInto(field *formField, key, text string) {
 	case fieldRetention:
 		if (key == "backspace" || digits) && len([]rune(field.counts[field.sub])) < 4 || key == "backspace" {
 			field.counts[field.sub] = editText(field.counts[field.sub], key, text)
+		}
+	case fieldTime:
+		if digits && validClock(field.value) { // a digit over a whole time starts a new one
+			field.value = ""
+		}
+		if key == "backspace" || ((digits || text == ":") && len([]rune(field.value)) < 5) {
+			field.value = editText(field.value, key, text)
+			if hour, minute, ok := parseClock(field.value); ok {
+				owner := f.field(strings.TrimSuffix(field.key, "_time"))
+				if adjusted, changed := schedule.SetTime(owner.value, hour, minute); changed {
+					owner.value = adjusted
+				}
+			}
 		}
 	}
 }
@@ -141,6 +155,17 @@ func (f *form) step(index, delta int) {
 		}
 	case fieldSchedule:
 		field.value = schedule.NextFrequency(field.value, delta < 0)
+		f.syncSchedules()
+	case fieldTime, fieldDay:
+		owner := f.field(strings.TrimSuffix(strings.TrimSuffix(field.key, "_time"), "_day"))
+		timeSteps, dayDelta := delta, 0
+		if field.kind == fieldDay {
+			timeSteps, dayDelta = 0, delta
+		}
+		if adjusted, ok := schedule.Adjust(owner.value, timeSteps, dayDelta); ok {
+			owner.value = adjusted
+		}
+		f.syncSchedules()
 	case fieldChecklist:
 		field.sub = min(max(field.sub+delta, 0), max(len(field.choices)-1, 0))
 	case fieldRetention:
@@ -216,6 +241,7 @@ func (m manageModel) formAction(action string) (manageModel, bool) {
 		return m, false
 	}
 	m.form.problem = ""
+	m.form.syncSchedules()
 	return m, true
 }
 

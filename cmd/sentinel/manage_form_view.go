@@ -32,6 +32,56 @@ const railWidth = 2
 // of the sections and the advanced toggle.
 const headerMark = "\x00"
 
+// boxed draws a value as an input: [ value ].
+func boxed(text string, focused bool) string {
+	edge := borderStyle
+	if focused {
+		edge = lipglossStyleAccent
+	}
+	return edge.Render("[ ") + text + edge.Render(" ]")
+}
+
+// dropdownText is what a choice, schedule or day field shows in its box, and whether it is a
+// list the arrows step through (a schedule written by hand is shown as the text it is).
+func (m manageModel) dropdownText(field formField) (text string, dropdown bool) {
+	switch field.kind {
+	case fieldSchedule:
+		if strings.TrimSpace(field.value) == "" {
+			return dimStyle.Render(field.placeholder), true
+		}
+		if plain, ok := schedule.Read(field.value); ok {
+			return plain.Label, true
+		}
+		return field.value, false
+	case fieldDay:
+		return field.value, true
+	}
+	return field.value, !field.fixed
+}
+
+// retentionSummary is the retention counts on one line: "7 daily · 4 weekly · 6 monthly".
+func (m manageModel) retentionSummary(field formField) string {
+	var parts []string
+	for i, name := range retentionKeys {
+		if field.counts[i] != "" && field.counts[i] != "0" {
+			parts = append(parts, field.counts[i]+" "+name)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " · ")
+	}
+	var inherited []string
+	for i, name := range retentionKeys {
+		if count := m.retentionPlaceholder(i); count != "" {
+			inherited = append(inherited, count+" "+name)
+		}
+	}
+	if len(inherited) > 0 {
+		return dimStyle.Render("mặc định: " + strings.Join(inherited, " · "))
+	}
+	return dimStyle.Render("giữ tất cả")
+}
+
 func (m manageModel) renderForm() []string {
 	screenLines := []string{titleStyle.Render(m.form.title), ""}
 	problems := m.form.shownProblems()
@@ -76,11 +126,18 @@ func (m manageModel) renderForm() []string {
 		screenRow := len(screenLines)
 		var value string
 		switch field.kind {
-		case fieldChoice:
-			value = inputStyle(focused, "‹ "+field.value+" ›", 0)
+		case fieldChoice, fieldSchedule, fieldDay:
+			shown, dropdown := m.dropdownText(field)
+			if dropdown {
+				shown += " " + dimStyle.Render("▾")
+			}
+			cursor := ""
+			if focused && field.kind == fieldSchedule && !dropdown {
+				cursor = lipglossAccent("▏") // a schedule typed by hand is edited as text
+			}
+			value = boxed(shown+cursor, focused)
 			if !field.fixed {
-				m.hits.add(screenRow, valueColumn, 1, fmt.Sprintf("step:%d:-1", index))
-				m.hits.add(screenRow, valueColumn+lipgloss.Width(field.value)+3, 1, fmt.Sprintf("step:%d:1", index))
+				m.hits.add(screenRow, valueColumn, lipgloss.Width(value), fmt.Sprintf("step:%d:1", index))
 			}
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldChecklist:
@@ -103,10 +160,15 @@ func (m manageModel) renderForm() []string {
 			}
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldRetention:
-			column := valueColumn
+			if !focused {
+				value = boxed(m.retentionSummary(field), false)
+				m.hits.add(screenRow, 0, m.width, fmt.Sprintf("focus:%d", index))
+				break
+			}
+			column := valueColumn + 2 // inside the "[ "
 			var boxes []string
 			for i, name := range retentionKeys {
-				current := focused && field.sub == i
+				current := field.sub == i
 				box := inputStyle(current, fmt.Sprintf("%4s", field.counts[i]), 4)
 				if field.counts[i] == "" && !current {
 					box = dimStyle.Render(fmt.Sprintf("%4s", m.retentionPlaceholder(i)))
@@ -116,16 +178,17 @@ func (m manageModel) renderForm() []string {
 				m.hits.add(screenRow, column, width, fmt.Sprintf("focus:%d:%d", index, i))
 				column += width + 2
 			}
-			value = strings.Join(boxes, "  ")
+			value = boxed(strings.Join(boxes, "  "), true)
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
-		default: // text, number, schedule
-			value = field.value
+		default: // text, number, time
+			text := field.value
 			if focused {
-				value += lipglossAccent("▏")
+				text += lipglossAccent("▏")
 			}
 			if field.value == "" && field.placeholder != "" {
-				value += dimStyle.Render(field.placeholder)
+				text += dimStyle.Render(field.placeholder)
 			}
+			value = boxed(text, focused)
 			m.hits.add(screenRow, 0, m.width, fmt.Sprintf("focus:%d", index))
 		}
 		screenLines = append(screenLines, marker+label+" "+value)
@@ -142,6 +205,15 @@ func (m manageModel) renderForm() []string {
 				note = prefix + note
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
+		} else if field.key == "storage" && field.value == storageAuto {
+			job, _ := m.form.job()
+			note := "→ repository mặc định: " + strings.Join(m.form.defaults.repositories, ", ")
+			if folder := m.form.autoFolder(job); folder != "" {
+				note = "→ thư mục tự động: " + folder
+			} else if len(m.form.defaults.repositories) == 0 {
+				note = "→ nhập tên job để thấy thư mục tự động"
+			}
+			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(truncate(note, max(m.width-formLabelWidth-5, 10))))
 		} else if field.kind == fieldPaths {
 			if note := pathsNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
@@ -170,9 +242,15 @@ func (m manageModel) renderForm() []string {
 		m.hits.shift(hitStart, railWidth)
 		m.width += railWidth
 	}
-	screenLines = append(screenLines, "", dimStyle.Render(wrap(m.form.fields[m.form.focus].hint, m.width-2)))
+	screenLines = append(screenLines, "")
+	for _, line := range strings.Split(wrap(m.form.fields[m.form.focus].hint, m.width-2), "\n") { // one screen line each, so the frame closes every one
+		screenLines = append(screenLines, dimStyle.Render(line))
+	}
 	if m.form.problem != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(wrap(m.form.problem, m.width-2)))
+		screenLines = append(screenLines, "")
+		for _, line := range strings.Split(wrap(m.form.problem, m.width-2), "\n") {
+			screenLines = append(screenLines, severityStyle(sevBad).Render(line))
+		}
 	}
 	saveButton := "[ Lưu ]"
 	saveStyle := keyStyle

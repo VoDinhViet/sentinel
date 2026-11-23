@@ -180,7 +180,9 @@ func newInitForm(path string, root bool, hostname string) form {
 		jobField("job_paths", "Đường dẫn", "file và thư mục cần backup, cách nhau bằng dấu phẩy; dùng được ${HOME}; alt+1.. hoặc click để thêm thư mục gợi ý, ctrl+o để duyệt trên server", jobPaths, config.JobFiles),
 		jobField("job_database", "Database", "database cần dump", "", configedit.DatabaseTypes...),
 		jobField("job_password_env", "Env var mật khẩu DB", "tên env var chứa mật khẩu database; để trống nếu không có", "", configedit.DatabaseTypes...),
-		formField{key: "job_schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: "daily 02:00"},
+	)
+	fields = append(fields, scheduleFields("job_schedule", "Schedule", scheduleHint, "daily 02:00", "", "")...)
+	fields = append(fields,
 		formField{key: "retention", label: "Giữ", hint: "số snapshot giữ lại: N cái mới nhất, rồi mỗi ngày, tuần, tháng, năm một cái", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
 	)
 	for i := range fields {
@@ -191,7 +193,9 @@ func newInitForm(path string, root bool, hostname string) form {
 			fields[i].onField, fields[i].only = "job_type", configedit.DatabaseTypes
 		}
 	}
-	return form{kind: formInit, title: "Tạo " + path, touched: map[string]bool{}, fields: fields}
+	initForm := form{kind: formInit, title: "Tạo " + path, touched: map[string]bool{}, fields: fields}
+	initForm.syncSchedules()
+	return initForm
 }
 
 // initial turns the form into what configedit.Create needs.

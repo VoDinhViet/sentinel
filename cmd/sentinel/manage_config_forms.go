@@ -287,16 +287,21 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 			retention[i] = fmt.Sprint(count)
 		}
 	}
-	return form{kind: formSettings, title: "Settings", original: "settings", touched: map[string]bool{}, known: configedit.Known{Repositories: listing.Repositories}, fields: []formField{
+	fields := []formField{
 		{key: "server_name", label: "Tên server", hint: "tên hiện trong cảnh báo và trên màn hình này", value: settings.ServerName, placeholder: "tên máy này"},
 		{key: "store", label: "File trạng thái", hint: "nơi lưu lịch sử chạy và khoá job (đường dẫn file)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
 		{key: "cooldown", label: "Lặp cảnh báo", hint: "chờ bao lâu rồi nhắc lại một cảnh báo còn mở, vd. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
 		{key: "notify_success", label: "Báo thành công", hint: "cũng gửi tin sau mỗi backup thành công", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
-		{key: "verify_schedule", label: "Kiểm tra repo", hint: "khi nào chạy `restic check` trên mọi repository. " + scheduleHint, kind: fieldSchedule, value: settings.VerifySchedule, placeholder: "không bao giờ"},
-		{key: "default_schedule", label: "Schedule mặc định", hint: "cho job không đặt schedule. " + scheduleHint, kind: fieldSchedule, value: settings.DefaultSchedule, placeholder: "chưa có: job chạy bằng tay"},
+	}
+	fields = append(fields, scheduleFields("verify_schedule", "Kiểm tra repo", "khi nào chạy `restic check` trên mọi repository. "+scheduleHint, settings.VerifySchedule, "không bao giờ", "")...)
+	fields = append(fields, scheduleFields("default_schedule", "Schedule mặc định", "cho job không đặt schedule. "+scheduleHint, settings.DefaultSchedule, "chưa có: job chạy bằng tay", "")...)
+	fields = append(fields, []formField{
 		{key: "default_repositories", label: "Repo mặc định", hint: "space hoặc click để tick; cho job không liệt kê repository. Không tick gì mà chỉ có một repository = repository đó", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
 		{key: "retention", label: "Giữ mặc định", hint: "số snapshot job giữ lại khi không đặt: N cái mới nhất, rồi mỗi ngày, tuần, tháng, năm một cái", kind: fieldRetention, counts: retention},
-	}}
+	}...)
+	settingsForm := form{kind: formSettings, title: "Settings", original: "settings", touched: map[string]bool{}, known: configedit.Known{Repositories: listing.Repositories}, fields: fields}
+	settingsForm.syncSchedules()
+	return settingsForm
 }
 
 func (f form) settings() (configedit.Settings, error) {

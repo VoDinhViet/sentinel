@@ -10,6 +10,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/schedule"
 )
 
 // The sections of a job form, in the order they are drawn.
@@ -17,7 +18,6 @@ const (
 	sectionBasic      = "CƠ BẢN"
 	sectionConnection = "KẾT NỐI"
 	sectionSchedule   = "LỊCH & GIỮ BẢN"
-	sectionStorage    = "NƠI LƯU"
 	sectionAdvanced   = "NÂNG CAO"
 )
 
@@ -32,6 +32,15 @@ const (
 	fieldRetention           // five counts on one line
 	fieldPaths               // comma separated folders, with suggestions
 	fieldToggle              // a line that opens or closes the advanced fields below it
+	fieldTime                // the time of day of the schedule field above it (key <schedule>_time)
+	fieldDay                 // the weekday or day of month of that schedule (key <schedule>_day)
+)
+
+// What the Storage choice of a job form means.
+const (
+	storageAuto       = "Tự động"
+	storageFolder     = "Thư mục"
+	storageRepository = "Repository"
 )
 
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
@@ -139,6 +148,10 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	if len(listing.InheritedRepositories) > 0 {
 		repositoriesHint += "; không đánh dấu = " + strings.Join(listing.InheritedRepositories, ", ") + " (mặc định)"
 	}
+	storage := storageAuto
+	if len(job.Repositories) > 0 {
+		storage = storageRepository
+	}
 	retention := [5]string{}
 	for i, count := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
 		if count > 0 {
@@ -158,15 +171,21 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "port", label: "Cổng", hint: "mặc định 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "mặc định", section: sectionConnection},
 		{key: "user", label: "User", hint: "tuỳ chọn", value: job.User, section: sectionConnection},
 		{key: "password_env", label: "Env var mật khẩu", hint: passwordHint, value: job.PasswordEnv, section: sectionConnection},
-		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote, section: sectionSchedule},
-		{key: "retention", label: "Giữ lại", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
-		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó. Để trống = các repository đánh dấu bên dưới, hoặc với job database không có repository nào thì dùng thư mục tự động " + autoStoreBase() + "/<tên job>", complete: true, placeholder: "tự động", section: sectionStorage},
-		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionStorage},
+	}
+	form.fields = append(form.fields, scheduleFields("schedule", "Schedule", scheduleHint, job.Schedule, scheduleNote, sectionSchedule)...)
+	form.fields = append(form.fields, []formField{
+		{key: "storage", label: "Storage", hint: "tự động: các repository mặc định, hoặc một thư mục riêng cho job · thư mục: chọn nơi lưu mới · repository: chọn repository đã có", kind: fieldChoice, value: storage, choices: []string{storageAuto, storageFolder, storageRepository}, section: sectionSchedule},
+		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó", complete: true, placeholder: "nhập đường dẫn", section: sectionSchedule, onField: "storage", only: []string{storageFolder}},
+		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionSchedule, onField: "storage", only: []string{storageRepository}},
+		{key: "retention", label: "Retention", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
+	}...)
+	form.fields = append(form.fields, []formField{
 		{key: "advanced", label: "Tuỳ chọn nâng cao", hint: "enter hoặc space để mở hoặc đóng các tuỳ chọn bên dưới", kind: fieldToggle, section: sectionAdvanced},
 		{key: "exclude", label: "Loại trừ", hint: "mẫu cần bỏ qua, cách nhau bằng dấu phẩy, ví dụ *.tmp, node_modules", value: strings.Join(job.Exclude, ", "), section: sectionAdvanced},
 		{key: "tls", label: "TLS", hint: "chỉ với mysql: để trống, disabled hoặc required", value: job.TLS, section: sectionAdvanced},
 		{key: "auth_database", label: "Auth database", hint: "chỉ với mongodb: database nơi user được tạo", value: job.AuthDatabase, section: sectionAdvanced},
-	}
+	}...)
+	form.syncSchedules()
 	form.advancedOpen = len(job.Exclude) > 0 || job.TLS != "" || job.AuthDatabase != "" // keep what is set in view
 	for i := range form.fields {
 		if types, restricted := jobFieldTypes[form.fields[i].key]; restricted {
@@ -190,10 +209,78 @@ var jobFieldTypes = map[string][]string{
 	"auth_database": {config.JobMongoDB},
 }
 
+// scheduleFields is a schedule field and the Time and Day rows that follow it. The rows show
+// the parts of the schedule; they are only drawn when the schedule has them.
+func scheduleFields(key, label, hint, value, placeholder, section string) []formField {
+	return []formField{
+		{key: key, label: label, hint: hint, kind: fieldSchedule, value: value, placeholder: placeholder, section: section},
+		{key: key + "_time", label: "Time", hint: "giờ chạy, dạng 02:00 · ← → đổi 30 phút", kind: fieldTime, section: section},
+		{key: key + "_day", label: "Day", hint: "← → đổi thứ trong tuần hoặc ngày trong tháng", kind: fieldDay, section: section},
+	}
+}
+
+// syncSchedules refreshes the Time and Day rows from the schedule they belong to. A time that
+// is half typed in the focused row is left alone.
+func (f *form) syncSchedules() {
+	for i := range f.fields {
+		field := &f.fields[i]
+		if field.kind != fieldTime && field.kind != fieldDay {
+			continue
+		}
+		owner := f.field(strings.TrimSuffix(strings.TrimSuffix(field.key, "_time"), "_day"))
+		plain, ok := schedule.Read(owner.value)
+		switch {
+		case !ok:
+			field.value = ""
+		case field.kind == fieldTime:
+			if i == f.focus && !validClock(field.value) {
+				continue
+			}
+			field.value = fmt.Sprintf("%02d:%02d", plain.Hour, plain.Minute)
+		case plain.Kind == "weekly":
+			field.value = schedule.WeekdayName(plain.Weekday)
+		case plain.Kind == "monthly":
+			field.value = "ngày " + strconv.Itoa(plain.Day)
+		}
+	}
+}
+
+// hasScheduleRow says whether the Time or Day row applies to the schedule it belongs to.
+func (f form) hasScheduleRow(field formField) bool {
+	owner := f.field(strings.TrimSuffix(strings.TrimSuffix(field.key, "_time"), "_day"))
+	plain, ok := schedule.Read(owner.value)
+	if !ok {
+		return false
+	}
+	if field.kind == fieldTime {
+		return plain.Kind == "daily" || plain.Kind == "weekly" || plain.Kind == "monthly"
+	}
+	return plain.Kind == "weekly" || plain.Kind == "monthly"
+}
+
+// validClock reports whether text is a time like 02:00 or 2:30.
+func validClock(text string) bool {
+	_, _, ok := parseClock(text)
+	return ok
+}
+
+func parseClock(text string) (hour, minute int, ok bool) {
+	left, right, found := strings.Cut(strings.TrimSpace(text), ":")
+	if !found || len(right) != 2 || len(left) == 0 || len(left) > 2 {
+		return 0, 0, false
+	}
+	hour, errHour := strconv.Atoi(left)
+	minute, errMinute := strconv.Atoi(right)
+	return hour, minute, errHour == nil && errMinute == nil && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
+}
+
 // visible are the fields that apply right now (to the chosen type or kind).
 func (f form) visible() []int {
 	var shown []int
 	for i, field := range f.fields {
+		if (field.kind == fieldTime || field.kind == fieldDay) && !f.hasScheduleRow(field) {
+			continue
+		}
 		if field.onField != "" && !slices.Contains(field.only, f.field(field.onField).value) {
 			continue
 		}
@@ -256,7 +343,7 @@ func (f form) job() (configedit.Job, error) {
 	}
 	repositories := f.field("repositories")
 	for i, name := range repositories.choices {
-		if repositories.ticked[i] {
+		if repositories.ticked[i] && f.field("storage").value == storageRepository {
 			job.Repositories = append(job.Repositories, name)
 		}
 	}
@@ -330,7 +417,7 @@ func (f *form) completeFocused() bool {
 
 // storeAt is the new folder typed in the "Store at" field of a job form, "" when it is empty.
 func (f form) storeAt() string {
-	if f.kind != formJob {
+	if f.kind != formJob || f.field("storage").value != storageFolder {
 		return ""
 	}
 	return strings.TrimSpace(f.field("store_at").value)
@@ -372,11 +459,10 @@ func autoStoreBase() string {
 	return "${HOME}/.local/share/sentinel"
 }
 
-// autoFolder is the folder Sentinel builds for a database job that has no repository (none
-// ticked, none inherited from the defaults) and no "Store at" folder: <base>/<job name>. It is
-// "" for any other job.
+// autoFolder is the folder Sentinel builds for a job whose Storage is automatic and that has no
+// repository from the defaults: <base>/<job name>. It is "" for any other job.
 func (f form) autoFolder(job configedit.Job) string {
-	if f.kind != formJob || job.Name == "" || !slices.Contains(configedit.DatabaseTypes, job.Type) ||
+	if f.kind != formJob || job.Name == "" || f.field("storage").value != storageAuto ||
 		len(job.Repositories) > 0 || f.known.InheritsRepositories ||
 		configedit.ValidateRepository(configedit.Repository{Name: job.Name, URL: "x", PasswordEnv: "X"}) != nil { // a bad name is the name field's problem
 		return ""
