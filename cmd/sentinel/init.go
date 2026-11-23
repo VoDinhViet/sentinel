@@ -16,20 +16,6 @@ import (
 	"sentinel/internal/configedit"
 )
 
-// initPath is where `sentinel init` writes: --config or $SENTINEL_CONFIG when given, the system
-// path for root, the per-user path otherwise.
-func initPath(locations configLocations, root bool) string {
-	switch {
-	case locations.flagPath != "":
-		return locations.flagPath
-	case locations.envPath != "":
-		return locations.envPath
-	case root || locations.user == "":
-		return locations.system
-	}
-	return locations.user
-}
-
 // initOutcome is what a finished init tells the user.
 type initOutcome struct {
 	path, envFile string
@@ -50,7 +36,7 @@ func (a *app) initCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := os.Geteuid() == 0
-			path := initPath(currentConfigLocations(a.configFlag), root)
+			path := config.DefaultLocations(a.configFlag).WritePath(root)
 			if _, err := os.Stat(path); err == nil && !force {
 				return fmt.Errorf("%s already exists: edit it with `sentinel manage`, or use --force to replace it (the old one is kept as %s.old)", path, path)
 			}
@@ -80,7 +66,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		outcome.jobName, outcome.repoName, outcome.passwordEnv = initial.Job.Name, initial.Repository.Name, initial.Repository.PasswordEnv
 		// A server install keeps secrets in sentinel.env beside the config: give the repository a password there.
-		if root && filepath.Dir(path) == filepath.Dir(systemConfigPath) {
+		if root && filepath.Dir(path) == filepath.Dir(config.SystemPath) {
 			outcome.envFile = filepath.Join(filepath.Dir(path), "sentinel.env")
 			written, err := configedit.EnsureSecret(outcome.envFile, initial.Repository.PasswordEnv)
 			if err != nil {

@@ -49,7 +49,7 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("--log-level: %w", err)
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
-			a.configPath, a.configErr = currentConfigLocations(a.configFlag).resolve()
+			a.configPath, a.configErr = config.DefaultLocations(a.configFlag).Resolve()
 			return nil
 		},
 	}

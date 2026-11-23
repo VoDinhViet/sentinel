@@ -8,25 +8,6 @@ import (
 	"sentinel/internal/configedit"
 )
 
-func TestInitPathPicksWhereToWrite(t *testing.T) {
-	locations := configLocations{system: "/etc/sentinel/config.yaml", user: "/home/me/.config/sentinel/config.yaml"}
-	for name, tc := range map[string]struct {
-		locations configLocations
-		root      bool
-		want      string
-	}{
-		"user":              {locations, false, "/home/me/.config/sentinel/config.yaml"},
-		"root":              {locations, true, "/etc/sentinel/config.yaml"},
-		"no user directory": {configLocations{system: "/etc/sentinel/config.yaml"}, false, "/etc/sentinel/config.yaml"},
-		"flag wins":         {configLocations{flagPath: "/x/c.yaml", envPath: "/y.yaml", system: "/s", user: "/u"}, true, "/x/c.yaml"},
-		"env beats default": {configLocations{envPath: "/y.yaml", system: "/s", user: "/u"}, false, "/y.yaml"},
-	} {
-		if got := initPath(tc.locations, tc.root); got != tc.want {
-			t.Errorf("%s: %s, want %s", name, got, tc.want)
-		}
-	}
-}
-
 // initScreen is the init form hosted the way `sentinel init` hosts it, with a fake writer.
 func initScreen(t *testing.T, root bool) (initProgram, *[]configedit.Initial) {
 	t.Helper()
