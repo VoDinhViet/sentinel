@@ -1,0 +1,29 @@
+# Sentinel configuration for one user on a workstation or a small server, no root needed.
+#   mkdir -p ~/.config/sentinel
+#   cp deploy/config.user.example.yaml ~/.config/sentinel/config.yaml
+#   export RESTIC_PASSWORD='choose-a-long-passphrase'    # losing it means losing the backups
+#   sentinel backup init documents && sentinel backup run documents && sentinel manage
+#
+# ${VAR} is replaced by the environment variable VAR; a missing variable is an error.
+# For servers (system service, alerts, S3) start from config.example.yaml instead.
+
+server_name: my-laptop
+
+# Backup history and job locks. The directory is created on first use.
+store: ${HOME}/.local/state/sentinel/state.db
+
+# restic repository. A local directory here; an external disk or an S3 bucket works the same way
+# (see config.example.yaml).
+repositories:
+  local:
+    url: ${HOME}/.local/share/sentinel/repo
+    password: "${RESTIC_PASSWORD}"
+
+backups:
+  - name: documents
+    type: files
+    schedule: "0 2 * * *"                # cron: minute hour day month weekday (used by `sentinel run`)
+    paths: ["${HOME}/Documents"]
+    exclude: ["*.tmp", ".cache"]
+    repositories: [local]
+    retention: { daily: 7, weekly: 4, monthly: 6 }

@@ -13,12 +13,28 @@ Mọi thứ điều khiển bằng dòng lệnh (`sentinel backup run|list|resto
 Yêu cầu trên server: restic ≥ 0.17, rclone (nếu dùng Google Drive), công cụ dump của engine nếu backup DB: `pg_dump` (cùng major version với PostgreSQL), `mariadb-dump` hoặc `mysqldump` (MySQL/MariaDB), `mongodump` (MongoDB, gói `mongodb-database-tools`). `sentinel doctor` báo công cụ nào còn thiếu.
 
 ```sh
-make build                        # -> bin/sentinel (cần Go trên máy build; hoặc tải bản release)
+make build                        # -> bin/sentinel (dùng Go nếu có, không thì build qua docker; hoặc tải bản release)
 scp bin/sentinel deploy/* server:/tmp/sentinel/
 ssh server 'cd /tmp/sentinel && sudo sh install.sh ./sentinel'
 ```
 
 `install.sh` cài restic/rclone nếu chưa có, chép binary vào `/usr/local/bin`, tạo `/etc/sentinel/config.yaml` (từ [config.example.yaml](deploy/config.example.yaml)), file secret `/etc/sentinel/sentinel.env` và systemd unit.
+
+## Chạy trên terminal của bạn
+
+Không cần root, không cần service: build, cài vào `~/.local/bin`, rồi thao tác backup ngay trong terminal.
+
+```sh
+make build && make install          # không có Go thì tự build qua docker; sudo make install PREFIX=/usr/local để cài cho mọi người dùng
+mkdir -p ~/.config/sentinel
+cp deploy/config.user.example.yaml ~/.config/sentinel/config.yaml   # sửa đường dẫn cần backup
+export RESTIC_PASSWORD='mat-khau-dai-va-kho-doan'                   # mất mật khẩu này là mất backup
+sentinel backup init documents      # tạo kho restic (một lần)
+sentinel backup run documents       # backup ngay
+sentinel manage                     # màn hình quản lý: b backup, s snapshot + restore, a/e/d job database
+```
+
+Không cần gõ `-c`: Sentinel lấy file config theo thứ tự `--config`, biến `SENTINEL_CONFIG`, `/etc/sentinel/config.yaml`, rồi `~/.config/sentinel/config.yaml` (file đầu tiên tồn tại). Nếu `~/.local/bin` chưa nằm trong `PATH`, `make install` sẽ nhắc.
 
 ## Cấu hình
 
