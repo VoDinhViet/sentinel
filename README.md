@@ -12,13 +12,21 @@ Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM/
 
 ## Cài đặt
 
-**Trên server Ubuntu/Debian** (cần root). Một dòng lệnh cài Sentinel cùng restic, rclone, `pg_dump`, `mariadb-dump`, `mongodump`, rồi tạo `/etc/sentinel/config.yaml`, `/etc/sentinel/sentinel.env` và systemd unit:
+**Trên server Ubuntu/Debian** (cần root). Repo [`Cong-ty-ThoMi-Group/gm-backup`](https://github.com/Cong-ty-ThoMi-Group/gm-backup) là private nên không có lệnh `curl ... | sh` tải thẳng; cài từ bản clone (cần tài khoản có quyền đọc repo). Script `deploy/install.sh` cài Sentinel cùng restic, rclone, `pg_dump`, `mariadb-dump`, `mongodump`, rồi tạo `/etc/sentinel/config.yaml`, `/etc/sentinel/sentinel.env` và systemd unit:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/install.sh | sudo sh
+git clone https://github.com/Cong-ty-ThoMi-Group/gm-backup.git && cd gm-backup
+make build                           # cần Go hoặc docker
+sudo ./deploy/install.sh ./bin/sentinel
 ```
 
-Bản phát hành được kiểm tra SHA-256 trước khi cài. Chạy lại đúng lệnh này để nâng cấp (`config.yaml` và `sentinel.env` được giữ nguyên). Thêm sau `sh -s --`: `--version v0.1.0` để cài đúng một bản, `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB. Client PostgreSQL phải cùng major version với server (`sentinel doctor` báo khi thiếu).
+Server không có Go hoặc docker thì build ở máy khác: `make dist` tạo `dist/sentinel_linux_amd64.tar.gz` (và `arm64`); chép file sang server rồi
+
+```sh
+tar -xzf sentinel_linux_amd64.tar.gz && sudo ./deploy/install.sh ./sentinel
+```
+
+Để nâng cấp: `git pull`, build lại, chạy lại đúng lệnh cài (`config.yaml` và `sentinel.env` được giữ nguyên). Thêm sau đường dẫn binary: `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB. Client PostgreSQL phải cùng major version với server (`sentinel doctor` báo khi thiếu).
 
 Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi
 

@@ -1,13 +1,18 @@
 #!/bin/sh
-# Install Sentinel and the tools it runs on Ubuntu/Debian, in one command:
+# Install Sentinel and the tools it runs on Ubuntu/Debian, in one command, from a checkout of
+# https://github.com/Cong-ty-ThoMi-Group/gm-backup (a private repo, so there is no raw download):
 #
-#   curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/install.sh | sudo sh
+#   git clone https://github.com/Cong-ty-ThoMi-Group/gm-backup.git && cd gm-backup
+#   make build && sudo ./deploy/install.sh ./bin/sentinel
 #
-# With options (after `sh -s --`):
-#   curl -fsSL .../install.sh | sudo sh -s -- --version v1.2.0 --no-mongo
+# With options (after the binary):
+#   sudo ./deploy/install.sh ./bin/sentinel --no-mongo
 #
-# From a checkout or an unpacked release, with a binary you built yourself:
-#   sudo ./deploy/install.sh ./bin/sentinel
+# From a release built elsewhere (`make dist` writes dist/sentinel_linux_<arch>.tar.gz):
+#   tar -xzf sentinel_linux_amd64.tar.gz && sudo ./deploy/install.sh ./sentinel
+#
+# Without a binary the script downloads the latest release of SENTINEL_REPO; that only works when
+# the release files can be fetched without logging in (a public repo, or SENTINEL_BASE_URL).
 #
 # Options:
 #   --version TAG      install this release (default: the latest)
@@ -15,14 +20,14 @@
 #   --no-mongo         do not install mongodump
 #   -h, --help         show this text
 #
-# Environment: SENTINEL_REPO (default VoDinhViet/sentinel), SENTINEL_BASE_URL (where release
+# Environment: SENTINEL_REPO (default Cong-ty-ThoMi-Group/gm-backup), SENTINEL_BASE_URL (where release
 # files are downloaded from), RESTIC_VERSION, MONGO_TOOLS_VERSION.
 #
 # Idempotent: running it again upgrades the binary and keeps /etc/sentinel/config.yaml and
 # /etc/sentinel/sentinel.env. POSIX sh, no bashisms.
 set -eu
 
-SENTINEL_REPO="${SENTINEL_REPO:-VoDinhViet/sentinel}"
+SENTINEL_REPO="${SENTINEL_REPO:-Cong-ty-ThoMi-Group/gm-backup}"
 RESTIC_VERSION="${RESTIC_VERSION:-0.19.1}"
 MONGO_TOOLS_VERSION="${MONGO_TOOLS_VERSION:-100.20.1}"
 VERSION=latest
@@ -34,9 +39,9 @@ usage() {
 	cat <<'EOT'
 Install Sentinel and the tools it runs on Ubuntu/Debian.
 
-  curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/install.sh | sudo sh
-  curl -fsSL .../install.sh | sudo sh -s -- --version v1.2.0 --no-mongo
-  sudo ./deploy/install.sh ./bin/sentinel        # a binary you built yourself
+  sudo ./deploy/install.sh ./bin/sentinel                # a binary you built yourself (make build)
+  sudo ./deploy/install.sh ./bin/sentinel --no-mongo
+  sudo ./deploy/install.sh --version v1.2.0              # download a release of SENTINEL_REPO
 
 Options:
   --version TAG      install this release (default: the latest)
