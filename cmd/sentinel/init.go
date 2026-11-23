@@ -185,13 +185,16 @@ func newInitForm(path string, root bool, hostname string) form {
 	fields = append(fields,
 		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.BackupFiles, choices: initJobTypes},
 		jobField("job_name", "Job name", "letters, digits, . _ -", "documents"),
-		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works", jobPaths, config.BackupFiles),
+		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder", jobPaths, config.BackupFiles),
 		jobField("job_database", "Database", "the database to dump", "", configedit.DatabaseTypes...),
 		jobField("job_password_env", "DB password var", "name of the environment variable holding the database password; empty if none", "", configedit.DatabaseTypes...),
 		formField{key: "job_schedule", label: "Schedule", hint: "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression · manual; ← → for presets", kind: fieldSchedule, value: "daily 02:00"},
 		formField{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
 	)
 	for i := range fields {
+		if fields[i].key == "job_paths" {
+			fields[i].kind = fieldPaths
+		}
 		if fields[i].key == "job_database" || fields[i].key == "job_password_env" {
 			fields[i].onField, fields[i].only = "job_type", configedit.DatabaseTypes
 		}

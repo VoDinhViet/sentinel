@@ -28,6 +28,7 @@ const (
 	fieldChecklist           // several of choices, each ticked or not
 	fieldSchedule            // text with presets on ← →, and a plain-words preview
 	fieldRetention           // five counts on one line
+	fieldPaths               // comma separated folders, with suggestions
 )
 
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
@@ -141,7 +142,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	form.fields = []formField{
 		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != ""},
 		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name},
-		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works", value: strings.Join(job.Paths, ", ")},
+		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder", kind: fieldPaths, value: strings.Join(job.Paths, ", ")},
 		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", ")},
 		{key: "database", label: "Database", hint: "the database to dump", value: job.Database},
 		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost"},
@@ -338,10 +339,14 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 		switch focused.kind {
 		case fieldChecklist:
 			m.form.toggle(m.form.focus, focused.sub)
-		case fieldText, fieldSchedule:
+		case fieldText, fieldSchedule, fieldPaths:
 			focused.value += " "
 		}
 	default:
+		if number, ok := strings.CutPrefix(key, "alt+"); ok && focused.kind == fieldPaths {
+			m.form.suggest(m.form.focus, number)
+			break
+		}
 		m.form.typeInto(focused, key, text)
 	}
 	m.form.touched[focused.key] = true
@@ -356,7 +361,7 @@ func (f *form) typeInto(field *formField, key, text string) {
 	}
 	digits := text != "" && strings.Trim(text, "0123456789") == ""
 	switch field.kind {
-	case fieldText, fieldSchedule:
+	case fieldText, fieldSchedule, fieldPaths:
 		field.value = editText(field.value, key, text)
 	case fieldNumber:
 		if key == "backspace" || digits {
@@ -367,6 +372,18 @@ func (f *form) typeInto(field *formField, key, text string) {
 			field.counts[field.sub] = editText(field.counts[field.sub], key, text)
 		}
 	}
+}
+
+// suggest adds the suggestion with that number (1 to 9) to a Paths field.
+func (f *form) suggest(index int, number string) {
+	field := &f.fields[index]
+	choice, err := strconv.Atoi(number)
+	suggestions := suggestFolders(splitList(field.value))
+	if err != nil || choice < 1 || choice > len(suggestions) {
+		return
+	}
+	field.value = addPath(field.value, suggestions[choice-1])
+	f.touched[field.key] = true
 }
 
 // step is ← or →: the previous or next choice, preset, tick position or count.
@@ -443,6 +460,9 @@ func (m manageModel) formAction(action string) (manageModel, bool) {
 	case parts[0] == "step" && len(numbers) == 2:
 		m.form.focusOn(index)
 		m.form.step(index, numbers[1])
+	case parts[0] == "suggest" && len(numbers) == 2:
+		m.form.focusOn(index)
+		m.form.suggest(index, strconv.Itoa(numbers[1]))
 	default:
 		return m, false
 	}
@@ -585,13 +605,18 @@ func (m manageModel) renderForm() []string {
 			if note := folderNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
-		} else if field.key == "paths" {
+		} else if field.kind == fieldPaths {
 			if note := pathsNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
 		} else if field.kind == fieldSchedule {
 			if preview := m.schedulePreview(field.value); preview != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
+			}
+		}
+		if field.kind == fieldPaths && focused {
+			if line := m.suggestionLine(len(screenLines), index, field.value); line != "" {
+				screenLines = append(screenLines, line)
 			}
 		}
 	}
@@ -663,6 +688,31 @@ func canWrite(info os.FileInfo) bool {
 		return mode&0o020 != 0
 	}
 	return mode&0o002 != 0
+}
+
+// suggestionLine is the line of folders worth adding under a focused Paths field; each one is a
+// click target. row is the line's row within the form's lines.
+func (m manageModel) suggestionLine(row, index int, value string) string {
+	indent := 2 + formLabelWidth + 1
+	line, column := strings.Repeat(" ", indent)+dimStyle.Render("add: "), indent+len("add: ")
+	shown := 0
+	for number, folder := range suggestFolders(splitList(value)) {
+		if number == 0 { // a long first folder is shortened rather than left out
+			folder = truncate(folder, max(m.width-column-3, 8))
+		}
+		chip := fmt.Sprintf("%d %s", number+1, folder)
+		if column+lipgloss.Width(chip) > m.width {
+			break
+		}
+		m.hits.add(row, column, lipgloss.Width(chip), fmt.Sprintf("suggest:%d:%d", index, number+1))
+		line += keyStyle.Render(strconv.Itoa(number+1)) + dimStyle.Render(" "+folder) + "  "
+		column += lipgloss.Width(chip) + 2
+		shown++
+	}
+	if shown == 0 {
+		return ""
+	}
+	return line
 }
 
 // pathsNote says whether the listed paths exist on this machine.
