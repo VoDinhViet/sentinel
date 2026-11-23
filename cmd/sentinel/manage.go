@@ -88,6 +88,7 @@ const (
 	modeResult                      // the outcome of a restore
 	modeForm                        // adding or editing a database job
 	modeDelete                      // typing the job name to confirm its removal
+	modeHelp                        // the key list
 )
 
 type manageModel struct {
@@ -127,6 +128,8 @@ type manageModel struct {
 
 	form       jobForm
 	deleteName string
+
+	helpReturn manageMode // the screen the key list was opened from
 }
 
 type (
@@ -196,6 +199,10 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterRestore(msg), m.reload()
 	case tea.KeyPressMsg:
 		return m.onKey(msg.String(), msg.Text)
+	case tea.MouseClickMsg:
+		return m.onClick(msg.X, msg.Y, msg.Button == tea.MouseLeft)
+	case tea.MouseWheelMsg:
+		return m.onWheel(msg.Button == tea.MouseWheelUp, msg.Button == tea.MouseWheelDown), nil
 	}
 	return m, nil
 }
@@ -244,6 +251,9 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 		return m.onFormKey(key, text)
 	case modeDelete:
 		return m.onDeleteKey(key, text)
+	case modeHelp:
+		m.mode = m.helpReturn
+		return m, nil
 	}
 	return m.onTableKey(key)
 }
@@ -252,6 +262,8 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 	tabCount := len(m.tabs())
 	m.notice = ""
 	switch key {
+	case "?":
+		m.helpReturn, m.mode = modeTable, modeHelp
 	case "q", "ctrl+c", "esc":
 		m.quitting = true
 		return m, tea.Quit
@@ -344,6 +356,8 @@ func (m manageModel) afterSnapshots(msg snapshotsMsg) manageModel {
 
 func (m manageModel) onSnapshotsKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "?":
+		m.helpReturn, m.mode = modeSnapshots, modeHelp
 	case "esc", "q":
 		m.mode = modeTable
 	case "down", "j":
@@ -588,6 +602,7 @@ func severityStyle(s severity) lipgloss.Style {
 func (m manageModel) View() tea.View {
 	view := tea.NewView(m.render())
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	return view
 }
 
@@ -611,6 +626,8 @@ func (m manageModel) render() string {
 		screenLines = append(screenLines, m.renderForm()...)
 	case modeDelete:
 		screenLines = append(screenLines, m.renderDelete()...)
+	case modeHelp:
+		screenLines = append(screenLines, m.renderHelp()...)
 	default:
 		screenLines = append(screenLines, m.renderTabs()...)
 	}
@@ -633,22 +650,18 @@ func (m manageModel) renderTabs() []string {
 	tabs := m.tabs()
 	var screenLines []string
 	var tabBar []string
-	for i, tab := range tabs {
-		label := fmt.Sprintf("%d %s", i+1, tab.title)
-		if n := len(tab.lines); n > 0 {
-			label += fmt.Sprintf(" %d", n)
-		}
+	for i, label := range m.tabLabels() {
 		switch {
 		case i == m.tab:
 			tabBar = append(tabBar, activeTab.Render(label))
-		case i == 2 && len(tab.lines) > 0:
+		case i == 2 && len(tabs[i].lines) > 0:
 			tabBar = append(tabBar, severityStyle(sevBad).Render(label))
 		default:
 			tabBar = append(tabBar, dimStyle.Render(label))
 		}
 	}
 	rule := dimStyle.Render(strings.Repeat("─", m.width))
-	screenLines = append(screenLines, strings.Join(tabBar, "   "), rule)
+	screenLines = append(screenLines, strings.Join(tabBar, tabGap), rule)
 
 	if m.loadErr != nil {
 		screenLines = append(screenLines, severityStyle(sevBad).Render("could not read the store: "+m.loadErr.Error()), "")
@@ -657,8 +670,7 @@ func (m manageModel) renderTabs() []string {
 	tab := tabs[m.tab]
 	// Lines available for the table: the screen minus title, summary, tabs, rules,
 	// column header, detail, notice and footer.
-	visible := max(m.height-13, 3)
-	screenLines = append(screenLines, m.renderTable(tab, visible)...)
+	screenLines = append(screenLines, m.renderTable(tab, m.visibleRows())...)
 
 	screenLines = append(screenLines, rule)
 	if len(tab.lines) > 0 {
@@ -673,12 +685,31 @@ func (m manageModel) renderTabs() []string {
 		}
 		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
-	footer := m.keyBar("tab", "switch", "↑↓", "select", "r", "refresh", "q", "quit")
+	footer := m.keyBar("tab", "switch", "↑↓", "select", "r", "refresh", "?", "help", "q", "quit")
 	if m.tab == 0 {
-		footer = m.keyBar("b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "q", "quit")
+		footer = m.keyBar("b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit")
 	}
 	return append(screenLines, "", footer)
 }
+
+// tabLabels are the tab bar's labels, e.g. "1 Backups 3"; the tab bar joins them with tabGap.
+func (m manageModel) tabLabels() []string {
+	var labels []string
+	for i, tab := range m.tabs() {
+		label := fmt.Sprintf("%d %s", i+1, tab.title)
+		if n := len(tab.lines); n > 0 {
+			label += fmt.Sprintf(" %d", n)
+		}
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+const tabGap = "   "
+
+// visibleRows is how many table lines fit: the screen minus title, summary, tabs,
+// rules, column header, detail, notice and footer.
+func (m manageModel) visibleRows() int { return max(m.height-13, 3) }
 
 func emptyText(tab int) string {
 	return [...]string{
