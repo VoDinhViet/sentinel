@@ -33,8 +33,11 @@ type backupEntry struct {
 	BytesAdded int64     `json:"bytes_added"`
 	TotalBytes int64     `json:"total_bytes"`
 	Result     string    `json:"result"` // "ok", "ok (warning: ...)" or "FAILED: ..."
-	Warning    string    `json:"warning,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	// Recent is the outcome of the latest runs of this job and repository,
+	// oldest first: "ok", "warning" or "failed".
+	Recent  []string `json:"recent"`
+	Warning string   `json:"warning,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 type checkEntry struct {
@@ -43,6 +46,20 @@ type checkEntry struct {
 	LatencyMs int64     `json:"latency_ms"`
 	At        time.Time `json:"at"`
 	Error     string    `json:"error,omitempty"`
+}
+
+// recentRunCount is how many past runs of each job the report carries.
+const recentRunCount = 8
+
+// runOutcome is "failed", "warning" (a snapshot exists but retention failed) or "ok".
+func runOutcome(run store.BackupRun) string {
+	switch {
+	case !run.Success:
+		return "failed"
+	case run.Error != "":
+		return "warning"
+	}
+	return "ok"
 }
 
 func buildStatusReport(ctx context.Context, cfg *config.Config, st *store.Store, now time.Time) (statusReport, error) {
@@ -61,9 +78,19 @@ func buildStatusReport(ctx context.Context, cfg *config.Config, st *store.Store,
 	if err != nil {
 		return report, err
 	}
+	recentRuns, err := st.RecentBackups(ctx, recentRunCount)
+	if err != nil {
+		return report, err
+	}
+	recentOutcomesByPair := map[string][]string{}
+	for _, run := range recentRuns {
+		pair := run.Job + "\x00" + run.Repository
+		recentOutcomesByPair[pair] = append(recentOutcomesByPair[pair], runOutcome(run))
+	}
 	for _, run := range lastRuns {
 		entry := backupEntry{
-			Job: run.Job, Repository: run.Repository, FinishedAt: run.FinishedAt, Success: run.Success,
+			Recent: recentOutcomesByPair[run.Job+"\x00"+run.Repository],
+			Job:    run.Job, Repository: run.Repository, FinishedAt: run.FinishedAt, Success: run.Success,
 			SnapshotID: run.SnapshotID, BytesAdded: run.BytesAdded, TotalBytes: run.TotalBytes, Result: runResult(run),
 		}
 		if run.Success {

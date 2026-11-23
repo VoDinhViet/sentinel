@@ -50,6 +50,22 @@ func ago(t, now time.Time) string {
 	return t.Local().Format("2006-01-02 15:04") + " (" + now.Sub(t).Round(time.Minute).String() + " ago)"
 }
 
+// relativeAgo is a short "5m ago" for the interactive screen.
+func relativeAgo(t, now time.Time) string {
+	elapsed := now.Sub(t)
+	switch {
+	case t.IsZero():
+		return "never"
+	case elapsed < time.Minute:
+		return "just now"
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm ago", int(elapsed/time.Minute))
+	case elapsed < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(elapsed/time.Hour))
+	}
+	return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
+}
+
 func printStatus(out io.Writer, report statusReport) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	now := report.GeneratedAt
