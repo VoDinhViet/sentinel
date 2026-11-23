@@ -85,18 +85,6 @@ func RefVars(raw []byte) ([]string, error) {
 	return slices.Sorted(maps.Keys(names)), nil
 }
 
-// checkDangerousRefs refuses a ${VAR} whose name IsDangerousEnvName: the env file is read for every
-// name the config refers to, so such a reference could set PATH or LD_PRELOAD for restic.
-func checkDangerousRefs(doc *yaml.Node) error {
-	var err error
-	eachRef(doc, func(name string, line int) {
-		if err == nil && IsDangerousEnvName(name) {
-			err = fmt.Errorf("parse config: line %d: ${%s} cannot be used: the variable changes which programs Sentinel runs", line, name)
-		}
-	})
-	return err
-}
-
 // wholeEnvRef matches a value that is exactly one ${VAR}.
 var wholeEnvRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 
@@ -172,9 +160,6 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 		return nil
 	}
 	if err := checkRenamedKeys(doc.Content[0]); err != nil {
-		return err
-	}
-	if err := checkDangerousRefs(&doc); err != nil {
 		return err
 	}
 	if expandVars {

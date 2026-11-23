@@ -15,13 +15,17 @@ import (
 // target, so a folder that another user made first, and filled with symlinks such as etc -> /etc,
 // would let that user overwrite files they cannot touch. A missing folder is created with mode 0700;
 // an existing one must be a real folder (not a symlink) that the current user owns and nobody else
-// can write to.
-func PrepareRestoreTarget(targetDir string) error {
+// can write to. trustOwner skips the last two checks, for a target the operator knows is theirs but
+// that cannot satisfy them (an NFS, CIFS or vfat mount reports other owners and modes, a folder of
+// another user while running under sudo); a symlink is still refused.
+func PrepareRestoreTarget(targetDir string, trustOwner bool) error {
 	if targetDir == "" || !filepath.IsAbs(targetDir) || strings.ContainsRune(targetDir, 0) {
 		return fmt.Errorf("restore target %q must be an absolute path without NUL bytes", targetDir)
 	}
 	targetDir = filepath.Clean(targetDir)
-	if err := os.MkdirAll(filepath.Dir(targetDir), 0o700); err != nil {
+	// Parents get the usual mode so the user who owns the tree, or the database user who loads a dump,
+	// can still reach the target; only the folder restic writes into is private.
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
 		return fmt.Errorf("create restore target: %w", err)
 	}
 	// Mkdir fails when the path exists, which makes creating it atomic: a folder somebody else made
@@ -38,6 +42,9 @@ func PrepareRestoreTarget(targetDir string) error {
 		return fmt.Errorf("restore target %s is a symbolic link: use the folder it points to", targetDir)
 	case !info.IsDir():
 		return fmt.Errorf("restore target %s is not a folder", targetDir)
+	}
+	if trustOwner {
+		return nil
 	}
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != os.Geteuid() {
 		return fmt.Errorf("restore target %s is owned by user %d, not by the user running sentinel", targetDir, stat.Uid)

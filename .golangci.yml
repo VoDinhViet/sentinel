@@ -49,6 +49,12 @@ linters:
       - linters: [gosec]
         path: internal/configedit/create\.go
         text: "G306"
+      # gosec G301: the parents of a new restore target are made 0755 on purpose; a private 0700 parent owned by
+      # root would lock out the user who owns the tree, or the database user who loads the dump. Only the
+      # target itself is 0700.
+      - linters: [gosec]
+        path: internal/backup/restoretarget\.go
+        text: "G301"
       # gosec G204: restic and the dump tools are started with an argv slice and a context, never through a
       # shell (see the go-backend rules); the arguments are built by Sentinel, and the binary is the one on PATH.
       - linters: [gosec]

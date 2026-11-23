@@ -124,7 +124,7 @@ mongorestore --drop --gzip --archive=/tmp/restore/crm.archive.gz --nsInclude 'cr
 
 Job `files` thì file nằm ngay trong `--target`.
 
-`--target` phải là đường dẫn tuyệt đối. Thư mục chưa có sẽ được tạo với quyền `0700`; thư mục có sẵn phải thuộc user đang chạy, không phải symlink và không cho group hoặc người khác ghi, vì restic ghi qua bất cứ thứ gì nó thấy ở đó với quyền của user này (thường là root). Đích là `/` hoặc thư mục hệ thống (`/etc`, `/var`, `/home`, thư mục dữ liệu database...) bị từ chối trừ khi thêm `--force`.
+`--target` phải là đường dẫn tuyệt đối. Thư mục chưa có sẽ được tạo với quyền `0700`; thư mục có sẵn phải thuộc user đang chạy, không phải symlink và không cho group hoặc người khác ghi, vì restic ghi qua bất cứ thứ gì nó thấy ở đó với quyền của user này (thường là root). Đích là `/` hoặc thư mục hệ thống (`/etc`, `/var`, `/home`, thư mục dữ liệu database...) bị từ chối trừ khi thêm `--force`; `--force` cũng bỏ kiểm tra chủ sở hữu và quyền của thư mục đích, cho mount NFS/CIFS hay thư mục của user khác khi chạy qua `sudo`.
 
 ## Màn hình quản lý
 

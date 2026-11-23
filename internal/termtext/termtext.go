@@ -51,6 +51,9 @@ func endOfEscape(runes []rune, start int) int {
 		return len(runes) - 1
 	case ']', 'P', 'X', '^', '_': // OSC, DCS, SOS, PM, APC: a string that ends at BEL or ST (ESC \)
 		for j := start + 2; j < len(runes); j++ {
+			if runes[j] == '\n' {
+				return j - 1 // never closed: stop at the end of the line instead of eating the rest of the message
+			}
 			if runes[j] == 0x07 {
 				return j
 			}

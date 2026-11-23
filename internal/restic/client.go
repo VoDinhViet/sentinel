@@ -98,11 +98,11 @@ func (c *Client) env() []string {
 }
 
 // isProcessSetting reports ordinary settings of the process that carry no secret and that restic needs
-// (HOME for its cache, TMPDIR, the locale), so they stay even when the config uses one in a value such
+// (PATH to find the dump tools, HOME for its cache, TMPDIR, the locale), so they stay even when the config uses one in a value such
 // as ${HOME}/backups.
 func isProcessSetting(name string) bool {
 	switch name {
-	case "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG", "LANGUAGE", "PWD", "HOSTNAME", "TERM":
+	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG", "LANGUAGE", "PWD", "HOSTNAME", "TERM":
 		return true
 	}
 	return strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_")

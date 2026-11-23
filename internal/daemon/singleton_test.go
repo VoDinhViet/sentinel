@@ -36,6 +36,7 @@ func TestVerifyTimeoutFollowsTheSlowestJob(t *testing.T) {
 	}{
 		{"no jobs", nil, 6 * time.Hour},
 		{"jobs without a timeout", []config.Job{{Name: "a"}}, 6 * time.Hour},
+		{"short job timeouts do not shorten it", []config.Job{{Name: "a", Timeout: 10 * time.Minute}}, 6 * time.Hour},
 		{"the longest wins", []config.Job{{Name: "a", Timeout: time.Hour}, {Name: "b", Timeout: 12 * time.Hour}, {Name: "c", Timeout: 2 * time.Hour}}, 12 * time.Hour},
 	}
 	for _, tt := range tests {

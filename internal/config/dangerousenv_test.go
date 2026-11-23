@@ -62,15 +62,15 @@ func TestParseRejectsDangerousVariablesInRepositoryEnv(t *testing.T) {
 	}
 }
 
-// ${NAME} is how a secret reaches a value, and the env file is read for every name the config refers
-// to, so a config that refers to LD_PRELOAD could make the env file set it for restic.
-func TestParseRejectsReferencesToDangerousVariables(t *testing.T) {
-	t.Setenv("RESTIC_PASSWORD_COMMAND", "echo hunter2") // set, so only the name can be the reason
-	raw := "repositories:\n  local:\n    url: /var/backups/repo\n    password: \"${RESTIC_PASSWORD_COMMAND}\"\n"
-	for _, expand := range []bool{true, false} {
-		_, err := ParseWith([]byte(raw), ParseOptions{ExpandEnv: expand})
-		if err == nil || !strings.Contains(err.Error(), "RESTIC_PASSWORD_COMMAND") {
-			t.Errorf("ExpandEnv=%v: err = %v, want a refusal naming the variable", expand, err)
+// A config may use ${ENV} or ${DEPLOY_COMMAND} for ordinary text, so referring to such a name is not an error:
+// restic does not inherit what the config refers to (restic.Client.DropEnv), and the env file never sets the
+// dangerous ones (see below).
+func TestParseAcceptsReferencesToVariablesWithRiskyNames(t *testing.T) {
+	for _, name := range []string{"ENV", "IFS", "DEPLOY_COMMAND", "PATH"} {
+		t.Setenv(name, "value")
+		raw := "server_name: \"${" + name + "}\"\nrepositories:\n  local:\n    url: /var/backups/repo\n    password: pw\n"
+		if _, err := ParseWith([]byte(raw), ParseOptions{ExpandEnv: true}); err != nil {
+			t.Errorf("${%s} must be accepted: %v", name, err)
 		}
 	}
 }

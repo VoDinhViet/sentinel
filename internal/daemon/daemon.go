@@ -168,17 +168,19 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 
 // verifyTimeout bounds one `restic check`. restic retries a failing backend for a long time and keeps the
 // repository locked meanwhile, which blocks the prune of every job that uses it, so a check that hangs must end
-// and be reported. It may take as long as the slowest backup is allowed to, since both read the repository.
+// and be reported. It may take as long as the slowest backup is allowed to, since both read the repository,
+// and never less than the default job timeout: jobs with short timeouts (a small database) say nothing about
+// how long a check of a large repository takes.
 func (d *Daemon) verifyTimeout() time.Duration {
-	longest := time.Duration(0)
+	longest := defaultVerifyTimeout
 	for _, job := range d.Config.Jobs {
 		longest = max(longest, job.Timeout)
 	}
-	if longest == 0 {
-		return 6 * time.Hour // the default job timeout
-	}
 	return longest
 }
+
+// defaultVerifyTimeout is the default job timeout, and the least a repository check is given.
+const defaultVerifyTimeout = 6 * time.Hour
 
 // CheckRepositories runs `restic check` on every repository used by a job.
 func (d *Daemon) CheckRepositories(ctx context.Context) {

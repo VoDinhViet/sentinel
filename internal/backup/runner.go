@@ -28,6 +28,8 @@ type Runner struct {
 	// (from another goroutine). The same progress is written to a file next to the state
 	// database for other processes to read: see ReadRunning.
 	OnProgress func(Progress)
+	// TrustRestoreTarget skips the owner and mode checks of a restore target (see PrepareRestoreTarget).
+	TrustRestoreTarget bool
 }
 
 func (r *Runner) now() time.Time {

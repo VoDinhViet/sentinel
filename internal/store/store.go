@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -102,8 +104,11 @@ func Open(path string) (*Store, error) {
 		// A WAL file left by an older version keeps its own mode.
 		for _, suffix := range walSuffixes {
 			if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				_ = db.Close()
-				return nil, err
+				if !modeUnsupported(err) {
+					_ = db.Close()
+					return nil, err
+				}
+				warnModeUnsupported(path+suffix, err)
 			}
 		}
 	}
@@ -117,10 +122,26 @@ func createPrivate(path string) error {
 		return err
 	}
 	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return err
+		if !modeUnsupported(err) {
+			_ = file.Close()
+			return err
+		}
+		warnModeUnsupported(path, err)
 	}
 	return file.Close()
+}
+
+// modeUnsupported reports a chmod error that means this file system cannot hold Unix modes (vfat, some
+// network and Windows-backed mounts) or that the file is another user's, as opposed to a real failure.
+func modeUnsupported(err error) bool {
+	return errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.ENOTSUP)
+}
+
+// warnModeUnsupported says the state database could not be restricted to its owner. The daemon still
+// starts: refusing would stop every backup over a mount the operator may have chosen on purpose, and the
+// state directory (0700 where it can be) is still the barrier.
+func warnModeUnsupported(path string, err error) {
+	slog.Warn("cannot restrict the state database to its owner: the file system does not allow changing modes", "path", path, "error", err)
 }
 
 func (s *Store) Close() error { return s.db.Close() }

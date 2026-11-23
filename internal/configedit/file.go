@@ -50,12 +50,13 @@ func replaceFile(path string, previous, next []byte) error {
 	}
 	mode := fileInfo.Mode().Perm()
 	backup := path + ".bak"
-	if err := os.WriteFile(backup, previous, mode); err != nil {
+	if err := os.WriteFile(backup, previous, tightenedMode(mode)); err != nil {
 		return fmt.Errorf("write backup of the config: %w", err)
 	}
 	// WriteFile applies the mode only to a file it creates, and the backup holds every literal
-	// password of the previous config, so one left by an earlier run must not stay wider.
-	if err := os.Chmod(backup, mode); err != nil {
+	// password of the previous config, so one left by an earlier run must not stay wider, and nobody
+	// outside the owner and the group may read it even when the config itself is open to everyone.
+	if err := os.Chmod(backup, tightenedMode(mode)); err != nil {
 		return fmt.Errorf("write backup of the config: %w", err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".sentinel-config-*")

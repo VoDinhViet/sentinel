@@ -321,3 +321,19 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 		t.Errorf("user_version = %d, %v; want 3", version, err)
 	}
 }
+
+// vfat, some network mounts and files of another user answer chmod with EPERM or ENOTSUP; that must not
+// stop the daemon, while any other failure still does.
+func TestModeUnsupported(t *testing.T) {
+	for err, want := range map[error]bool{
+		syscall.EPERM:   true,
+		syscall.ENOTSUP: true,
+		syscall.EACCES:  false,
+		syscall.EIO:     false,
+		syscall.ENOENT:  false,
+	} {
+		if got := modeUnsupported(&os.PathError{Op: "chmod", Path: "x", Err: err}); got != want {
+			t.Errorf("modeUnsupported(%v) = %v, want %v", err, got, want)
+		}
+	}
+}

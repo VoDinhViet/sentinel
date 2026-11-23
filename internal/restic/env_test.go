@@ -57,11 +57,12 @@ func TestEnvDropsInheritedVariablesAndKeepsWhatTheConfigGives(t *testing.T) {
 // A config may use ${HOME} in a path; restic still needs HOME for its cache.
 func TestEnvKeepsProcessSettingsEvenWhenTheConfigRefersToThem(t *testing.T) {
 	t.Setenv("HOME", "/root")
+	t.Setenv("PATH", "/usr/local/bin:/usr/bin")
 	t.Setenv("LC_ALL", "C.UTF-8")
 	t.Setenv("XDG_CACHE_HOME", "/var/cache")
-	client := &Client{Repo: config.Repository{URL: "/repo", Password: "pw"}, DropEnv: []string{"HOME", "LC_ALL", "XDG_CACHE_HOME"}}
+	client := &Client{Repo: config.Repository{URL: "/repo", Password: "pw"}, DropEnv: []string{"HOME", "PATH", "LC_ALL", "XDG_CACHE_HOME"}}
 	valuesByName := envValues(client.env())
-	for name, want := range map[string]string{"HOME": "/root", "LC_ALL": "C.UTF-8", "XDG_CACHE_HOME": "/var/cache"} {
+	for name, want := range map[string]string{"HOME": "/root", "PATH": "/usr/local/bin:/usr/bin", "LC_ALL": "C.UTF-8", "XDG_CACHE_HOME": "/var/cache"} {
 		if values := valuesByName[name]; len(values) != 1 || values[0] != want {
 			t.Errorf("%s = %v, want [%s]", name, values, want)
 		}

@@ -98,7 +98,11 @@ func tightenedMode(mode os.FileMode) os.FileMode {
 // keepOwner gives the new file the owner and group of the file it replaces, when allowed.
 func keepOwner(temp *os.File, old os.FileInfo) {
 	if stat, ok := old.Sys().(*syscall.Stat_t); ok {
-		_ = temp.Chown(int(stat.Uid), int(stat.Gid))
+		// A user who is not root cannot give a file to somebody else, but may still hand it to a group
+		// they belong to, which is what lets the daemon's user keep reading it.
+		if err := temp.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
+			_ = temp.Chown(-1, int(stat.Gid))
+		}
 	}
 }
 
