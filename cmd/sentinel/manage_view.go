@@ -145,7 +145,7 @@ func (m manageModel) renderTabs() []string {
 	case doctorTab:
 		footerKeys = []string{"tab", "chuyển", "↑↓", "chọn", "r", "chạy check", "?", "trợ giúp", "q", "thoát"}
 	case configTab:
-		footerKeys = []string{"a", "thêm", "e", "sửa", "d", "xoá", "tab", "chuyển", "?", "trợ giúp", "q", "thoát"}
+		footerKeys = []string{"a", "thêm", "e", "sửa", "d", "xoá", "t", "gửi thử", "tab", "chuyển", "?", "trợ giúp", "q", "thoát"}
 	case 0:
 		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "thêm", "e", "sửa", "d", "xoá", "?", "trợ giúp", "q", "thoát"}
 	}

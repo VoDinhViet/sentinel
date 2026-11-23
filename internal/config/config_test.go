@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -344,5 +346,33 @@ func TestJobOnlyRepo(t *testing.T) {
 	}
 	if _, err := job.OnlyRepo("gdrive"); err == nil || !strings.Contains(err.Error(), `does not use repository "gdrive"`) {
 		t.Errorf("unknown repository: %v", err)
+	}
+}
+
+func TestLoadNotifierNeedsOnlyItsOwnVariables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	raw := "repositories:\n  local: {url: /r, password: \"${NOT_SET_ANYWHERE}\"}\nnotifiers:\n  telegram:\n    token: \"${TEST_TG_TOKEN}\"\n    chat_id: \"${TEST_TG_CHAT}\"\n  slack:\n    webhook: \"${TEST_SLACK_HOOK}\"\n"
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadNotifier(path, "telegram"); err == nil || !strings.Contains(err.Error(), "TEST_TG_TOKEN") || strings.Contains(err.Error(), "NOT_SET_ANYWHERE") || strings.Contains(err.Error(), "TEST_SLACK_HOOK") {
+		t.Errorf("want the telegram notifier's own missing variables only, got %v", err)
+	}
+	t.Setenv("TEST_SLACK_HOOK", "https://hooks.example/x")
+	slack, err := LoadNotifier(path, "slack")
+	if err != nil || slack.Slack == nil || slack.Slack.URL != "https://hooks.example/x" || slack.Telegram != nil {
+		t.Errorf("slack = %+v, err %v", slack, err)
+	}
+	t.Setenv("TEST_TG_TOKEN", "tok")
+	t.Setenv("TEST_TG_CHAT", "-1001")
+	telegram, err := LoadNotifier(path, "telegram")
+	if err != nil || telegram.Telegram == nil || telegram.Telegram.Token != "tok" || telegram.Telegram.ChatID != "-1001" {
+		t.Errorf("telegram = %+v, err %v", telegram, err)
+	}
+	if none, err := LoadNotifier(path, "discord"); err != nil || none.Discord != nil {
+		t.Errorf("a kind the file lacks gives nothing: %+v, %v", none, err)
+	}
+	if _, err := LoadNotifier(filepath.Join(t.TempDir(), "missing.yaml"), "slack"); err == nil {
+		t.Error("a missing file is an error")
 	}
 }

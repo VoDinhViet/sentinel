@@ -176,4 +176,8 @@ type (
 		hint string
 		err  error
 	}
+	notifierTestedMsg struct {
+		kind string
+		err  error
+	}
 )

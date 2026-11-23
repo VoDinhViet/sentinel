@@ -43,6 +43,8 @@ type initOutcome struct {
 	secretWritten bool
 	jobName       string
 	repoName      string
+	notifierKind  string   // the alert channel set up, "" for none
+	notifierVars  []string // the variables of that channel the user still has to set
 }
 
 func (a *app) initCmd() *cobra.Command {
@@ -69,6 +71,14 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 			return err
 		}
 		outcome.jobName, outcome.repoName, outcome.passwordEnv = initial.Job.Name, initial.Repository.Name, initial.Repository.PasswordEnv
+		if notifier := initial.Notifier; notifier != nil {
+			outcome.notifierKind = notifier.Kind
+			for _, spec := range configedit.NotifierFields(notifier.Kind) {
+				if spec.Secret {
+					outcome.notifierVars = append(outcome.notifierVars, notifier.Values[spec.Key])
+				}
+			}
+		}
 		// A server install keeps secrets in sentinel.env beside the config: give the repository a password there.
 		if root && filepath.Dir(path) == filepath.Dir(config.SystemPath) {
 			outcome.envFile = filepath.Join(filepath.Dir(path), "sentinel.env")
@@ -136,6 +146,14 @@ func printInitOutcome(w io.Writer, outcome *initOutcome) {
 	}
 	fmt.Fprintf(w, "  sentinel backup init %s     # tạo repository, chỉ một lần\n", outcome.jobName)
 	fmt.Fprintf(w, "  sentinel backup run %s      # backup ngay\n", outcome.jobName)
+	if outcome.notifierKind != "" {
+		envFile := outcome.envFile
+		if envFile == "" {
+			envFile = filepath.Join(filepath.Dir(outcome.path), config.EnvFileName)
+		}
+		fmt.Fprintf(w, "  # cảnh báo qua %s: thêm %s vào %s (mode 0600), rồi thử:\n", outcome.notifierKind, strings.Join(outcome.notifierVars, ", ")+"=<giá trị>", envFile)
+		fmt.Fprintln(w, "  sentinel notify test")
+	}
 	fmt.Fprintln(w, "  sentinel doctor")
 	fmt.Fprintln(w, "  sentinel manage             # sửa mọi thứ ngay trong terminal")
 }
@@ -143,6 +161,24 @@ func printInitOutcome(w io.Writer, outcome *initOutcome) {
 // ---- the form
 
 var initJobTypes = []string{config.JobFiles, config.JobPostgres, config.JobMySQL, config.JobMongoDB}
+
+// The alert channels the init form can set up; "không" writes none.
+const initNotifierNone = "không"
+
+var initNotifierKinds = []string{initNotifierNone, "telegram", "discord", "slack"}
+
+// initNotifier is the alert channel the init form describes, or nil for "không".
+func (f form) initNotifier() *configedit.Notifier {
+	kind := f.field("notify_kind").value
+	if kind == initNotifierNone || kind == "" {
+		return nil
+	}
+	notifier := configedit.Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
+	for _, spec := range configedit.NotifierFields(kind) {
+		notifier.Values[spec.Key] = strings.TrimSpace(f.field("notify_" + kind + "." + spec.Key).value)
+	}
+	return &notifier
+}
 
 // newInitForm is the repository form plus the first job and its schedule, on one screen.
 func newInitForm(path string, root bool, hostname string) form {
@@ -184,6 +220,11 @@ func newInitForm(path string, root bool, hostname string) form {
 	fields = append(fields, scheduleFields("job_schedule", "Schedule", scheduleHint, "daily 02:00", "", "")...)
 	fields = append(fields,
 		formField{key: "retention", label: "Giữ", hint: "số snapshot giữ lại: N cái mới nhất, rồi mỗi ngày, tuần, tháng, năm một cái", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
+		formField{key: "notify_kind", label: "Cảnh báo qua", hint: "← → chọn kênh nhận cảnh báo (backup lỗi, uptime down); không = chỉ ghi log. Muốn SMTP hay kênh thứ hai thì thêm sau trong sentinel manage", kind: fieldChoice, value: initNotifierNone, choices: initNotifierKinds},
+		formField{key: "notify_telegram.token", label: "Token var", hint: "tên env var chứa bot token từ @BotFather (không nhập chính token); đặt giá trị trong sentinel.env", value: "TG_TOKEN", onField: "notify_kind", only: []string{"telegram"}},
+		formField{key: "notify_telegram.chat_id", label: "Chat id", hint: "id của chat hoặc group; id group bắt đầu bằng -", onField: "notify_kind", only: []string{"telegram"}},
+		formField{key: "notify_discord.webhook", label: "Webhook var", hint: "tên env var chứa webhook URL của Discord", value: "DISCORD_WEBHOOK", onField: "notify_kind", only: []string{"discord"}},
+		formField{key: "notify_slack.webhook", label: "Webhook var", hint: "tên env var chứa webhook URL của Slack", value: "SLACK_WEBHOOK", onField: "notify_kind", only: []string{"slack"}},
 	)
 	for i := range fields {
 		if fields[i].key == "job_paths" {
@@ -219,7 +260,7 @@ func (f form) initial() (configedit.Initial, error) {
 	}
 	return configedit.Initial{
 		ServerName: strings.TrimSpace(f.field("server_name").value), Store: strings.TrimSpace(f.field("store").value), Repository: repo, Job: job,
-		Schedule: strings.TrimSpace(f.field("job_schedule").value), Retention: retention,
+		Schedule: strings.TrimSpace(f.field("job_schedule").value), Retention: retention, Notifier: f.initNotifier(),
 	}, nil
 }
 
@@ -240,6 +281,14 @@ func (f form) initProblems() []error {
 			key = problem.Field
 		}
 		problems = append(problems, formProblem(key, "%s", problem.Message))
+	}
+	if notifier := initial.Notifier; notifier != nil {
+		if err := configedit.ValidateNotifier(*notifier); err != nil {
+			var invalid *configedit.InvalidError
+			if errors.As(err, &invalid) {
+				problems = append(problems, formProblem("notify_"+notifier.Kind+"."+invalid.Field, "%s", invalid.Message))
+			}
+		}
 	}
 	return problems
 }

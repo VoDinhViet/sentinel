@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/notify"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
 
@@ -51,6 +53,9 @@ type manageActions struct {
 	saveNotifier     func(notifier configedit.Notifier) error
 	deleteNotifier   func(kind string) error
 	saveSettings     func(settings configedit.Settings) error
+	// testNotifier sends a test message through the notifier of that kind, as the config file
+	// has it now (a notifier added a minute ago works without restarting the manager).
+	testNotifier func(ctx context.Context, kind string) error
 	// initialize writes a first config file (`sentinel init`).
 	initialize func(initial configedit.Initial) error
 }
@@ -80,6 +85,9 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		saveNotifier:   func(notifier configedit.Notifier) error { return configedit.SaveNotifier(configPath, notifier) },
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
+		testNotifier: func(ctx context.Context, kind string) error {
+			return testNotifier(ctx, configPath, cfg.ServerName, kind)
+		},
 		doctor: func(ctx context.Context) []doctor.Finding {
 			return doctor.Run(ctx, cfg, configPath, func(cfg *config.Config) (*store.Store, error) { return store.Open(cfg.StorePath) })
 		},
@@ -121,4 +129,23 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			return loadHint, err
 		},
 	}
+}
+
+// testNotifier sends one test message through the notifier of the given kind, read from the
+// config file. Only that notifier's own ${VAR}s need to be set.
+func testNotifier(ctx context.Context, configPath, server, kind string) error {
+	only, err := config.LoadNotifier(configPath, kind)
+	if err != nil {
+		return err
+	}
+	multi := notify.NewMulti(only)
+	if len(multi.Notifiers) == 0 {
+		return fmt.Errorf("notifier %s is not in the config file", kind)
+	}
+	multi.Attempts = 1
+	errs := multi.SendEach(ctx, notify.Message{
+		Level: notify.Info, Server: server, Title: "Test notification",
+		Body: "Sent from `sentinel manage` at " + time.Now().Format(time.RFC3339),
+	})
+	return errors.Join(errs...)
 }

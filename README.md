@@ -32,7 +32,7 @@ sudo systemctl enable --now sentinel
 
 ```sh
 make build && make install           # cài vào ~/.local/bin
-sentinel init                        # một form: lưu ở đâu, backup gì, lịch nào -> ~/.config/sentinel/config.yaml
+sentinel init                        # một form: lưu ở đâu, backup gì, lịch nào, và (tuỳ chọn) kênh cảnh báo Telegram, Discord hoặc Slack -> ~/.config/sentinel/config.yaml
 sentinel backup run documents        # backup ngay
 sentinel manage                      # màn hình quản lý
 ```
@@ -133,6 +133,7 @@ Job `files` thì file nằm ngay trong `--target`.
 | `b` | backup ngay job đang chọn (không chạy chồng với daemon) |
 | `s` | xem snapshot của job và restore |
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
+| `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
 | `r` | làm mới / chạy lại Doctor |
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)

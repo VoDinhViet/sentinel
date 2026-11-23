@@ -126,3 +126,36 @@ func TestPrintInitOutcomeTellsWhatToDoNext(t *testing.T) {
 		t.Errorf("root output:\n%s", output.String())
 	}
 }
+
+func TestInitFormAlertChannelIsOptional(t *testing.T) {
+	program, written := initScreen(t, false)
+	if program.form.field("notify_kind").value != initNotifierNone || len(program.form.problems()) != 0 {
+		t.Fatalf("by default no channel is asked for and the form is valid: %v", program.form.problems())
+	}
+	if view := plain(program.render()); !strings.Contains(view, "Cảnh báo qua") || strings.Contains(view, "Token var") {
+		t.Errorf("the channel field shows, its fields do not:\n%s", view)
+	}
+	program = pressInit(t, program, "ctrl+s")
+	if !program.saved || (*written)[0].Notifier != nil {
+		t.Errorf("without a channel nothing is written for it: %+v", *written)
+	}
+
+	program, written = initScreen(t, false)
+	program.form.field("notify_kind").value = "telegram"
+	if view := plain(program.render()); !strings.Contains(view, "Token var") || !strings.Contains(view, "Chat id") {
+		t.Errorf("telegram asks for its two fields:\n%s", view)
+	}
+	program = pressInit(t, program, "ctrl+s")
+	if program.saved || len(*written) != 0 || program.form.problems()["notify_telegram.chat_id"] == "" {
+		t.Fatalf("telegram without a chat id is refused (saved %v): %v", program.saved, program.form.problems())
+	}
+	program.form.field("notify_telegram.chat_id").value = "-1001234"
+	program = pressInit(t, program, "ctrl+s")
+	if !program.saved || len(*written) != 1 {
+		t.Fatalf("not saved: %v", program.form.problems())
+	}
+	notifier := (*written)[0].Notifier
+	if notifier == nil || notifier.Kind != "telegram" || notifier.Values["token"] != "TG_TOKEN" || notifier.Values["chat_id"] != "-1001234" {
+		t.Errorf("notifier = %+v", notifier)
+	}
+}

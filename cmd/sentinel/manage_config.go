@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"sentinel/internal/configedit"
 	"sentinel/internal/schedule"
 )
@@ -262,5 +264,34 @@ func (m manageModel) configRemove() manageModel {
 		return m.confirmRemoval("notifier", entry.name, "Cảnh báo sẽ không gửi vào đó nữa.", func() error { return actions.deleteNotifier(entry.name) })
 	}
 	m.notice, m.noticeBad = "Không xoá được cài đặt: bấm e để đổi.", false
+	return m
+}
+
+// configTestNotifier sends a test message through the selected notifier, in the background.
+func (m manageModel) configTestNotifier() (tea.Model, tea.Cmd) {
+	entry, ok := m.selectedConfig()
+	if !ok || entry.section != secNotifier {
+		m.notice, m.noticeBad = "Chọn một dòng Notifier rồi bấm t để gửi thử.", false
+		return m, nil
+	}
+	if m.actions.testNotifier == nil {
+		m.notice, m.noticeBad = "Không gửi thử được ở màn hình này.", true
+		return m, nil
+	}
+	ctx := m.startBusy("Đang gửi tin thử tới " + entry.name)
+	kind, actions := entry.name, m.actions
+	return m, tea.Batch(m.spin(), func() tea.Msg {
+		return notifierTestedMsg{kind: kind, err: actions.testNotifier(ctx, kind)}
+	})
+}
+
+func (m manageModel) afterNotifierTest(msg notifierTestedMsg) manageModel {
+	m.endBusy()
+	m.mode = modeTable
+	if msg.err != nil {
+		m.notice, m.noticeBad = fmt.Sprintf("Gửi thử tới %s thất bại: %v", msg.kind, msg.err), true
+		return m
+	}
+	m.notice, m.noticeBad = "Đã gửi tin thử tới "+msg.kind+": kiểm tra xem tin đã tới chưa.", false
 	return m
 }

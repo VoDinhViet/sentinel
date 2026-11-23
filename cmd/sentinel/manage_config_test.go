@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -293,3 +294,37 @@ func TestConfigTabWithoutAConfigFileSaysSo(t *testing.T) {
 func tea5() tea.KeyPressMsg { return tea.KeyPressMsg{Code: '5', Text: "5"} }
 
 func wideScreen() tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: 160, Height: 40} }
+
+func TestTestKeySendsAMessageThroughTheSelectedNotifier(t *testing.T) {
+	screen, configFile := configScreen(t)
+	screen = goTo(t, screen, secNotifier, "telegram")
+	model, cmd := screen.onKey("t", "t")
+	screen = model.(manageModel)
+	if screen.mode != modeBusy || !strings.Contains(screen.busyText, "telegram") {
+		t.Fatalf("mode %d busy %q: the test runs in the background", screen.mode, screen.busyText)
+	}
+	screen = feed(t, screen, messagesOf(cmd))
+	if strings.Join(configFile.tested, ",") != "telegram" || screen.mode != modeTable || screen.noticeBad || !strings.Contains(screen.notice, "Đã gửi tin thử tới telegram") {
+		t.Errorf("tested %v mode %d notice %q (bad %v)", configFile.tested, screen.mode, screen.notice, screen.noticeBad)
+	}
+
+	configFile.testErr = errors.New("telegram: 401 Unauthorized")
+	model, cmd = screen.onKey("t", "t")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if !screen.noticeBad || !strings.Contains(screen.notice, "thất bại") || !strings.Contains(screen.notice, "401") {
+		t.Errorf("a failed test says why: %q (bad %v)", screen.notice, screen.noticeBad)
+	}
+}
+
+func TestTestKeyNeedsANotifierLine(t *testing.T) {
+	screen, configFile := configScreen(t)
+	screen = goTo(t, screen, secUptime, "web")
+	model, cmd := screen.onKey("t", "t")
+	screen = model.(manageModel)
+	if cmd != nil || screen.mode != modeTable || len(configFile.tested) != 0 || !strings.Contains(screen.notice, "Notifier") {
+		t.Errorf("t on an uptime line: mode %d tested %v notice %q", screen.mode, configFile.tested, screen.notice)
+	}
+	if view := plain(screen.render()); !strings.Contains(view, "gửi thử") {
+		t.Errorf("the key bar offers the test:\n%s", view)
+	}
+}

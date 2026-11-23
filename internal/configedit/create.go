@@ -21,6 +21,8 @@ type Initial struct {
 	// Schedule and Retention become the defaults block, so the job itself stays short.
 	Schedule  string
 	Retention config.Retention
+	// Notifier is an optional first alert channel; nil writes none.
+	Notifier *Notifier
 }
 
 // ErrConfigExists means Create was asked to write over a config file that is already there.
@@ -67,6 +69,11 @@ func Create(path string, initial Initial, force bool) error {
 	}
 	if err := Save(path, "", initial.Job); err != nil {
 		return err
+	}
+	if initial.Notifier != nil {
+		if err := SaveNotifier(path, *initial.Notifier); err != nil {
+			return err
+		}
 	}
 	os.Remove(path + ".bak") // the intermediate copies of a file that did not exist yet
 	built = true

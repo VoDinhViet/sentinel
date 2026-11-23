@@ -70,6 +70,8 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterSnapshots(msg), nil
 	case restoreDoneMsg:
 		return m.afterRestore(msg), m.reload()
+	case notifierTestedMsg:
+		return m.afterNotifierTest(msg), nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg.String(), msg.Text)
 	case tea.MouseClickMsg:
@@ -173,6 +175,10 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 				runs, err := actions.runBackup(ctx, job, repository)
 				return backupDoneMsg{job: job, repository: repository, runs: runs, err: err}
 			})
+		}
+	case "t":
+		if m.tab == configTab {
+			return m.configTestNotifier()
 		}
 	case "a":
 		if m.tab == configTab {

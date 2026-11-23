@@ -111,3 +111,24 @@ func TestEnsureSecretAddsOnlyWhatIsMissing(t *testing.T) {
 		t.Error("a bad variable name must be refused")
 	}
 }
+
+func TestCreateWritesTheFirstNotifier(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	initial := Initial{
+		ServerName: "web-01", Repository: Repository{Name: "local", URL: "/var/backups/sentinel", PasswordEnv: "RESTIC_PASSWORD"},
+		Job:      Job{Name: "docs", Type: config.JobFiles, Paths: []string{"/etc"}},
+		Schedule: "daily 02:00",
+		Notifier: &Notifier{Kind: "telegram", Values: map[string]string{"token": "TG_TOKEN", "chat_id": "-100"}},
+	}
+	if err := Create(path, initial, false); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := Read(path)
+	if err != nil || len(overview.Notifiers) != 1 || overview.Notifiers[0].Kind != "telegram" || overview.Notifiers[0].Values["token"] != "TG_TOKEN" {
+		t.Errorf("notifiers = %+v, err %v", overview.Notifiers, err)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), "${TG_TOKEN}") {
+		t.Errorf("the token is written as a variable reference:\n%s", raw)
+	}
+}

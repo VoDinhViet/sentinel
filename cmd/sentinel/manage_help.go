@@ -27,6 +27,14 @@ func (m manageModel) helpFor() (title string, keys []keyHelp) {
 	if m.tab == doctorTab {
 		return "Phím", append([]keyHelp{{"r", "chạy lại các check"}}, common[:1]...)
 	}
+	if m.tab == configTab {
+		return "Phím", append([]keyHelp{
+			{"a", "thêm một mục vào section của dòng đang chọn"},
+			{"e  enter", "sửa mục đang chọn"},
+			{"d", "xoá mục đang chọn khỏi config"},
+			{"t", "gửi tin thử tới notifier đang chọn (đọc config trong file, không cần khởi động lại)"},
+		}, common...)
+	}
 	if m.tab != 0 {
 		return "Phím", common
 	}

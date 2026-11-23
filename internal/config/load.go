@@ -195,3 +195,60 @@ func checkRenamedKeys(root *yaml.Node) error {
 	}
 	return nil
 }
+
+// LoadNotifier reads the one notifier of that kind (telegram, smtp, discord or slack) from the
+// notifiers: section of a config file, with ${VAR} expanded. Only that notifier's own variables
+// need to be set, so it can be tried while the rest of the file's secrets are not. The result
+// has no notifier at all when the file has none of that kind.
+func LoadNotifier(path, kind string) (Notifiers, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Notifiers{}, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return Notifiers{}, fmt.Errorf("parse config: %w", err)
+	}
+	section := mappingValue(&doc, "notifiers")
+	if section == nil {
+		return Notifiers{}, nil
+	}
+	notifier := mappingValue(section, kind)
+	if notifier == nil {
+		return Notifiers{}, nil
+	}
+	missingVars := map[string]bool{}
+	expandEnv(notifier, missingVars)
+	if len(missingVars) > 0 {
+		return Notifiers{}, fmt.Errorf("unset environment variables: %v", slices.Sorted(maps.Keys(missingVars)))
+	}
+	only := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: kind}, notifier}}
+	expanded, err := yaml.Marshal(only)
+	if err != nil {
+		return Notifiers{}, err
+	}
+	var notifiers Notifiers
+	decoder := yaml.NewDecoder(bytes.NewReader(expanded))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&notifiers); err != nil {
+		return Notifiers{}, fmt.Errorf("parse config: %w", err)
+	}
+	return notifiers, nil
+}
+
+// mappingValue is the value of a key of a YAML mapping (or of the mapping at the top of a
+// document), nil when there is none.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}

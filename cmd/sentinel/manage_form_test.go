@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,8 @@ type fakeConfig struct {
 	notifiers    []configedit.Notifier
 	settings     []configedit.Settings
 	removed      []string // "repository s3", "uptime web", "notifier telegram"
+	tested       []string // the notifier kinds a test message was sent to
+	testErr      error
 }
 
 func (f *fakeConfig) attach(actions *manageActions) {
@@ -60,6 +63,10 @@ func (f *fakeConfig) attach(actions *manageActions) {
 	actions.saveSettings = func(settings configedit.Settings) error {
 		f.settings = append(f.settings, settings)
 		return f.saveErr
+	}
+	actions.testNotifier = func(_ context.Context, kind string) error {
+		f.tested = append(f.tested, kind)
+		return f.testErr
 	}
 	actions.deleteRepository = func(name string) error { f.removed = append(f.removed, "repository "+name); return nil }
 	actions.deleteUptime = func(name string) error { f.removed = append(f.removed, "uptime "+name); return nil }
