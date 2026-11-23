@@ -1,10 +1,11 @@
 package main
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"fmt"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"sentinel/internal/status"
 )
