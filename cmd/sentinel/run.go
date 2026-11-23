@@ -13,6 +13,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/daemon"
+	"sentinel/internal/doctor"
 	"sentinel/internal/store"
 	"sentinel/internal/uptime"
 )
@@ -67,7 +68,7 @@ func (a *app) runCmd() *cobra.Command {
 				}, nil
 			}
 
-			if failed := printFindings(os.Stderr, checkBinaries(ctx, cfg)); failed > 0 {
+			if failed := printFindings(os.Stderr, doctor.Tools(ctx, cfg)); failed > 0 {
 				return errors.New("required tools are missing; run `sentinel doctor` for details")
 			}
 			d, err := build(cfg)

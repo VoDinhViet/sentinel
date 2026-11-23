@@ -15,6 +15,8 @@ import (
 	"sentinel/internal/engine"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
+
+	"sentinel/internal/doctor"
 )
 
 // jobRepository is one backup the manager can act on: a job and one of its repositories.
@@ -44,7 +46,7 @@ type manageActions struct {
 	saveJob   func(original string, job configedit.Job) error
 	deleteJob func(name string) error
 	// doctor runs the same checks as `sentinel doctor`.
-	doctor func(ctx context.Context) []finding
+	doctor func(ctx context.Context) []doctor.Finding
 	// The rest of the config file, shown and edited on the Config tab.
 	overview         func() (configedit.Overview, error)
 	saveRepository   func(original string, repository configedit.Repository) error
@@ -83,8 +85,8 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		saveNotifier:   func(notifier configedit.Notifier) error { return configedit.SaveNotifier(configPath, notifier) },
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
-		doctor: func(ctx context.Context) []finding {
-			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
+		doctor: func(ctx context.Context) []doctor.Finding {
+			return doctor.Run(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
 		},
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
 			job, err := cfg.FindJob(jobName)

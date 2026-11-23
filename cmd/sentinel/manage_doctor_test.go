@@ -9,13 +9,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"sentinel/internal/status"
+
+	"sentinel/internal/doctor"
 )
 
-func doctorFindings() []finding {
-	return []finding{
-		{name: "config", info: "/etc/sentinel/config.yaml"},
-		{name: "restic", err: errors.New("not found in PATH"), hint: "install restic >= 0.17"},
-		{name: "notifiers", err: errors.New("none configured"), warn: true, hint: "add a notifier"},
+func doctorFindings() []doctor.Finding {
+	return []doctor.Finding{
+		{Name: "config", Info: "/etc/sentinel/config.yaml"},
+		{Name: "restic", Err: errors.New("not found in PATH"), Hint: "install restic >= 0.17"},
+		{Name: "notifiers", Err: errors.New("none configured"), Warn: true, Hint: "add a notifier"},
 	}
 }
 
@@ -23,7 +25,7 @@ func doctorFindings() []finding {
 func doctorModel(t *testing.T) (manageModel, *int) {
 	t.Helper()
 	runs := new(int)
-	actions := manageActions{doctor: func(context.Context) []finding {
+	actions := manageActions{doctor: func(context.Context) []doctor.Finding {
 		*runs++
 		return doctorFindings()
 	}}
