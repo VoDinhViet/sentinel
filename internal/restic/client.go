@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/termtext"
 )
 
 // restic exit codes (restic >= 0.17).
@@ -227,10 +228,11 @@ type message struct {
 	BytesDone      int64   `json:"bytes_done"`
 }
 
-// errorMessage is the reason a restic command failed, with credentials masked: it is stored,
-// logged and sent in alerts.
+// errorMessage is the reason a restic command failed, with credentials masked and terminal escape
+// sequences removed (file names in the error are chosen by other users): it is stored, logged, printed
+// and sent in alerts.
 func errorMessage(stdout, stderr []byte) string {
-	return redact(pickErrorMessage(stdout, stderr))
+	return termtext.Clean(redact(pickErrorMessage(stdout, stderr)))
 }
 
 // pickErrorMessage prefers restic's JSON exit_error, then per-item errors, then

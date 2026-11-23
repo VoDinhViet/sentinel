@@ -17,6 +17,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 
 	"sentinel/internal/config"
+	"sentinel/internal/termtext"
 )
 
 type Level int
@@ -48,12 +49,14 @@ func (m Message) Subject() string {
 	return fmt.Sprintf("[%s] %s %s: %s", m.Server, m.Level.icon(), m.Level, m.Title)
 }
 
-// Text is the full plain-text message.
+// Text is the full plain-text message, without escape sequences and control characters: the body often
+// quotes restic output, which carries file names that other users of the server choose.
 func (m Message) Text() string {
-	if m.Body == "" {
-		return m.Subject()
+	text := m.Subject()
+	if m.Body != "" {
+		text += "\n" + m.Body
 	}
-	return m.Subject() + "\n" + m.Body
+	return termtext.Clean(text)
 }
 
 type Notifier interface {
@@ -188,7 +191,8 @@ func postJSON(ctx context.Context, endpoint string, payload any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return &statusError{Code: resp.StatusCode, Body: string(bytes.TrimSpace(snippet))}
+		// The answer of a remote server is printed by `sentinel notify test`, so it is cleaned first.
+		return &statusError{Code: resp.StatusCode, Body: termtext.Clean(string(bytes.TrimSpace(snippet)))}
 	}
 	return nil
 }

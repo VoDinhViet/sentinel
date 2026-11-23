@@ -56,6 +56,18 @@ func TestRedactHidesCredentialsInBackendMessages(t *testing.T) {
 	}
 }
 
+// A file name in a backed-up folder is part of restic's per-file error, and any user can name a file.
+func TestErrorMessageStripsEscapeSequences(t *testing.T) {
+	stdout := `{"message_type":"error","error":{"message":"read /srv/\u001b]52;c;ZXZpbA==\u0007x\u001b[2K: permission denied"},"item":"/srv/x"}` + "\n"
+	got := errorMessage([]byte(stdout), nil)
+	if strings.ContainsAny(got, "\x1b\x07") {
+		t.Errorf("errorMessage = %q, want no escape sequence", got)
+	}
+	if !strings.Contains(got, "permission denied") {
+		t.Errorf("errorMessage = %q lost the reason", got)
+	}
+}
+
 // The text of a failed run is stored, logged, shown by `sentinel status` and sent in alerts.
 func TestErrorMessageRedactsEveryKindOfOutput(t *testing.T) {
 	secretLine := `Fatal: unable to open repository at rclone::s3,secret_access_key=TOPSECRET:bucket: 403`

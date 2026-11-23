@@ -8,6 +8,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/store"
+	"sentinel/internal/termtext"
 )
 
 type Report struct {
@@ -68,7 +69,7 @@ func Build(ctx context.Context, cfg *config.Config, st *store.Store, now time.Ti
 		return report, err
 	}
 	for _, alert := range openAlerts {
-		report.Alerts = append(report.Alerts, Alert{Key: alert.Key, Message: alert.Message, Since: alert.Since})
+		report.Alerts = append(report.Alerts, Alert{Key: alert.Key, Message: termtext.Clean(alert.Message), Since: alert.Since})
 	}
 	latestRuns, err := st.LatestBackups(ctx)
 	if err != nil {
@@ -87,12 +88,12 @@ func Build(ctx context.Context, cfg *config.Config, st *store.Store, now time.Ti
 		job := Job{
 			Recent: outcomesByJobRepo[jobRepo{run.Job, run.Repository}],
 			Job:    run.Job, Repository: run.Repository, FinishedAt: run.FinishedAt, Success: run.Success,
-			SnapshotID: run.SnapshotID, BytesAdded: run.BytesAdded, TotalBytes: run.TotalBytes, Result: run.Summary(),
+			SnapshotID: run.SnapshotID, BytesAdded: run.BytesAdded, TotalBytes: run.TotalBytes, Result: termtext.Clean(run.Summary()),
 		}
 		if run.Success {
-			job.Warning = run.Error
+			job.Warning = termtext.Clean(run.Error)
 		} else {
-			job.Error = run.Error
+			job.Error = termtext.Clean(run.Error)
 		}
 		report.Jobs = append(report.Jobs, job)
 	}
@@ -102,7 +103,7 @@ func Build(ctx context.Context, cfg *config.Config, st *store.Store, now time.Ti
 	}
 	for _, result := range latestChecks {
 		report.Checks = append(report.Checks, Check{
-			Name: result.Name, OK: result.OK, LatencyMs: result.Latency.Milliseconds(), At: result.At, Error: result.Error,
+			Name: result.Name, OK: result.OK, LatencyMs: result.Latency.Milliseconds(), At: result.At, Error: termtext.Clean(result.Error),
 		})
 	}
 	return report, nil
