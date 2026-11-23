@@ -287,7 +287,6 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 			retention[i] = fmt.Sprint(count)
 		}
 	}
-	scheduleHint := "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression; ← → for presets"
 	return form{kind: formSettings, title: "Settings", original: "settings", touched: map[string]bool{}, known: configedit.Known{Repositories: listing.Repositories}, fields: []formField{
 		{key: "server_name", label: "Server name", hint: "the name shown in alerts and on this screen", value: settings.ServerName, placeholder: "this machine's host name"},
 		{key: "store", label: "State database", hint: "where run history and job locks are kept (a file path)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},

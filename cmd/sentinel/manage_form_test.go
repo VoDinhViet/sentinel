@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
 	"sentinel/internal/status"
@@ -245,15 +247,20 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 		t.Errorf("an empty schedule shows the default and what it means:\n%s", view)
 	}
 	screen = keys(t, screen, "right")
-	if got := screen.form.field("schedule").value; got != "daily 02:00" {
-		t.Errorf("→ starts at the first preset: %q", got)
+	if got := screen.form.field("schedule").value; got != "every 15m" {
+		t.Errorf("→ starts after manual: %q", got)
 	}
-	screen = keys(t, screen, "right", "right", "right")
-	if got := screen.form.field("schedule").value; got != "weekly sun 03:00" {
-		t.Errorf("the presets cycle: %q", got)
+	screen = keys(t, screen, "right", "right", "right", "right")
+	if got := screen.form.field("schedule").value; got != "weekly sun 02:00" {
+		t.Errorf("how often cycles every 15m, hourly, every 6h, daily, weekly: %q", got)
 	}
-	if view := plain(screen.render()); !strings.Contains(view, "every Sunday at 03:00") {
-		t.Errorf("preview:\n%s", view)
+	screen = keys(t, screen, "alt+up", "alt+up", "alt+right") // 03:00, Monday
+	if got := screen.form.field("schedule").value; got != "weekly mon 03:00" {
+		t.Errorf("alt+↑ moves the time, alt+→ the weekday: %q", got)
+	}
+	view := plain(screen.render())
+	if !strings.Contains(view, "every Monday at 03:00") || !strings.Contains(view, "then ") || strings.Count(view, " Dec")+strings.Count(view, " Nov") < 3 {
+		t.Errorf("preview names the schedule and lists three runs:\n%s", view)
 	}
 	screen = typeText(t, screen, " nonsense")
 	if view := plain(screen.render()); !strings.Contains(view, "✗ invalid schedule") {
@@ -516,5 +523,18 @@ func TestStoreAtRefusesAnExistingRepositoryName(t *testing.T) {
 	screen.form.field("store_at").value = "/srv/backups"
 	if message := screen.form.problems()["store_at"]; !strings.Contains(message, `"local" exists`) {
 		t.Errorf("problems = %v", screen.form.problems())
+	}
+}
+
+func TestAltArrowsAreNamedTheWayTheFormExpects(t *testing.T) {
+	for want, press := range map[string]tea.KeyPressMsg{
+		"alt+up":    {Code: tea.KeyUp, Mod: tea.ModAlt},
+		"alt+down":  {Code: tea.KeyDown, Mod: tea.ModAlt},
+		"alt+left":  {Code: tea.KeyLeft, Mod: tea.ModAlt},
+		"alt+right": {Code: tea.KeyRight, Mod: tea.ModAlt},
+	} {
+		if got := press.String(); got != want {
+			t.Errorf("key string = %q, want %q", got, want)
+		}
 	}
 }

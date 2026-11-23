@@ -258,7 +258,7 @@ func commonProblems(job *Job, known Known) []*InvalidError {
 	}
 	if !schedule.IsManual(job.Schedule) {
 		if _, err := schedule.Parse(job.Schedule); err != nil {
-			add("schedule", "invalid schedule: %v (try \"daily 02:00\", \"weekly sun 03:00\" or a cron expression)", err)
+			add("schedule", "invalid schedule: %v (try \"daily 02:00\", \"weekly monday 3am\", \"every 6 hours\" or a cron expression)", err)
 		}
 	}
 	if len(job.Repositories) == 0 && !known.InheritsRepositories {

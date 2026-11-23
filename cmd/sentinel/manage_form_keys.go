@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"sentinel/internal/configedit"
+	"sentinel/internal/schedule"
 )
 
 func (m manageModel) openForm(job configedit.Job, original string, listing configedit.Listing) manageModel {
@@ -64,6 +65,13 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 			return m.saveForm()
 		}
 		move(1)
+	case "alt+up", "alt+down", "alt+left", "alt+right":
+		if focused.kind == fieldSchedule {
+			timeSteps, dayDelta := map[string]int{"alt+up": 1, "alt+down": -1}[key], map[string]int{"alt+right": 1, "alt+left": -1}[key]
+			if adjusted, ok := schedule.Adjust(focused.value, timeSteps, dayDelta); ok {
+				focused.value = adjusted
+			}
+		}
 	case "left", "right":
 		m.form.step(m.form.focus, map[string]int{"left": -1, "right": 1}[key])
 	case " ":
@@ -126,7 +134,7 @@ func (f *form) step(index, delta int) {
 			field.value = cycle(field.choices, field.value, delta < 0)
 		}
 	case fieldSchedule:
-		field.value = cycle(schedulePresets, field.value, delta < 0)
+		field.value = schedule.NextFrequency(field.value, delta < 0)
 	case fieldChecklist:
 		field.sub = min(max(field.sub+delta, 0), max(len(field.choices)-1, 0))
 	case fieldRetention:

@@ -180,7 +180,7 @@ func newInitForm(path string, root bool, hostname string) form {
 		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder, ctrl+o browses the server", jobPaths, config.JobFiles),
 		jobField("job_database", "Database", "the database to dump", "", configedit.DatabaseTypes...),
 		jobField("job_password_env", "DB password var", "name of the environment variable holding the database password; empty if none", "", configedit.DatabaseTypes...),
-		formField{key: "job_schedule", label: "Schedule", hint: "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression · manual; ← → for presets", kind: fieldSchedule, value: "daily 02:00"},
+		formField{key: "job_schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: "daily 02:00"},
 		formField{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
 	)
 	for i := range fields {

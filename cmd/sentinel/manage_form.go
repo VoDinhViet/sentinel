@@ -25,8 +25,8 @@ const (
 
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
 
-// schedulePresets are what ← → cycles through on a schedule field.
-var schedulePresets = []string{"daily 02:00", "daily 03:00", "hourly", "weekly sun 03:00", "monthly 1 04:00", "every 6h", "manual"}
+// scheduleHint says what a schedule field accepts and which keys step through it.
+const scheduleHint = `type it ("daily 2am", "weekly monday 3am", "every 6 hours", cron) · ← → change how often · alt+↑↓ time · alt+←→ weekday or day`
 
 // formField is one input of a form.
 type formField struct {
@@ -109,7 +109,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	if job.PasswordLiteral {
 		passwordHint = "the file has a literal password; enter a variable name to replace it, or leave empty to keep it"
 	}
-	scheduleHint := `daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression · manual; ← → for presets`
+	scheduleHint := scheduleHint
 	scheduleNote := "empty = only run by hand"
 	if listing.Defaults.Schedule != "" {
 		scheduleHint += "; empty = the default schedule"

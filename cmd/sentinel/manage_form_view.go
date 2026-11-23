@@ -108,7 +108,7 @@ func (m manageModel) renderForm() []string {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
 		} else if field.kind == fieldSchedule {
-			if preview := m.schedulePreview(field.value); preview != "" {
+			for _, preview := range m.schedulePreview(field.value) {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
 			}
 		}
@@ -271,18 +271,28 @@ func (m manageModel) retentionPlaceholder(part int) string {
 }
 
 // schedulePreview says in words when the schedule runs next, or why it does not.
-func (m manageModel) schedulePreview(spec string) string {
+func (m manageModel) schedulePreview(spec string) []string {
 	if strings.TrimSpace(spec) == "" {
 		spec = m.form.defaults.schedule
 	}
 	if schedule.IsManual(spec) {
-		return "→ only run by hand"
+		return []string{"→ only run by hand"}
 	}
-	next, ok := schedule.Next(spec, time.Now())
-	if !ok {
-		return ""
+	runs := schedule.NextRuns(spec, time.Now(), 3)
+	if len(runs) == 0 {
+		return nil
 	}
-	return fmt.Sprintf("→ %s · next %s (%s)", schedule.Describe(spec), next.Local().Format("Mon 02 Jan 15:04"), inFuture(time.Until(next)))
+	room := max(m.width-formLabelWidth-5, 20)
+	lines := []string{truncate(fmt.Sprintf("→ %s · next %s (%s)", schedule.Describe(spec), runs[0].Local().Format("Mon 02 Jan 15:04"), inFuture(time.Until(runs[0]))), room)}
+	var later []string
+	for _, run := range runs[1:] {
+		layout := "02 Jan"
+		if run.Local().Format("15:04") != runs[0].Local().Format("15:04") { // every 6h and the like
+			layout = "02 Jan 15:04"
+		}
+		later = append(later, run.Local().Format(layout))
+	}
+	return append(lines, truncate("  then "+strings.Join(later, ", "), room))
 }
 
 // inFuture is a rough "in 13h" for a duration ahead.
