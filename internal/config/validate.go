@@ -25,9 +25,9 @@ func (c *Config) validate() error {
 
 	seenJobs := map[string]bool{}
 	for i, job := range c.Jobs {
-		where := fmt.Sprintf("backups[%d] %q", i, job.Name)
+		where := fmt.Sprintf("jobs[%d] %q", i, job.Name)
 		if job.Name == "" {
-			add("backups[%d]: name is required", i)
+			add("jobs[%d]: name is required", i)
 		} else if strings.ContainsAny(job.Name, ",\x00\n\r") {
 			// restic reads a comma in --tag as "all of these tags", so a job
 			// named "a,b" would never match its own snapshots.
@@ -87,7 +87,7 @@ func (c *Config) validate() error {
 	}
 	if !schedule.IsManual(c.VerifySchedule) {
 		if _, err := schedule.Parse(c.VerifySchedule); err != nil {
-			add("repo_check_schedule: %v", err)
+			add("verify_schedule: %v", err)
 		}
 	}
 

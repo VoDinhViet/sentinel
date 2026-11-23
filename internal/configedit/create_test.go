@@ -32,7 +32,7 @@ func TestCreateWritesACompactConfigThatParses(t *testing.T) {
 			t.Errorf("config lacks %q:\n%s", want, written)
 		}
 	}
-	jobPart := written[strings.Index(written, "backups:"):]
+	jobPart := written[strings.Index(written, "jobs:"):]
 	for _, repeated := range []string{"repositories", "retention", "schedule"} {
 		if strings.Contains(jobPart, repeated) {
 			t.Errorf("the job must inherit, not repeat %q:\n%s", repeated, jobPart)

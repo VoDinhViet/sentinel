@@ -12,8 +12,8 @@ type Config struct {
 	Notifiers      Notifiers             `yaml:"notifiers"`
 	Alert          AlertSettings         `yaml:"alert"`
 	Repositories   map[string]Repository `yaml:"repositories"`
-	Jobs           []Job                 `yaml:"backups"`
-	VerifySchedule string                `yaml:"repo_check_schedule"`
+	Jobs           []Job                 `yaml:"jobs"`
+	VerifySchedule string                `yaml:"verify_schedule"`
 	Defaults       Defaults              `yaml:"defaults"`
 	// Monitor is accepted for old config files and ignored: Sentinel no longer
 	// monitors server resources.

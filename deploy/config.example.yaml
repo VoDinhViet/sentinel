@@ -44,7 +44,7 @@ defaults:
   repositories: [s3main, gdrive]
   retention: { daily: 7, weekly: 4, monthly: 6 }
 
-backups:
+jobs:
   - name: appdb
     type: postgres
     timeout: 6h
@@ -76,7 +76,7 @@ backups:
     repositories: [s3main]
     retention: { daily: 7, weekly: 4 }
 
-repo_check_schedule: weekly sun 04:00    # `restic check` of every repository
+verify_schedule: weekly sun 04:00    # `restic check` of every repository
 
 uptime:
   - name: website

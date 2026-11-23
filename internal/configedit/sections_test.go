@@ -28,7 +28,7 @@ repositories:
   local:
     url: /var/backups/repo
     password: literal-secret
-backups:
+jobs:
   - name: site
     type: files
     paths: [/srv/www]
@@ -237,14 +237,14 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	path := writeConfig(t, sectionsConfig)
 	settings := Settings{
 		ServerName: "web-02", Store: "/var/lib/sentinel/state.db", Cooldown: "30m", NotifySuccess: true,
-		RepoCheckSchedule: "weekly sun 04:00", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
+		VerifySchedule: "weekly sun 04:00", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
 		DefaultRetention: config.Retention{Daily: 7, Weekly: 4},
 	}
 	if err := SaveSettings(path, settings); err != nil {
 		t.Fatal(err)
 	}
 	saved := readFile(t, path)
-	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "notify_success: true", "repo_check_schedule: weekly sun 04:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
+	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "notify_success: true", "verify_schedule: weekly sun 04:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("saved lacks %q:\n%s", want, saved)
 		}
@@ -258,7 +258,7 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleared := readFile(t, path)
-	for _, gone := range []string{"alert:", "defaults:", "cooldown", "repo_check_schedule", "store:"} {
+	for _, gone := range []string{"alert:", "defaults:", "cooldown", "verify_schedule", "store:"} {
 		if strings.Contains(cleared, gone) {
 			t.Errorf("an empty value removes %q:\n%s", gone, cleared)
 		}
@@ -270,7 +270,7 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	if err := SaveSettings(path, Settings{DefaultRepositories: []string{"nope"}}); !errors.As(err, &invalid) {
 		t.Errorf("unknown default repository = %v, want InvalidError from the config check", err)
 	}
-	if err := SaveSettings(path, Settings{RepoCheckSchedule: "weekly someday 04:00"}); !errors.As(err, &invalid) {
+	if err := SaveSettings(path, Settings{VerifySchedule: "weekly someday 04:00"}); !errors.As(err, &invalid) {
 		t.Errorf("bad schedule = %v", err)
 	}
 }

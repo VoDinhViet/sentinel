@@ -14,7 +14,7 @@ notifiers:
   telegram: { token: "${TG_TOKEN}", chat_id: "-100123" }
 repositories:
   s3main: { url: "s3:s3.amazonaws.com/bucket/web-01", password: "${RESTIC_PW}" }
-backups:
+jobs:
   - name: appdb
     type: postgres
     schedule: "0 2 * * *"
@@ -26,7 +26,7 @@ backups:
     schedule: "30 2 * * *"
     paths: [/var/www/uploads]
     repositories: [s3main]
-repo_check_schedule: "0 4 * * 0"
+verify_schedule: "0 4 * * 0"
 monitor:
   thresholds: { cpu: 90%/5m, disk: 85%, load_per_core: 2.0/5m }
 uptime:
@@ -79,44 +79,44 @@ func TestParseInvalid(t *testing.T) {
 	cases := map[string]struct{ yaml, want string }{
 		"unknown repo": {`
 repositories: {}
-backups:
+jobs:
   - { name: a, type: files, paths: [/x], repositories: [nope] }`, `unknown repository "nope"`},
 		"bad schedule": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: files, schedule: "every day", paths: [/x], repositories: [r] }`, "invalid schedule"},
 		"bad type": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: oracle, repositories: [r] }`, "type must be"},
 		"job name with comma": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: "a,b", type: files, paths: [/x], repositories: [r] }`, "must not contain commas"},
 		"mysql without database": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: mysql, repositories: [r] }`, "mysql.database is required"},
 		"mysql bad tls": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: mysql, mysql: { database: d, tls: maybe }, repositories: [r] }`, "mysql.tls must be"},
 		"mongodb without database": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: mongodb, repositories: [r] }`, "mongodb.database is required"},
 		"mongodb password without user": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: mongodb, mongodb: { database: d, password: x }, repositories: [r] }`, "mongodb.user is required"},
 		"duplicate backup": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: files, paths: [/x], repositories: [r] }
   - { name: a, type: files, paths: [/y], repositories: [r] }`, "duplicate name"},
 		"files without paths": {`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: a, type: files, repositories: [r] }`, "paths is required"},
 		"http without url": {`
 uptime:
@@ -179,7 +179,7 @@ repositories:
   r:
     url: s3:s3.amazonaws.com/b
     password: ${RESTIC_PW_NOT_SET}
-backups:
+jobs:
   - { name: a, type: files, paths: [/x], repositories: [r] }
 `)
 	if _, err := Parse(raw); err == nil {
@@ -206,7 +206,7 @@ func TestRetentionString(t *testing.T) {
 func TestDatabaseEngineDefaults(t *testing.T) {
 	c, err := Parse([]byte(`
 repositories: { r: { url: "/tmp/r", password: p } }
-backups:
+jobs:
   - { name: m, type: mysql, mysql: { database: shop }, repositories: [r] }
   - { name: g, type: mongodb, mongodb: { database: crm, user: app }, repositories: [r] }
 `))
@@ -224,9 +224,9 @@ backups:
 func TestParseAcceptsPlainSchedules(t *testing.T) {
 	const template = `
 repositories: { r: { url: /tmp/r, password: p } }
-backups:
+jobs:
   - { name: a, type: files, paths: [/a], repositories: [r], schedule: "%s" }
-repo_check_schedule: "%s"
+verify_schedule: "%s"
 `
 	for _, tc := range []struct{ job, check string }{
 		{"daily 02:00", "weekly sun 04:00"},
@@ -243,8 +243,8 @@ repo_check_schedule: "%s"
 		t.Errorf("daily 25:00: %v", err)
 	}
 	_, err = Parse([]byte(fmt.Sprintf(template, "manual", "weekly someday 01:00")))
-	if err == nil || !strings.Contains(err.Error(), "repo_check_schedule") {
-		t.Errorf("repo_check_schedule: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "verify_schedule") {
+		t.Errorf("verify_schedule: %v", err)
 	}
 }
 
@@ -257,7 +257,7 @@ defaults:
   schedule: daily 02:00
   repositories: [local, offsite]
   retention: { daily: 7, weekly: 4 }
-backups:
+jobs:
   - { name: plain, type: files, paths: [/a] }
   - { name: own, type: files, paths: [/b], schedule: weekly sun 03:00, repositories: [offsite], retention: { last: 3 } }
   - { name: byhand, type: files, paths: [/c], schedule: manual }
@@ -286,7 +286,7 @@ backups:
 func TestOnlyRepositoryIsTheDefaultOne(t *testing.T) {
 	c, err := Parse([]byte(`
 repositories: { only: { url: /tmp/r, password: p } }
-backups:
+jobs:
   - { name: a, type: files, paths: [/a] }
 `))
 	if err != nil {
@@ -300,7 +300,7 @@ backups:
 repositories:
   one: { url: /tmp/r, password: p }
   two: { url: /tmp/s, password: p }
-backups:
+jobs:
   - { name: a, type: files, paths: [/a] }
 `))
 	if err == nil || !strings.Contains(err.Error(), "known: one, two") {
@@ -316,6 +316,19 @@ defaults: { schedule: "daily 99:00", repositories: [nope] }
 	for _, want := range []string{"defaults.schedule", `defaults.repositories: unknown repository "nope"`} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+}
+
+func TestRenamedKeysSayWhatToUse(t *testing.T) {
+	for _, tc := range []struct{ old, new, yaml string }{
+		{"backups", "jobs", "repositories:\n  s3: { url: x, password: y }\nbackups:\n  - name: a\n"},
+		{"repo_check_schedule", "verify_schedule", "repo_check_schedule: daily 02:00\n"},
+	} {
+		_, err := Parse([]byte(tc.yaml))
+		want := `"` + tc.old + `" was renamed to "` + tc.new + `"`
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want it to contain %s", tc.old, err, want)
 		}
 	}
 }

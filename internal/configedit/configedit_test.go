@@ -18,7 +18,7 @@ repositories:
   local:
     url: /var/backups/repo
     password: "${RESTIC_PW}"
-backups:
+jobs:
   - name: site
     type: files
     paths: [/srv/www]
@@ -260,21 +260,21 @@ func TestDeleteRemovesTheJobAndDropsAnEmptyBackupsList(t *testing.T) {
 		t.Errorf("deleting twice = %v, want ErrNotFound", err)
 	}
 
-	only := writeConfig(t, "repositories:\n  s3: { url: \"s3:http://x/b\", password: x }\nbackups:\n  - name: db\n    type: postgres\n    postgres: { database: app }\n    repositories: [s3]\n")
+	only := writeConfig(t, "repositories:\n  s3: { url: \"s3:http://x/b\", password: x }\njobs:\n  - name: db\n    type: postgres\n    postgres: { database: app }\n    repositories: [s3]\n")
 	if err := Delete(only, "db"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(readFile(t, only), "backups") {
-		t.Error("an empty backups list is dropped")
+	if strings.Contains(readFile(t, only), "jobs") {
+		t.Error("an empty jobs list is dropped")
 	}
 }
 
 func TestBrokenConfigIsNotEdited(t *testing.T) {
-	path := writeConfig(t, "backups: [oops\n")
+	path := writeConfig(t, "jobs: [oops\n")
 	if err := Save(path, "", Job{Name: "a", Type: config.JobPostgres, Database: "a", Repositories: []string{"s3"}}); err == nil {
 		t.Fatal("want an error for a config that does not parse")
 	}
-	if readFile(t, path) != "backups: [oops\n" {
+	if readFile(t, path) != "jobs: [oops\n" {
 		t.Error("a broken config must be left alone")
 	}
 	if _, err := os.Stat(path + ".bak"); err == nil {
@@ -308,7 +308,7 @@ repositories:
 defaults:
   schedule: daily 02:00
   retention: { daily: 7 }
-backups:
+jobs:
   - name: inherits
     type: postgres
     postgres: { host: db, port: 5432, database: app }
@@ -333,7 +333,7 @@ func TestInheritedValuesStayOutOfTheFile(t *testing.T) {
 	}
 	saved := readFile(t, path)
 	for _, key := range []string{"schedule: ", "repositories", "retention"} {
-		if strings.Contains(strings.Split(saved, "backups:")[1], key) {
+		if strings.Contains(strings.Split(saved, "jobs:")[1], key) {
 			t.Errorf("saving an unchanged inheriting job must not write %q:\n%s", key, saved)
 		}
 	}

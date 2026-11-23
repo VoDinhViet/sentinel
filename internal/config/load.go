@@ -87,6 +87,9 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 	if len(doc.Content) == 0 {
 		return nil
 	}
+	if err := checkRenamedKeys(doc.Content[0]); err != nil {
+		return err
+	}
 	if expandVars {
 		missingVars := map[string]bool{}
 		expandEnv(&doc, missingVars)
@@ -103,6 +106,26 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("parse config: %w", err)
+	}
+	return nil
+}
+
+// renamedKeys maps top-level keys that were renamed to their new names, so an old config
+// gets a pointer to the fix instead of "field not found".
+var renamedKeys = map[string]string{
+	"backups":             "jobs",
+	"repo_check_schedule": "verify_schedule",
+}
+
+func checkRenamedKeys(root *yaml.Node) error {
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i]
+		if newName, ok := renamedKeys[key.Value]; ok {
+			return fmt.Errorf("parse config: line %d: %q was renamed to %q", key.Line, key.Value, newName)
+		}
 	}
 	return nil
 }

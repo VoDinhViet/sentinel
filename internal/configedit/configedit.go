@@ -316,13 +316,13 @@ func isEditableJob(node *yaml.Node) bool {
 }
 
 func editJob(root *yaml.Node, original string, job Job) error {
-	seq := mapGet(root, "backups")
+	seq := mapGet(root, "jobs")
 	if seq == nil {
 		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		root.Content = append(root.Content, scalar("backups", 0), seq)
+		root.Content = append(root.Content, scalar("jobs", 0), seq)
 	}
 	if seq.Kind != yaml.SequenceNode {
-		return invalid("config: backups must be a list")
+		return invalid("config: jobs must be a list")
 	}
 	var jobNode *yaml.Node
 	if original != "" {
@@ -422,7 +422,7 @@ func editDatabaseBlock(jobNode *yaml.Node, job Job) {
 }
 
 func removeJob(root *yaml.Node, jobName string) error {
-	seq := mapGet(root, "backups")
+	seq := mapGet(root, "jobs")
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return fmt.Errorf("job %q: %w", jobName, ErrNotFound)
 	}
@@ -435,7 +435,7 @@ func removeJob(root *yaml.Node, jobName string) error {
 	}
 	seq.Content = append(seq.Content[:i], seq.Content[i+1:]...)
 	if len(seq.Content) == 0 {
-		mapDelete(root, "backups")
+		mapDelete(root, "jobs")
 	}
 	return nil
 }

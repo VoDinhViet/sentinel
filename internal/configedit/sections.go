@@ -87,7 +87,7 @@ type Settings struct {
 	ServerName, Store   string
 	Cooldown            string
 	NotifySuccess       bool
-	RepoCheckSchedule   string
+	VerifySchedule      string
 	DefaultSchedule     string
 	DefaultRepositories []string
 	DefaultRetention    config.Retention
@@ -196,8 +196,8 @@ func Read(path string) (Overview, error) {
 		overview.Settings = Settings{
 			ServerName: text(root, "server_name"), Store: text(root, "store"),
 			Cooldown: text(mapGet(root, "alert"), "cooldown"), NotifySuccess: text(mapGet(root, "alert"), "notify_success") == "true",
-			RepoCheckSchedule: text(root, "repo_check_schedule"),
-			DefaultSchedule:   text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
+			VerifySchedule:  text(root, "verify_schedule"),
+			DefaultSchedule: text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
 			DefaultRetention: retentionOf(mapGet(defaults, "retention")),
 		}
 		return nil
@@ -593,9 +593,9 @@ func ValidateSettings(settings Settings) error {
 			return fieldError("cooldown", "cooldown: %q is not a duration like 1h or 30m", settings.Cooldown)
 		}
 	}
-	if !schedule.IsManual(settings.RepoCheckSchedule) {
-		if _, err := schedule.Parse(settings.RepoCheckSchedule); err != nil {
-			return fieldError("repo_check_schedule", "%v", err)
+	if !schedule.IsManual(settings.VerifySchedule) {
+		if _, err := schedule.Parse(settings.VerifySchedule); err != nil {
+			return fieldError("verify_schedule", "%v", err)
 		}
 	}
 	if !schedule.IsManual(settings.DefaultSchedule) {
@@ -619,7 +619,7 @@ func SaveSettings(path string, settings Settings) error {
 		}
 		setText(root, "server_name", settings.ServerName)
 		setText(root, "store", settings.Store)
-		setText(root, "repo_check_schedule", settings.RepoCheckSchedule)
+		setText(root, "verify_schedule", settings.VerifySchedule)
 
 		alert := ensureMapping(root, "alert", 0)
 		setText(alert, "cooldown", settings.Cooldown)
