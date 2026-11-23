@@ -14,7 +14,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -170,9 +169,9 @@ func Validate(job *Job, repositories []string) error {
 	if job.Type != config.BackupMongoDB {
 		job.AuthDatabase = ""
 	}
-	if job.Schedule != "" {
-		if _, ok := schedule.Next(job.Schedule, time.Now()); !ok {
-			return invalid("invalid schedule %q: use a 5-field cron expression such as \"0 3 * * *\"", job.Schedule)
+	if !schedule.IsManual(job.Schedule) {
+		if _, err := schedule.Parse(job.Schedule); err != nil {
+			return invalid("invalid schedule: %v (try \"daily 02:00\", \"weekly sun 03:00\" or a cron expression)", err)
 		}
 	}
 	if len(job.Repositories) == 0 {

@@ -61,7 +61,7 @@ func newJobForm(job configedit.Job, original string, repositories []string) jobF
 		{key: "port", label: "Port", hint: "default 5432 / 3306 / 27017", value: port},
 		{key: "user", label: "User", hint: "optional", value: job.User},
 		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv},
-		{key: "schedule", label: "Schedule", hint: `cron, e.g. "0 3 * * *"; empty = only run by hand`, value: job.Schedule},
+		{key: "schedule", label: "Schedule", hint: `daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · every 6h · hourly :15 · or cron "0 3 * * *"; empty = only by hand`, value: job.Schedule},
 		{key: "repositories", label: "Repositories", hint: "comma separated, from: " + strings.Join(repositories, ", "), value: strings.Join(job.Repositories, ", ")},
 		{key: "retention", label: "Retention", hint: "e.g. daily=7 weekly=4 monthly=6 (keys: last daily weekly monthly yearly); empty = keep all", value: retentionText(job.Retention)},
 		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS},

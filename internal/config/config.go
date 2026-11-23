@@ -14,8 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"go.yaml.in/yaml/v3"
+
+	"sentinel/internal/schedule"
 )
 
 type Config struct {
@@ -364,8 +365,8 @@ func (c *Config) validate() error {
 			add("%s: duplicate name", where)
 		}
 		seen[b.Name] = true
-		if b.Schedule != "" {
-			if _, err := cron.ParseStandard(b.Schedule); err != nil {
+		if !schedule.IsManual(b.Schedule) {
+			if _, err := schedule.Parse(b.Schedule); err != nil {
 				add("%s: invalid schedule: %v", where, err)
 			}
 		}
@@ -402,8 +403,8 @@ func (c *Config) validate() error {
 			}
 		}
 	}
-	if c.RepoCheckSchedule != "" {
-		if _, err := cron.ParseStandard(c.RepoCheckSchedule); err != nil {
+	if !schedule.IsManual(c.RepoCheckSchedule) {
+		if _, err := schedule.Parse(c.RepoCheckSchedule); err != nil {
 			add("repo_check_schedule: %v", err)
 		}
 	}

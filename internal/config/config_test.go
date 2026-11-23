@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -217,5 +218,32 @@ backups:
 	}
 	if g := c.Backups[1].MongoDB; g.Host != "localhost" || g.Port != 27017 || g.AuthDatabase != "admin" {
 		t.Errorf("mongodb defaults = %+v", g)
+	}
+}
+
+func TestParseAcceptsPlainSchedules(t *testing.T) {
+	const template = `
+repositories: { r: { url: /tmp/r, password: p } }
+backups:
+  - { name: a, type: files, paths: [/a], repositories: [r], schedule: "%s" }
+repo_check_schedule: "%s"
+`
+	for _, tc := range []struct{ job, check string }{
+		{"daily 02:00", "weekly sun 04:00"},
+		{"manual", "manual"},
+		{"every 6h", "monthly 1 04:00"},
+		{"hourly :15", "0 4 * * 0"},
+	} {
+		if _, err := Parse([]byte(fmt.Sprintf(template, tc.job, tc.check))); err != nil {
+			t.Errorf("job %q, check %q: %v", tc.job, tc.check, err)
+		}
+	}
+	_, err := Parse([]byte(fmt.Sprintf(template, "daily 25:00", "manual")))
+	if err == nil || !strings.Contains(err.Error(), "invalid schedule") {
+		t.Errorf("daily 25:00: %v", err)
+	}
+	_, err = Parse([]byte(fmt.Sprintf(template, "manual", "weekly someday 01:00")))
+	if err == nil || !strings.Contains(err.Error(), "repo_check_schedule") {
+		t.Errorf("repo_check_schedule: %v", err)
 	}
 }

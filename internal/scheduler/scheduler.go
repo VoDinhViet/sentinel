@@ -73,18 +73,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	for i := range d.Config.Backups {
 		job := &d.Config.Backups[i]
-		if job.Schedule == "" {
+		if schedule.IsManual(job.Schedule) {
 			continue
 		}
-		if _, err := c.AddFunc(job.Schedule, func() { d.RunBackup(jobCtx, job) }); err != nil {
+		parsed, err := schedule.Parse(job.Schedule)
+		if err != nil {
 			return fmt.Errorf("schedule backup %s: %w", job.Name, err)
 		}
+		c.Schedule(parsed, cron.FuncJob(func() { d.RunBackup(jobCtx, job) }))
 		slog.Info("scheduled backup", "job", job.Name, "schedule", job.Schedule)
 	}
-	if d.Config.RepoCheckSchedule != "" {
-		if _, err := c.AddFunc(d.Config.RepoCheckSchedule, func() { d.CheckRepositories(jobCtx) }); err != nil {
+	if !schedule.IsManual(d.Config.RepoCheckSchedule) {
+		parsed, err := schedule.Parse(d.Config.RepoCheckSchedule)
+		if err != nil {
 			return fmt.Errorf("schedule repo check: %w", err)
 		}
+		c.Schedule(parsed, cron.FuncJob(func() { d.CheckRepositories(jobCtx) }))
 	}
 
 	tasks := append([]Task{
@@ -226,7 +230,7 @@ func (d *Daemon) CheckStale(ctx context.Context) {
 // are measured from daemon start so a fresh install is not instantly stale.
 // Unscheduled jobs are never stale (limit 0).
 func IsStale(job *config.Backup, lastSuccess, started, now time.Time) (stale bool, limit time.Duration) {
-	if job.Schedule == "" {
+	if schedule.IsManual(job.Schedule) {
 		return false, 0
 	}
 	maxGap, ok := schedule.MaxGap(job.Schedule, now)
