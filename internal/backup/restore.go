@@ -15,6 +15,9 @@ import (
 // It returns the full snapshot id and, for a database job, the shell command that loads
 // the restored dump ("" for a files job).
 func (r *Runner) Restore(ctx context.Context, job *config.Job, repoName, ref, targetDir string) (snapID, loadHint string, err error) {
+	if err := PrepareRestoreTarget(targetDir); err != nil {
+		return "", "", err
+	}
 	client, err := r.Restic(repoName)
 	if err != nil {
 		return "", "", err
