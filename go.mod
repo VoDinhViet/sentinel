@@ -3,12 +3,14 @@ module sentinel
 go 1.27.1
 
 require (
+	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/sergi/go-diff v1.4.5
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.57.0
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )
 

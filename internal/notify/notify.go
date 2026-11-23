@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+
 	"sentinel/internal/config"
 )
 
@@ -92,12 +94,12 @@ func (m *Multi) Send(ctx context.Context, msg Message) error {
 
 // SendEach is Send but returns one error per notifier, in order (nil = sent).
 func (m *Multi) SendEach(ctx context.Context, msg Message) []error {
-	attempts, backoff, timeout := m.Attempts, m.Backoff, m.Timeout
+	attempts, initial, timeout := m.Attempts, m.Backoff, m.Timeout
 	if attempts <= 0 {
 		attempts = 3
 	}
-	if backoff <= 0 {
-		backoff = 2 * time.Second
+	if initial <= 0 {
+		initial = 2 * time.Second
 	}
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -109,31 +111,47 @@ func (m *Multi) SendEach(ctx context.Context, msg Message) []error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wait := backoff
-			for try := 1; ; try++ {
-				actx, cancel := context.WithTimeout(ctx, timeout)
-				err := n.Send(actx, msg)
-				cancel()
-				if err == nil {
-					errs[i] = nil
-					return
+			exp := backoff.NewExponentialBackOff()
+			exp.InitialInterval, exp.Multiplier = initial, 2
+			_, err := backoff.Retry(ctx, func() (struct{}, error) {
+				attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+				defer cancel()
+				err := n.Send(attemptCtx, msg)
+				if isPermanent(err) {
+					return struct{}{}, backoff.Permanent(err) // a rejected request will not succeed on retry
 				}
-				errs[i] = fmt.Errorf("%s: %w", n.Name(), err)
-				if try >= attempts {
-					break
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(wait):
-				}
-				wait *= 2
+				return struct{}{}, err
+			}, backoff.WithBackOff(exp), backoff.WithMaxTries(uint(attempts)))
+			if err == nil {
+				errs[i] = nil
+				return
 			}
-			slog.Warn("notification failed", "channel", n.Name(), "error", errs[i])
+			errs[i] = fmt.Errorf("%s: %w", n.Name(), err)
+			if ctx.Err() == nil { // not just shutting down
+				slog.Warn("notification failed", "channel", n.Name(), "error", errs[i])
+			}
 		}()
 	}
 	wg.Wait()
 	return errs
+}
+
+// statusError is a non-2xx answer from a notification service.
+type statusError struct {
+	Code int
+	Body string
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Code, e.Body) }
+
+// isPermanent reports whether retrying cannot help: the service understood the
+// request and refused it (bad token, bad chat id). Timeouts, 429 and 5xx retry.
+func isPermanent(err error) bool {
+	var status *statusError
+	if !errors.As(err, &status) {
+		return false
+	}
+	return status.Code >= 400 && status.Code < 500 && status.Code != http.StatusTooManyRequests && status.Code != http.StatusRequestTimeout
 }
 
 // withoutURL drops the request URL from a failed HTTP call's error. The URL of a
@@ -166,7 +184,7 @@ func postJSON(ctx context.Context, url string, payload any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return &statusError{Code: resp.StatusCode, Body: string(bytes.TrimSpace(snippet))}
 	}
 	return nil
 }

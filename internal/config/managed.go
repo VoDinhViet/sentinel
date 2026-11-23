@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // LocalOnlyKeys always come from the agent's own config file, never from the

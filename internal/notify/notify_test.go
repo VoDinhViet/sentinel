@@ -219,3 +219,32 @@ func TestFailedRequestDoesNotLeakTheBotToken(t *testing.T) {
 		})
 	}
 }
+
+type rejectingNotifier struct {
+	code  int
+	calls atomic.Int32
+}
+
+func (n *rejectingNotifier) Name() string { return "rejecting" }
+func (n *rejectingNotifier) Send(context.Context, Message) error {
+	n.calls.Add(1)
+	return &statusError{Code: n.code, Body: "no"}
+}
+
+func TestMultiDoesNotRetryARejectedRequest(t *testing.T) {
+	for code, wantCalls := range map[int]int32{
+		http.StatusUnauthorized:        1, // bad token: retrying cannot help
+		http.StatusBadRequest:          1,
+		http.StatusTooManyRequests:     3, // rate limited: try again later
+		http.StatusInternalServerError: 3,
+	} {
+		n := &rejectingNotifier{code: code}
+		m := &Multi{Notifiers: []Notifier{n}, Attempts: 3, Backoff: time.Millisecond}
+		if err := m.Send(context.Background(), msg); err == nil {
+			t.Fatalf("HTTP %d: want an error", code)
+		}
+		if got := n.calls.Load(); got != wantCalls {
+			t.Errorf("HTTP %d: %d calls, want %d", code, got, wantCalls)
+		}
+	}
+}

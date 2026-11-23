@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -78,5 +79,36 @@ func TestDiff(t *testing.T) {
 	want := "same:a del:b same:c add:d"
 	if strings.Join(got, " ") != want {
 		t.Errorf("diff = %v, want %s", got, want)
+	}
+}
+
+func TestDiffEdgeCases(t *testing.T) {
+	for name, tc := range map[string]struct{ a, b, want string }{
+		"identical":          {"a\nb\n", "a\nb\n", "same:a same:b"},
+		"empty to something": {"", "a\nb", "del: add:a add:b"},
+		"trailing newline":   {"a\nb", "a\nb\n", "same:a same:b"},
+		"replace middle":     {"a\nx\nc\n", "a\ny\nc\n", "same:a del:x add:y same:c"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got []string
+			for _, l := range Diff(tc.a, tc.b) {
+				got = append(got, l.Kind+":"+l.Text)
+			}
+			if strings.Join(got, " ") != tc.want {
+				t.Errorf("diff = %v, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDiffLargeConfigStaysCheap(t *testing.T) {
+	var a, b strings.Builder
+	for i := 0; i < 20000; i++ { // ~256 KiB of lines: the old table needed n*m ints
+		a.WriteString("line number " + strconv.Itoa(i) + "\n")
+		b.WriteString("line number " + strconv.Itoa(i) + "\n")
+	}
+	b.WriteString("one more\n")
+	if d := Diff(a.String(), b.String()); len(d) != 20001 || d[20000].Kind != "add" {
+		t.Errorf("unexpected diff of %d lines", len(d))
 	}
 }

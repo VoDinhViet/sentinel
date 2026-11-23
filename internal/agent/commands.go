@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+
 	"sentinel/internal/api"
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
@@ -36,7 +38,10 @@ func (c *CommandRunner) now() time.Time {
 }
 
 func (c *CommandRunner) Run(ctx context.Context) {
-	backoff := 5 * time.Second
+	// Wait 5s, doubling to 1 min with jitter, while the server is unreachable, so
+	// agents that lost the server together do not all return at the same instant.
+	reconnect := backoff.NewExponentialBackOff()
+	reconnect.InitialInterval, reconnect.Multiplier, reconnect.MaxInterval = 5*time.Second, 2, time.Minute
 	for ctx.Err() == nil {
 		var cmds []api.Command
 		err := c.Client.Do(ctx, http.MethodGet, "/api/agent/commands?wait=25s", nil, &cmds)
@@ -48,12 +53,11 @@ func (c *CommandRunner) Run(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(backoff):
+			case <-time.After(reconnect.NextBackOff()):
 			}
-			backoff = min(backoff*2, time.Minute)
 			continue
 		}
-		backoff = 5 * time.Second
+		reconnect.Reset()
 		for _, cmd := range cmds {
 			go c.handle(ctx, cmd)
 		}
