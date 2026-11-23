@@ -88,6 +88,10 @@ backups:
 repositories: { r: { url: "/tmp/r", password: p } }
 backups:
   - { name: a, type: oracle, repositories: [r] }`, "type must be"},
+		"job name with comma": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: "a,b", type: files, paths: [/x], repositories: [r] }`, "must not contain commas"},
 		"mysql without database": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 backups:

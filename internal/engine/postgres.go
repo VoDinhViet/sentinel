@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"sentinel/internal/config"
@@ -41,5 +42,6 @@ func (postgres) Dump(job *config.Backup) (Dump, error) {
 }
 
 func (postgres) RestoreHint(job *config.Backup, dir string) string {
-	return fmt.Sprintf("pg_restore --clean --if-exists -d %s %s/%s.dump", job.Postgres.Database, dir, job.Postgres.Database)
+	return fmt.Sprintf("pg_restore --clean --if-exists -d %s %s",
+		shellQuote(job.Postgres.Database), shellQuote(filepath.Join(dir, job.Postgres.Database+".dump")))
 }

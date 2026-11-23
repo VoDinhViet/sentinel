@@ -372,6 +372,10 @@ func (c *Config) validate() error {
 		where := fmt.Sprintf("backups[%d] %q", i, b.Name)
 		if b.Name == "" {
 			add("backups[%d]: name is required", i)
+		} else if strings.ContainsAny(b.Name, ",\x00\n\r") {
+			// restic reads a comma in --tag as "all of these tags", so a job
+			// named "a,b" would never match its own snapshots.
+			add("%s: name must not contain commas or line breaks", where)
 		} else if seen[b.Name] {
 			add("%s: duplicate name", where)
 		}

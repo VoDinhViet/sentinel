@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -90,6 +91,7 @@ func (mysql) Dump(job *config.Backup) (Dump, error) {
 }
 
 func (mysql) RestoreHint(job *config.Backup, dir string) string {
-	return fmt.Sprintf("mysql -h %s -P %s -u %s -p %s < %s/%s.sql",
-		job.MySQL.Host, strconv.Itoa(job.MySQL.Port), job.MySQL.User, job.MySQL.Database, dir, job.MySQL.Database)
+	return fmt.Sprintf("mysql -h %s -P %s -u %s -p %s < %s",
+		shellQuote(job.MySQL.Host), strconv.Itoa(job.MySQL.Port), shellQuote(job.MySQL.User), shellQuote(job.MySQL.Database),
+		shellQuote(filepath.Join(dir, job.MySQL.Database+".sql")))
 }

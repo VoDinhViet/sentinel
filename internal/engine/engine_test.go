@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"sentinel/internal/config"
 )
@@ -86,5 +89,51 @@ func TestToolsForDeduplicates(t *testing.T) {
 func TestCapabilitiesListEngines(t *testing.T) {
 	if got := Capabilities(); !slices.Equal(got, []string{"engine:mongodb", "engine:mysql", "engine:postgres"}) {
 		t.Errorf("capabilities = %v", got)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for value, want := range map[string]string{
+		"/tmp/r/shop.dump": "/tmp/r/shop.dump",
+		"/tmp/my restore":  "'/tmp/my restore'",
+		"it's":             `'it'\''s'`,
+		"crm.*":            "'crm.*'",
+		"$(rm -rf /)":      "'$(rm -rf /)'",
+	} {
+		if got := shellQuote(value); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", value, got, want)
+		}
+	}
+	pgEngine, _ := For(config.BackupPostgres)
+	if got := pgEngine.RestoreHint(postgresJob(), "/tmp/my restore"); got != "pg_restore --clean --if-exists -d shop '/tmp/my restore/shop.dump'" {
+		t.Errorf("hint = %q", got)
+	}
+}
+
+func TestSweepStaleSecretFiles(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	old := filepath.Join(tmp, "sentinel-mysql-111.cnf")
+	fresh := filepath.Join(tmp, "sentinel-mongo-222.yaml")
+	other := filepath.Join(tmp, "unrelated.cnf")
+	for _, path := range []string{old, fresh, other} {
+		if err := os.WriteFile(path, []byte("password=x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(old, past, past)
+	os.Chtimes(other, past, past)
+
+	if removed := SweepStaleSecretFiles(24 * time.Hour); removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("stale credential file kept")
+	}
+	for _, kept := range []string{fresh, other} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s must be kept: %v", kept, err)
+		}
 	}
 }

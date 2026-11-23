@@ -6,7 +6,11 @@ package engine
 import (
 	"maps"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
+	"time"
 
 	"sentinel/internal/config"
 )
@@ -87,6 +91,40 @@ func Capabilities() []string {
 		capabilities = append(capabilities, "engine:"+jobType)
 	}
 	return capabilities
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+// shellQuote quotes value for a POSIX shell, leaving plain words as they are.
+// It is only used for the restore hints that are printed for people to copy.
+func shellQuote(value string) string {
+	if shellSafe.MatchString(value) {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// secretFilePatterns are the temporary credential files engines create.
+var secretFilePatterns = []string{"sentinel-mysql-*.cnf", "sentinel-mongo-*.yaml"}
+
+// SweepStaleSecretFiles removes credential files left behind by a crashed or
+// killed dump. olderThan must exceed the longest backup timeout so a file in
+// use by a running dump is never removed. It returns how many were removed.
+func SweepStaleSecretFiles(olderThan time.Duration) int {
+	removed := 0
+	for _, pattern := range secretFilePatterns {
+		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
+		for _, path := range matches {
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < olderThan {
+				continue
+			}
+			if os.Remove(path) == nil {
+				removed++
+			}
+		}
+	}
+	return removed
 }
 
 // writeSecretFile writes content to a new file readable only by the current

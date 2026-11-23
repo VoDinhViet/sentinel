@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"sentinel/internal/config"
@@ -49,6 +50,7 @@ func (mongodb) Dump(job *config.Backup) (Dump, error) {
 }
 
 func (mongodb) RestoreHint(job *config.Backup, dir string) string {
-	return fmt.Sprintf("mongorestore --host %s --port %d --drop --gzip --archive=%s/%s.archive.gz --nsInclude '%s.*'",
-		job.MongoDB.Host, job.MongoDB.Port, dir, job.MongoDB.Database, job.MongoDB.Database)
+	return fmt.Sprintf("mongorestore --host %s --port %d --drop --gzip --archive=%s --nsInclude %s",
+		shellQuote(job.MongoDB.Host), job.MongoDB.Port,
+		shellQuote(filepath.Join(dir, job.MongoDB.Database+".archive.gz")), shellQuote(job.MongoDB.Database+".*"))
 }
