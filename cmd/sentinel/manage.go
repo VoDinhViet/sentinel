@@ -65,14 +65,16 @@ type manageLine struct {
 	detail   string
 	// job and repository identify the backup a line stands for (Backups tab only).
 	job, repository string
+	// history is the outcome of the latest runs, oldest first (Backups tab only).
+	history []string
 }
 
 type manageTab struct {
 	title   string
 	headers []string
 	lines   []manageLine
-	// statusCol is the column coloured by severity.
-	statusCol int
+	// statusCol is the column coloured by severity; historyCol (-1 = none) shows line.history.
+	statusCol, historyCol int
 }
 
 type manageMode int
@@ -427,16 +429,18 @@ func (m manageModel) afterRestore(msg restoreDoneMsg) manageModel {
 // tabs turns the report into the three manager tabs.
 func (m manageModel) tabs() []manageTab {
 	now := m.report.GeneratedAt
-	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LAST RUN", "RESULT", "SNAPSHOT", "ADDED"}, statusCol: 3}
+	// Columns are ordered by importance: a narrow screen drops the last ones.
+	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LAST RUN", "RESULT", "HISTORY", "SNAPSHOT", "ADDED"}, statusCol: 3, historyCol: 4}
 	for _, backup := range m.report.Backups {
 		line := manageLine{
-			cells:  []string{backup.Job, backup.Repository, ago(backup.FinishedAt, now), "ok", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded)},
-			detail: backup.Job + " → " + backup.Repository + ": " + backup.Result,
-			job:    backup.Job, repository: backup.Repository,
+			cells:   []string{backup.Job, backup.Repository, relativeAgo(backup.FinishedAt, now), "ok", "", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded)},
+			detail:  backup.Job + " → " + backup.Repository + ": " + backup.Result,
+			job:     backup.Job,
+			history: backup.Recent, repository: backup.Repository,
 		}
 		switch {
 		case !backup.Success:
-			line.severity, line.cells[3], line.cells[4], line.cells[5] = sevBad, "FAILED", "", ""
+			line.severity, line.cells[3], line.cells[5], line.cells[6] = sevBad, "FAILED", "", ""
 		case backup.Warning != "":
 			line.severity, line.cells[3] = sevWarn, "warning"
 		}
@@ -445,17 +449,17 @@ func (m manageModel) tabs() []manageTab {
 	for _, jobRepo := range m.jobRepositories {
 		if !m.hasBackupLine(jobRepo) {
 			backups.lines = append(backups.lines, manageLine{
-				cells:    []string{jobRepo.job, jobRepo.repository, "never", "never run", "", ""},
+				cells:    []string{jobRepo.job, jobRepo.repository, "never", "never run", "", "", ""},
 				severity: sevWarn,
 				detail:   jobRepo.job + " → " + jobRepo.repository + ": never run. Press b to back it up now.",
 				job:      jobRepo.job, repository: jobRepo.repository,
 			})
 		}
 	}
-	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "STATUS", "LATENCY", "LAST CHECK"}, statusCol: 1}
+	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "STATUS", "LATENCY", "LAST CHECK"}, statusCol: 1, historyCol: -1}
 	for _, check := range m.report.Checks {
 		line := manageLine{
-			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), ago(check.At, now)},
+			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), relativeAgo(check.At, now)},
 			detail: check.Name + ": up",
 		}
 		if !check.OK {
@@ -463,15 +467,81 @@ func (m manageModel) tabs() []manageTab {
 		}
 		checks.lines = append(checks.lines, line)
 	}
-	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "SINCE", "MESSAGE"}, statusCol: -1}
+	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "SINCE", "MESSAGE"}, statusCol: -1, historyCol: -1}
 	for _, alert := range m.report.Alerts {
 		alerts.lines = append(alerts.lines, manageLine{
-			cells:    []string{alert.Key, ago(alert.Since, now), alert.Message},
+			cells:    []string{alert.Key, relativeAgo(alert.Since, now), alert.Message},
 			severity: sevBad,
 			detail:   alert.Key + ": " + alert.Message,
 		})
 	}
 	return []manageTab{backups, checks, alerts}
+}
+
+// summary is the one line under the title: what needs attention, or "all good".
+func (m manageModel) summary() string {
+	var healthy, warning, failed, neverRun int
+	for _, line := range m.tabs()[0].lines {
+		switch {
+		case line.cells[3] == "never run":
+			neverRun++
+		case line.severity == sevBad:
+			failed++
+		case line.severity == sevWarn:
+			warning++
+		default:
+			healthy++
+		}
+	}
+	checksDown := 0
+	for _, check := range m.report.Checks {
+		if !check.OK {
+			checksDown++
+		}
+	}
+	type part struct {
+		text  string
+		level severity
+	}
+	var parts []part
+	add := func(count int, label string, level severity) {
+		if count > 0 {
+			parts = append(parts, part{fmt.Sprintf("%d %s", count, label), level})
+		}
+	}
+	add(failed, "failed", sevBad)
+	add(len(m.report.Alerts), plural(len(m.report.Alerts), "alert", "alerts"), sevBad)
+	add(checksDown, plural(checksDown, "check down", "checks down"), sevBad)
+	add(warning, plural(warning, "warning", "warnings"), sevWarn)
+	add(neverRun, "never run", sevWarn)
+	add(healthy, "healthy", sevOK)
+	if len(parts) == 0 {
+		return dimStyle.Render("nothing configured yet")
+	}
+	// On a narrow screen the least important parts (the last) are dropped.
+	const separator = " · "
+	for len(parts) > 1 {
+		total := len(separator) * (len(parts) - 1)
+		for _, p := range parts {
+			total += lipgloss.Width(p.text)
+		}
+		if total <= m.width {
+			break
+		}
+		parts = parts[:len(parts)-1]
+	}
+	rendered := make([]string, len(parts))
+	for i, p := range parts {
+		rendered[i] = severityStyle(p.level).Render(p.text)
+	}
+	return strings.Join(rendered, dimStyle.Render(separator))
+}
+
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
 }
 
 func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {
@@ -501,6 +571,7 @@ var (
 	headerStyle         = lipgloss.NewStyle().Bold(true).Faint(true)
 	selectedStyle       = lipgloss.NewStyle().Reverse(true)
 	activeTab           = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
+	keyStyle            = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
 	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
 )
 
@@ -551,7 +622,11 @@ func (m manageModel) renderHeader() []string {
 	if m.loaded {
 		updated = "updated " + m.report.GeneratedAt.Local().Format("15:04:05")
 	}
-	return []string{titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server+"  ·  "+updated), ""}
+	title := lipglossStyleAccent.Render("◆ ") + titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server+"  ·  "+updated)
+	if m.mode != modeTable || !m.loaded {
+		return []string{title, ""}
+	}
+	return []string{title, m.summary(), ""}
 }
 
 func (m manageModel) renderTabs() []string {
@@ -561,7 +636,7 @@ func (m manageModel) renderTabs() []string {
 	for i, tab := range tabs {
 		label := fmt.Sprintf("%d %s", i+1, tab.title)
 		if n := len(tab.lines); n > 0 {
-			label += fmt.Sprintf(" (%d)", n)
+			label += fmt.Sprintf(" %d", n)
 		}
 		switch {
 		case i == m.tab:
@@ -572,19 +647,20 @@ func (m manageModel) renderTabs() []string {
 			tabBar = append(tabBar, dimStyle.Render(label))
 		}
 	}
-	screenLines = append(screenLines, strings.Join(tabBar, "   "), "")
+	rule := dimStyle.Render(strings.Repeat("─", m.width))
+	screenLines = append(screenLines, strings.Join(tabBar, "   "), rule)
 
 	if m.loadErr != nil {
 		screenLines = append(screenLines, severityStyle(sevBad).Render("could not read the store: "+m.loadErr.Error()), "")
 	}
 
 	tab := tabs[m.tab]
-	// Lines available for the table: the screen minus header, tabs, column
-	// header, detail box, notice and help line.
-	visible := max(m.height-12, 3)
+	// Lines available for the table: the screen minus title, summary, tabs, rules,
+	// column header, detail, notice and footer.
+	visible := max(m.height-13, 3)
 	screenLines = append(screenLines, m.renderTable(tab, visible)...)
 
-	screenLines = append(screenLines, "")
+	screenLines = append(screenLines, rule)
 	if len(tab.lines) > 0 {
 		screenLines = append(screenLines, wrap(tab.lines[m.cursor].detail, m.width-2))
 	} else {
@@ -597,14 +673,11 @@ func (m manageModel) renderTabs() []string {
 		}
 		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
-	help := "tab switch · ↑↓ select · r refresh · q quit"
+	footer := m.keyBar("tab", "switch", "↑↓", "select", "r", "refresh", "q", "quit")
 	if m.tab == 0 {
-		help = "b backup · s snapshots · a add db · e edit · d remove · q"
-		if m.width < 60 {
-			help = "b s a e d · q"
-		}
+		footer = m.keyBar("b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "q", "quit")
 	}
-	return append(screenLines, "", dimStyle.Render(help))
+	return append(screenLines, "", footer)
 }
 
 func emptyText(tab int) string {
@@ -627,52 +700,100 @@ func (m manageModel) renderTable(tab manageTab, visible int) []string {
 		for i, cell := range line.cells {
 			widths[i] = max(widths[i], lipgloss.Width(cell))
 		}
+		if tab.historyCol >= 0 {
+			widths[tab.historyCol] = max(widths[tab.historyCol], len(line.history))
+		}
 	}
 	const gap = 2
+	const prefix = 4 // the selection marker and the status dot
 	// Columns are ordered by importance: on a narrow screen the last ones are dropped.
 	keep := len(widths)
-	for keep > 2 && 2+gap*(keep-1)+keep*minColumn > m.width {
+	for keep > 2 && prefix+gap*(keep-1)+keep*minColumn > m.width {
 		keep--
 	}
 	widths = widths[:keep]
-	fitWidths(widths, m.width-2, gap)
+	fitWidths(widths, m.width-prefix, gap)
 
-	cellsLine := func(cells []string, style func(col int, text string) string) string {
-		cells = cells[:min(len(cells), keep)]
-		cellTexts := make([]string, len(cells))
-		for i, cell := range cells {
-			text := truncate(cell, widths[i])
-			text += strings.Repeat(" ", max(widths[i]-lipgloss.Width(text), 0))
-			cellTexts[i] = style(i, text)
+	// cell renders one cell padded to its column; plainOnly leaves out colours (for the selected line).
+	cell := func(col int, line manageLine, plainOnly bool) string {
+		if col == tab.historyCol {
+			glyphs := line.history[max(len(line.history)-widths[col], 0):]
+			var text strings.Builder
+			for _, outcome := range glyphs {
+				glyph, level := outcomeGlyph(outcome)
+				if plainOnly {
+					text.WriteString(glyph)
+				} else {
+					text.WriteString(severityStyle(level).Render(glyph))
+				}
+			}
+			return text.String() + strings.Repeat(" ", widths[col]-len(glyphs))
 		}
-		return strings.Join(cellTexts, strings.Repeat(" ", gap))
+		text := truncate(line.cells[col], widths[col])
+		text += strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0))
+		if col == tab.statusCol && !plainOnly {
+			return severityStyle(line.severity).Render(text)
+		}
+		return text
+	}
+	joined := func(line manageLine, plainOnly bool) string {
+		parts := make([]string, keep)
+		for col := range parts {
+			parts[col] = cell(col, line, plainOnly)
+		}
+		return strings.Join(parts, strings.Repeat(" ", gap))
 	}
 
-	screenLines := []string{"  " + cellsLine(tab.headers, func(_ int, text string) string { return headerStyle.Render(text) })}
+	header := make([]string, keep)
+	for col := range header {
+		text := truncate(tab.headers[col], widths[col])
+		header[col] = headerStyle.Render(text + strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0)))
+	}
+	screenLines := []string{strings.Repeat(" ", prefix) + strings.Join(header, strings.Repeat(" ", gap))}
 	first := 0
 	if m.cursor >= visible {
 		first = m.cursor - visible + 1
 	}
 	for i := first; i < min(first+visible, len(tab.lines)); i++ {
 		line := tab.lines[i]
-		rendered := cellsLine(line.cells, func(col int, text string) string {
-			if col == tab.statusCol {
-				return severityStyle(line.severity).Render(text)
-			}
-			return text
-		})
 		if i == m.cursor {
-			// Reverse video on the plain text keeps the selection readable on any theme.
-			plain := cellsLine(line.cells, func(_ int, text string) string { return text })
-			screenLines = append(screenLines, selectedStyle.Render("› "+plain))
+			// Reverse video on plain text keeps the selection readable on any terminal theme.
+			screenLines = append(screenLines, selectedStyle.Render("› ● "+joined(line, true)))
 			continue
 		}
-		screenLines = append(screenLines, "  "+rendered)
+		screenLines = append(screenLines, "  "+severityStyle(line.severity).Render("●")+" "+joined(line, false))
 	}
 	if hidden := len(tab.lines) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("    … %d more", hidden)))
 	}
 	return screenLines
+}
+
+// outcomeGlyph is the one-cell symbol and colour of a run outcome in the history column.
+func outcomeGlyph(outcome string) (string, severity) {
+	switch outcome {
+	case "failed":
+		return "✗", sevBad
+	case "warning":
+		return "▲", sevWarn
+	}
+	return "✓", sevOK
+}
+
+// keyBar renders key hints ("b", "backup", "s", "snapshots", ...) as a footer line;
+// when the screen is too narrow the labels are dropped and only the keys remain.
+func (m manageModel) keyBar(pairs ...string) string {
+	var full, keysOnly []string
+	for i := 0; i+1 < len(pairs); i += 2 {
+		key, label := pairs[i], pairs[i+1]
+		full = append(full, keyStyle.Render(key)+" "+dimStyle.Render(label))
+		keysOnly = append(keysOnly, keyStyle.Render(key))
+	}
+	bar := strings.Join(full, "  ")
+	if lipgloss.Width(bar) > m.width {
+		bar = strings.Join(keysOnly, " ")
+	}
+	return bar
 }
 
 // fitWidths shrinks the widest columns until the table fits in total cells.

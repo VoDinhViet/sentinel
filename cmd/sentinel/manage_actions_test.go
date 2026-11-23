@@ -138,7 +138,7 @@ func TestBackupKeyOnlyActsOnTheBackupsTab(t *testing.T) {
 func TestJobsThatNeverRanAreListed(t *testing.T) {
 	screen := modelWith(t, &fakeActions{})
 	view := plain(screen.render())
-	if !strings.Contains(view, "newjob") || !strings.Contains(view, "never run") || !strings.Contains(view, "1 Backups (4)") {
+	if !strings.Contains(view, "newjob") || !strings.Contains(view, "never run") || !strings.Contains(view, "1 Backups 4") {
 		t.Errorf("never-run job missing:\n%s", view)
 	}
 }

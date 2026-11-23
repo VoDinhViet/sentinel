@@ -112,14 +112,14 @@ func (m manageModel) renderBusy() []string {
 	return []string{
 		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
 		"",
-		dimStyle.Render("ctrl+c cancel"),
+		m.keyBar("ctrl+c", "cancel"),
 	}
 }
 
 func (m manageModel) renderSnapshots() []string {
 	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", m.snapshotJob, m.snapshotRepo)), ""}
 	if len(m.snapshots) == 0 {
-		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", dimStyle.Render("esc back"))
+		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", m.keyBar("esc", "back"))
 	}
 	visible := max(m.height-8, 3)
 	first := 0
@@ -143,7 +143,7 @@ func (m manageModel) renderSnapshots() []string {
 	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
 		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 	}
-	return append(screenLines, "", dimStyle.Render("↑↓ select · enter restore… · esc back"))
+	return append(screenLines, "", m.keyBar("↑↓", "select", "enter", "restore…", "esc", "back"))
 }
 
 func (m manageModel) renderTarget() []string {
@@ -156,7 +156,7 @@ func (m manageModel) renderTarget() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", dimStyle.Render("enter continue · esc back"))
+	return append(screenLines, "", m.keyBar("enter", "continue", "esc", "back"))
 }
 
 func (m manageModel) renderConfirm() []string {
@@ -173,7 +173,7 @@ func (m manageModel) renderConfirm() []string {
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", dimStyle.Render("enter restore · esc cancel"))
+	return append(screenLines, "", m.keyBar("enter", "restore", "esc", "cancel"))
 }
 
 func (m manageModel) renderResult() []string {
@@ -186,7 +186,7 @@ func (m manageModel) renderResult() []string {
 	if rest != "" {
 		screenLines = append(screenLines, rest)
 	}
-	return append(screenLines, "", dimStyle.Render("any key to continue"))
+	return append(screenLines, "", m.keyBar("any key", "continue"))
 }
 
 func lipglossAccent(text string) string {

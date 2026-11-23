@@ -22,8 +22,8 @@ func sampleReport() statusReport {
 		Server: "web-01", GeneratedAt: now,
 		Alerts: []alertEntry{{Key: "backup:appdb:s3", Message: "appdb has not backed up for 3 days", Since: now.Add(-time.Hour)}},
 		Backups: []backupEntry{
-			{Job: "appdb", Repository: "s3", FinishedAt: now.Add(-time.Hour), Success: true, SnapshotID: "0123456789abcdef", BytesAdded: 2048, Result: "ok"},
-			{Job: "files", Repository: "local", FinishedAt: now.Add(-2 * time.Hour), Success: false, Error: "restic exited 1", Result: "FAILED: restic exited 1"},
+			{Job: "appdb", Repository: "s3", FinishedAt: now.Add(-time.Hour), Success: true, SnapshotID: "0123456789abcdef", BytesAdded: 2048, Result: "ok", Recent: []string{"ok", "ok", "failed", "ok"}},
+			{Job: "files", Repository: "local", FinishedAt: now.Add(-2 * time.Hour), Success: false, Error: "restic exited 1", Result: "FAILED: restic exited 1", Recent: []string{"ok", "failed", "failed"}},
 			{Job: "mongo", Repository: "s3", FinishedAt: now.Add(-3 * time.Hour), Success: true, SnapshotID: "fedcba9876543210", Warning: "forget failed", Result: "ok (warning: forget failed)"},
 		},
 		Checks: []checkEntry{{Name: "site", OK: true, LatencyMs: 42, At: now}, {Name: "api", OK: false, At: now, Error: "connection refused"}},
@@ -44,13 +44,42 @@ func press(t *testing.T, screen manageModel, key string) (manageModel, tea.Cmd) 
 
 func TestManageBackupsTab(t *testing.T) {
 	view := plain(loadedModel(t).render())
-	for _, want := range []string{"web-01", "1 Backups (3)", "appdb", "01234567", "2.0 KiB", "FAILED", "warning", "3 Alerts (1)"} {
+	for _, want := range []string{"web-01", "1 Backups 3", "appdb", "01234567", "2.0 KiB", "FAILED", "warning", "3 Alerts 1"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "fedcba9876543210") {
 		t.Error("snapshot ids must be shortened")
+	}
+}
+
+func TestManageSummaryAndHistoryGlyphs(t *testing.T) {
+	view := plain(loadedModel(t).render())
+	for _, want := range []string{"1 failed · 1 alert · 1 check down · 1 warning · 1 healthy", "✓✓✗✓", "✓✗✗", "1h ago", "2h ago"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "2026-11-23") {
+		t.Error("times on the screen are relative")
+	}
+}
+
+func TestManageSummaryAllGoodAndNarrow(t *testing.T) {
+	healthy := statusReport{Server: "s", GeneratedAt: time.Now(), Backups: []backupEntry{{Job: "a", Repository: "r", Success: true, Result: "ok"}}}
+	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return healthy, nil }, manageActions{}, nil).Update(reportMsg{report: healthy})
+	if got := plain(model.(manageModel).summary()); got != "1 healthy" {
+		t.Errorf("summary = %q", got)
+	}
+	narrow := loadedModel(t)
+	narrow.width = 20
+	if got := plain(narrow.summary()); len([]rune(got)) > 20 || !strings.HasPrefix(got, "1 failed") {
+		t.Errorf("narrow summary = %q (the most important parts stay)", got)
+	}
+	empty, _ := newManageModel(context.Background(), func() (statusReport, error) { return statusReport{}, nil }, manageActions{}, nil).Update(reportMsg{})
+	if got := plain(empty.(manageModel).summary()); got != "nothing configured yet" {
+		t.Errorf("empty summary = %q", got)
 	}
 }
 
