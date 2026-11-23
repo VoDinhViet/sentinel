@@ -133,10 +133,10 @@ func TestSelectedLineHasABackground(t *testing.T) {
 	rows := strings.Split(m.render(), "\n")
 	selected := rows[targetFor(t, m, "row:0").row+1] // +1: the frame's top border
 	other := rows[targetFor(t, m, "row:1").row+1]
-	if !strings.Contains(selected, "48;2;40;48;87") { // the dark palette's selection colour
+	if !strings.Contains(selected, "48;2;48;51;61") { // the dark palette's selection colour
 		t.Errorf("the selected line has no background: %q", selected)
 	}
-	if strings.Contains(other, "48;2;40;48;87") {
+	if strings.Contains(other, "48;2;48;51;61") {
 		t.Errorf("only the selected line has the background: %q", other)
 	}
 	if width := len([]rune(plain(selected))) - frameCols; width != m.width {
