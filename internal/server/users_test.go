@@ -1,10 +1,14 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"sentinel/internal/server/service"
 )
 
 type userRow struct {
@@ -255,5 +259,113 @@ func TestUserEndpointsNeedLogin(t *testing.T) {
 		if st, _ := c.do(e.method, e.path, nil); st != http.StatusUnauthorized {
 			t.Errorf("%s %s without login = %d", e.method, e.path, st)
 		}
+	}
+}
+
+func TestAuditKeepsTheNameOfADeletedServer(t *testing.T) {
+	_, ts := newTestServer(t)
+	admin := newClient(t, ts)
+	admin.login()
+	var created struct {
+		Agent struct {
+			ID int64 `json:"id"`
+		} `json:"agent"`
+	}
+	admin.call("POST", "/api/ui/agents", map[string]string{"name": "web-01"}, &created)
+	if st, _ := admin.do("DELETE", "/api/ui/agents/"+itoa(created.Agent.ID), nil); st != http.StatusNoContent {
+		t.Fatalf("delete = %d", st)
+	}
+	deleted := auditEntries(t, admin, "?action=agent.delete")
+	if len(deleted) != 1 || deleted[0].AgentName != "web-01" {
+		t.Errorf("agent.delete entry must name the server: %+v", deleted)
+	}
+}
+
+func TestSnapshotsListingIsAudited(t *testing.T) {
+	_, ts := newTestServer(t)
+	admin := newClient(t, ts)
+	admin.login()
+	operator, _ := loginAs(t, ts, admin, "otto", "operator")
+	var created struct {
+		Agent struct {
+			ID int64 `json:"id"`
+		} `json:"agent"`
+	}
+	admin.call("POST", "/api/ui/agents", map[string]string{"name": "web-01"}, &created)
+	operator.do("POST", "/api/ui/agents/"+itoa(created.Agent.ID)+"/snapshots", map[string]string{"job": "db", "repository": "s3"})
+	entries := auditEntries(t, admin, "?action=backup.snapshots")
+	if len(entries) != 1 || entries[0].Username != "otto" || entries[0].Job != "db" {
+		t.Errorf("snapshots entry = %+v", entries)
+	}
+}
+
+func TestFailedLoginAuditIsBounded(t *testing.T) {
+	_, ts := newTestServer(t)
+	admin := newClient(t, ts)
+	admin.login()
+
+	attacker := newClient(t, ts)
+	longName := strings.Repeat("x", 3000)
+	for i := 0; i < 8; i++ { // the limiter allows 5 attempts a minute
+		attacker.do("POST", "/api/ui/login", map[string]string{"username": longName, "password": "guess"})
+	}
+	entries := auditEntries(t, admin, "?action=auth.login&outcome=failed")
+	if len(entries) != 5 {
+		t.Fatalf("failed logins recorded = %d, want 5", len(entries))
+	}
+	if len(entries[0].Username) > maxLoggedUsername {
+		t.Errorf("attempted username stored with %d bytes", len(entries[0].Username))
+	}
+	// The burst past the limit is audited once, not once per request.
+	if denied := auditEntries(t, admin, "?action=auth.login&outcome=denied"); len(denied) != 1 {
+		t.Errorf("rate-limit entries = %d, want 1", len(denied))
+	}
+}
+
+func TestInternalErrorsAreNotEchoedToTheBrowser(t *testing.T) {
+	s, _ := newTestServer(t)
+	for name, tc := range map[string]struct {
+		err        error
+		wantStatus int
+		wantBody   string
+		notBody    string
+	}{
+		"validation":  {service.Invalid("invalid role %q", "root"), http.StatusBadRequest, "invalid role", ""},
+		"conflict":    {fmt.Errorf("agent %q: %w", "web-01", service.ErrConflict), http.StatusConflict, "already exists", ""},
+		"not found":   {service.ErrNotFound, http.StatusNotFound, "not found", ""},
+		"internal db": {errors.New("insert users: disk I/O error at /var/lib/sentinel/server.db"), http.StatusInternalServerError, "internal error", "/var/lib"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			s.serviceError(rec, httptest.NewRequest("POST", "/x", nil), tc.err, http.StatusBadRequest)
+			body := rec.Body.String()
+			if rec.Code != tc.wantStatus || !strings.Contains(body, tc.wantBody) || (tc.notBody != "" && strings.Contains(body, tc.notBody)) {
+				t.Errorf("status %d body %s", rec.Code, body)
+			}
+		})
+	}
+}
+
+func TestRolesForDBJobAndBeszelRoutes(t *testing.T) {
+	_, ts := newTestServer(t)
+	admin := newClient(t, ts)
+	admin.login()
+	viewer, _ := loginAs(t, ts, admin, "vera", "viewer")
+	operator, _ := loginAs(t, ts, admin, "otto", "operator")
+	for _, e := range []struct{ method, path string }{
+		{"PUT", "/api/ui/agents/1/db-jobs/x"},
+		{"DELETE", "/api/ui/agents/1/db-jobs/x?base_version=1"},
+		{"POST", "/api/ui/agents/1/beszel/enroll"},
+		{"PUT", "/api/ui/agents/1/beszel"},
+	} {
+		for name, cl := range map[string]*client{"viewer": viewer, "operator": operator} {
+			if st, _ := cl.do(e.method, e.path, map[string]any{}); st != http.StatusForbidden {
+				t.Errorf("%s %s %s = %d, want 403", name, e.method, e.path, st)
+			}
+		}
+	}
+	denied := auditEntries(t, admin, "?outcome=denied")
+	if len(denied) != 8 {
+		t.Errorf("denied calls must all be audited, got %d entries", len(denied))
 	}
 }

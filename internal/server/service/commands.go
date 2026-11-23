@@ -62,7 +62,7 @@ func validateCommand(a Agent, typ string, args any) error {
 				return j, nil
 			}
 		}
-		return api.Job{}, fmt.Errorf("agent %s has no backup job %q", a.Name, name)
+		return api.Job{}, Invalid("agent %s has no backup job %q", a.Name, name)
 	}
 	checkRepo := func(job, repo string) error {
 		j, err := findJob(job)
@@ -70,7 +70,7 @@ func validateCommand(a Agent, typ string, args any) error {
 			return err
 		}
 		if !slices.Contains(j.Repositories, repo) {
-			return fmt.Errorf("job %q does not use repository %q", job, repo)
+			return Invalid("job %q does not use repository %q", job, repo)
 		}
 		return nil
 	}
@@ -82,11 +82,11 @@ func validateCommand(a Agent, typ string, args any) error {
 		return checkRepo(v.Job, v.Repository)
 	case api.RestoreArgs:
 		if !snapshotID.MatchString(v.Snapshot) {
-			return fmt.Errorf("invalid snapshot id %q", v.Snapshot)
+			return Invalid("invalid snapshot id %q", v.Snapshot)
 		}
 		return checkRepo(v.Job, v.Repository)
 	}
-	return fmt.Errorf("unknown command type %q", typ)
+	return Invalid("unknown command type %q", typ)
 }
 
 func commandType(args any) string {
@@ -200,7 +200,7 @@ func (s *Service) Complete(ctx context.Context, agentID, cmdID int64, r api.Comm
 		status = api.StatusFailed
 	}
 	if len(r.Output) > 1<<20 {
-		return errors.New("command output too large")
+		return Invalid("command output too large")
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE commands SET status = ?, finished_at = ?, output = ?, error = ?
 		WHERE id = ? AND agent_id = ? AND status = ?`,

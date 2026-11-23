@@ -98,7 +98,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	ip := clientIP(r)
-	if !s.limiter.allow(ip) {
+	if allowed, firstRefusal := s.limiter.allow(ip); !allowed {
+		if firstRefusal {
+			s.auditLogin(r, service.Actor{Username: "(rate limited)"}, service.OutcomeDenied)
+		}
 		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Wait a minute and try again.")
 		return
 	}
@@ -118,7 +121,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !userOK || !passOK {
 		var err error
 		if actor, err = s.Service.VerifyUser(r.Context(), in.Username, in.Password); err != nil {
-			s.auditLogin(r, service.Actor{Username: in.Username}, service.OutcomeFailed)
+			s.auditLogin(r, service.Actor{Username: truncateRunes(in.Username, maxLoggedUsername)}, service.OutcomeFailed)
 			jsonError(w, http.StatusUnauthorized, "Wrong username or password.")
 			return
 		}
@@ -136,6 +139,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge: int(sessionTTL.Seconds()),
 	})
 	writeJSON(w, http.StatusOK, sessionInfo{CSRF: csrf, Version: s.Version, Username: actor.Username, Role: actor.Role})
+}
+
+// maxLoggedUsername bounds what an unauthenticated caller can write into the
+// append-only audit log through a failed login.
+const maxLoggedUsername = 64
+
+func truncateRunes(value string, limit int) string {
+	if runes := []rune(value); len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
 }
 
 func (s *Server) auditLogin(r *http.Request, actor service.Actor, outcome string) {
@@ -166,7 +180,7 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// loginLimiter allows max failed-or-not attempts per key within window.
+// loginLimiter allows max attempts per key within window.
 type loginLimiter struct {
 	max    int
 	window time.Duration
@@ -174,13 +188,17 @@ type loginLimiter struct {
 
 	mu       sync.Mutex
 	attempts map[string][]time.Time
+	blocked  map[string]bool // keys already reported as blocked in this burst
 }
 
 func newLoginLimiter(max int, window time.Duration) *loginLimiter {
-	return &loginLimiter{max: max, window: window, now: time.Now, attempts: map[string][]time.Time{}}
+	return &loginLimiter{max: max, window: window, now: time.Now, attempts: map[string][]time.Time{}, blocked: map[string]bool{}}
 }
 
-func (l *loginLimiter) allow(key string) bool {
+// allow records an attempt. When it is refused, firstRefusal is true only for
+// the first refusal of a burst, so the caller can audit it once instead of once
+// per request.
+func (l *loginLimiter) allow(key string) (allowed, firstRefusal bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -192,14 +210,18 @@ func (l *loginLimiter) allow(key string) bool {
 	}
 	if len(recent) >= l.max {
 		l.attempts[key] = recent
-		return false
+		firstRefusal = !l.blocked[key]
+		l.blocked[key] = true
+		return false, firstRefusal
 	}
+	delete(l.blocked, key)
 	l.attempts[key] = append(recent, now)
-	return true
+	return true, false
 }
 
 func (l *loginLimiter) reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.attempts, key)
+	delete(l.blocked, key)
 }

@@ -111,6 +111,24 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, v any) bool
 	return true
 }
 
+// serviceError answers a failed service call. Validation problems (InvalidError)
+// and the known sentinel errors carry messages meant for the user; anything else
+// is logged and answered with a generic message so internal details (SQL, paths,
+// hosts) never reach the browser. invalidStatus is used for InvalidError.
+func (s *Server) serviceError(w http.ResponseWriter, r *http.Request, err error, invalidStatus int) {
+	var invalid service.InvalidError
+	switch {
+	case errors.As(err, &invalid):
+		jsonError(w, invalidStatus, invalid.Error())
+	case errors.Is(err, service.ErrNotFound):
+		jsonError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, service.ErrConflict), errors.Is(err, service.ErrStale), errors.Is(err, service.ErrNoConfig):
+		jsonError(w, http.StatusConflict, err.Error())
+	default:
+		s.internalError(w, r, err)
+	}
+}
+
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "error", err)
 	jsonError(w, http.StatusInternalServerError, "internal error")

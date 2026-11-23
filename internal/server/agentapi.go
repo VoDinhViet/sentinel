@@ -28,7 +28,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	cur, err := s.Service.Ingest(r.Context(), agentFrom(r).ID, rep)
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+		s.serviceError(w, r, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, api.ReportResponse{Cursor: cur})
@@ -70,7 +70,7 @@ func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+		s.serviceError(w, r, err, http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -100,7 +100,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	imported, err := s.Service.ImportConfig(r.Context(), agentFrom(r).ID, doc.YAML)
 	if err != nil {
-		jsonError(w, http.StatusUnprocessableEntity, err.Error())
+		s.serviceError(w, r, err, http.StatusUnprocessableEntity)
 		return
 	}
 	if !imported {

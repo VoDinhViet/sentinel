@@ -67,6 +67,17 @@ func (s *Server) audited(action string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		notes := &auditNotes{}
 		sw := &statusWriter{ResponseWriter: w}
+		ctx := context.WithoutCancel(r.Context()) // log even if the client hangs up
+		// Resolve the server before the handler runs: deleting a server removes
+		// the row, and the audit entry must still say which one it was.
+		var agentID int64
+		var agentName string
+		if id, err := strconv.ParseInt(r.PathValue("id"), 10, 64); err == nil {
+			agentID = id
+			if agent, err := s.Service.GetAgent(ctx, id); err == nil {
+				agentName = agent.Name
+			}
+		}
 		h(sw, r.WithContext(context.WithValue(r.Context(), auditKey{}, notes)))
 
 		outcome := service.OutcomeOK
@@ -76,20 +87,12 @@ func (s *Server) audited(action string, h http.HandlerFunc) http.HandlerFunc {
 		case sw.status >= 400:
 			outcome = service.OutcomeFailed
 		}
-		entry := service.AuditEntry{IP: clientIP(r), Action: action, Outcome: outcome}
+		entry := service.AuditEntry{IP: clientIP(r), Action: action, Outcome: outcome, AgentID: agentID, AgentName: agentName}
 		notes.mu.Lock()
 		entry.Details, entry.Job = notes.details, notes.job
 		notes.mu.Unlock()
 		if entry.Job == "" {
 			entry.Job = r.PathValue("name")
-		}
-		// Log with a context that survives the client hanging up.
-		ctx := context.WithoutCancel(r.Context())
-		if id, err := strconv.ParseInt(r.PathValue("id"), 10, 64); err == nil {
-			entry.AgentID = id
-			if a, err := s.Service.GetAgent(ctx, id); err == nil {
-				entry.AgentName = a.Name
-			}
 		}
 		if sw.status >= 400 {
 			if entry.Details == nil {

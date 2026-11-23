@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -25,10 +23,10 @@ type User struct {
 
 func validatePassword(password string) error {
 	if len(password) < minPasswordLen {
-		return fmt.Errorf("password must be at least %d characters", minPasswordLen)
+		return Invalid("password must be at least %d characters", minPasswordLen)
 	}
 	if len(password) > 72 { // bcrypt ignores the rest
-		return errors.New("password must be at most 72 bytes")
+		return Invalid("password must be at most 72 bytes")
 	}
 	return nil
 }
@@ -36,10 +34,10 @@ func validatePassword(password string) error {
 // CreateUser adds a user with the given role.
 func (s *Service) CreateUser(ctx context.Context, username, password, role string) (User, error) {
 	if !usernameRe.MatchString(username) {
-		return User{}, errors.New("invalid username: 3-32 characters, letters, digits, '.', '_' or '-'")
+		return User{}, Invalid("invalid username: 3-32 characters, letters, digits, '.', '_' or '-'")
 	}
 	if !ValidRole(role) {
-		return User{}, fmt.Errorf("invalid role %q", role)
+		return User{}, Invalid("invalid role %q", role)
 	}
 	if err := validatePassword(password); err != nil {
 		return User{}, err
@@ -90,7 +88,7 @@ type UserUpdate struct {
 
 func (s *Service) UpdateUser(ctx context.Context, id int64, up UserUpdate) (User, error) {
 	if up.Role != nil && !ValidRole(*up.Role) {
-		return User{}, fmt.Errorf("invalid role %q", *up.Role)
+		return User{}, Invalid("invalid role %q", *up.Role)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

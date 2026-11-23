@@ -27,13 +27,15 @@ type ConfigVersion struct {
 // references, whose values only exist on the agent.
 func ValidateConfig(yamlText string) error {
 	if len(yamlText) > maxConfigBytes {
-		return fmt.Errorf("config is larger than %d KiB", maxConfigBytes>>10)
+		return Invalid("config is larger than %d KiB", maxConfigBytes>>10)
 	}
 	if err := config.CheckManaged([]byte(yamlText)); err != nil {
-		return err
+		return Invalid("%v", err)
 	}
-	_, err := config.ParseWith([]byte(yamlText), config.ParseOptions{ExpandEnv: false})
-	return err
+	if _, err := config.ParseWith([]byte(yamlText), config.ParseOptions{ExpandEnv: false}); err != nil {
+		return Invalid("%v", err)
+	}
+	return nil
 }
 
 // SaveConfig validates and stores a new config version for the agent.

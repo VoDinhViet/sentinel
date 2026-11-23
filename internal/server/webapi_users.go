@@ -68,7 +68,7 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+		s.serviceError(w, r, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusCreated, toUserDTO(u))
@@ -100,12 +100,8 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		auditNote(r, "password_changed", true)
 	}
 	u, err := s.Service.UpdateUser(r.Context(), id, service.UserUpdate{Role: in.Role, Disabled: in.Disabled, Password: in.Password})
-	if errors.Is(err, service.ErrNotFound) {
-		jsonError(w, http.StatusNotFound, "not found")
-		return
-	}
 	if err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+		s.serviceError(w, r, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, toUserDTO(u))
