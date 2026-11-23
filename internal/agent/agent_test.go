@@ -178,6 +178,13 @@ func TestCommandsEndToEnd(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(out.Path, "file.txt")); string(b) != "restored\n" {
 		t.Errorf("restored file = %q", b)
 	}
+
+	// A snapshot that is not one of the job's snapshots must not be restored.
+	id, _ = e.svc.Enqueue(ctx, e.agent.ID, api.RestoreArgs{Job: "site", Repository: "s3", Snapshot: "deadbeef"})
+	rec = wait(id)
+	if rec.Status != api.StatusFailed || !strings.Contains(rec.Error, "does not belong") {
+		t.Errorf("restore of foreign snapshot = %+v", rec)
+	}
 }
 
 func TestRestoreTargetIsConfined(t *testing.T) {

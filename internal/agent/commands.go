@@ -100,9 +100,12 @@ func (c *CommandRunner) Execute(ctx context.Context, cmd api.Command) api.Comman
 		runs := d.RunBackup(ctx, job)
 		var parts, errs []string
 		for _, r := range runs {
-			if r.Success {
+			switch {
+			case r.Success:
 				parts = append(parts, fmt.Sprintf("%s: snapshot %.8s", r.Repository, r.SnapshotID))
-			} else {
+			case r.Repository == "": // not run at all, e.g. already running
+				errs = append(errs, r.Error)
+			default:
 				errs = append(errs, r.Repository+": "+r.Error)
 			}
 		}
@@ -143,9 +146,17 @@ func (c *CommandRunner) Execute(ctx context.Context, cmd api.Command) api.Comman
 		if !snapshotRe.MatchString(a.Snapshot) {
 			return fail(fmt.Errorf("invalid snapshot id %q", a.Snapshot))
 		}
-		_, rc, err := jobRepo(d, a.Job, a.Repository)
+		job, rc, err := jobRepo(d, a.Job, a.Repository)
 		if err != nil {
 			return fail(err)
+		}
+		// Only snapshots of this job may be restored under its name.
+		snaps, err := rc.Snapshots(ctx, backup.JobTags(job))
+		if err != nil {
+			return fail(err)
+		}
+		if !slices.ContainsFunc(snaps, func(snapshot backup.Snapshot) bool { return strings.HasPrefix(snapshot.ID, a.Snapshot) }) {
+			return fail(fmt.Errorf("snapshot %s does not belong to job %q", a.Snapshot, a.Job))
 		}
 		target, err := RestoreTarget(d.Config.RestoreDir, a.Job, a.Snapshot, c.now())
 		if err != nil {

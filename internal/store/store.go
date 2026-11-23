@@ -1,11 +1,10 @@
-// Package store persists backup runs, check results, metrics and alert state
+// Package store persists backup runs, check results and alert state
 // in SQLite so the CLI and a future dashboard can read history.
 package store
 
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,6 +58,8 @@ var migrations = []string{
 		last_notified INTEGER NOT NULL,
 		message TEXT NOT NULL
 	);`,
+	// Resource metrics now come from Beszel.
+	`DROP TABLE metrics;`,
 }
 
 // Open opens (creating if needed) the database at path and applies migrations.
@@ -122,7 +123,9 @@ type BackupRun struct {
 	FilesChanged int64
 	BytesAdded   int64
 	TotalBytes   int64
-	Error        string
+	// Error says why a run failed. On a successful run it is a warning: the
+	// snapshot exists but a later step (retention) failed.
+	Error string
 }
 
 func (s *Store) RecordBackup(ctx context.Context, r BackupRun) error {
@@ -228,38 +231,6 @@ func (s *Store) ChecksSince(ctx context.Context, afterID int64, limit int) ([]Ch
 		WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
 }
 
-type Metrics struct {
-	ID      int64 // SQLite rowid
-	At      time.Time
-	CPU     float64
-	Memory  float64
-	Swap    float64
-	Load1   float64
-	DiskMax float64
-}
-
-func (s *Store) RecordMetrics(ctx context.Context, m Metrics) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO metrics (at, cpu, memory, swap, load1, disk_max) VALUES (?, ?, ?, ?, ?, ?)`,
-		m.At.Unix(), m.CPU, m.Memory, m.Swap, m.Load1, m.DiskMax)
-	return err
-}
-
-// LatestMetrics returns the newest sample; ok is false when none exist.
-func (s *Store) LatestMetrics(ctx context.Context) (m Metrics, ok bool, err error) {
-	var at int64
-	err = s.db.QueryRowContext(ctx, `SELECT at, cpu, memory, swap, load1, disk_max FROM metrics
-		ORDER BY at DESC LIMIT 1`).Scan(&at, &m.CPU, &m.Memory, &m.Swap, &m.Load1, &m.DiskMax)
-	if errors.Is(err, sql.ErrNoRows) {
-		return m, false, nil
-	}
-	if err != nil {
-		return m, false, err
-	}
-	m.At = time.Unix(at, 0)
-	return m, true, nil
-}
-
 type Alert struct {
 	Key          string
 	Firing       bool
@@ -301,33 +272,9 @@ func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
 	return out, rows.Err()
 }
 
-// MetricsSince returns up to limit samples with rowid > afterID, oldest first.
-func (s *Store) MetricsSince(ctx context.Context, afterID int64, limit int) ([]Metrics, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT rowid, at, cpu, memory, swap, load1, disk_max FROM metrics
-		WHERE rowid > ? ORDER BY rowid LIMIT ?`, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Metrics
-	for rows.Next() {
-		var m Metrics
-		var at int64
-		if err := rows.Scan(&m.ID, &at, &m.CPU, &m.Memory, &m.Swap, &m.Load1, &m.DiskMax); err != nil {
-			return nil, err
-		}
-		m.At = time.Unix(at, 0)
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-// Prune deletes check results and metric samples older than before.
+// Prune deletes check results older than before.
 // Backup runs are small and kept forever.
 func (s *Store) Prune(ctx context.Context, before time.Time) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM check_results WHERE at < ?`, before.Unix()); err != nil {
-		return err
-	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM metrics WHERE at < ?`, before.Unix())
+	_, err := s.db.ExecContext(ctx, `DELETE FROM check_results WHERE at < ?`, before.Unix())
 	return err
 }

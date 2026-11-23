@@ -184,3 +184,46 @@ func TestRunStopsAndCancelsJobs(t *testing.T) {
 		t.Error("running task was not cancelled")
 	}
 }
+
+func TestRunBackupSkipsWhenJobAlreadyRunning(t *testing.T) {
+	ctx := context.Background()
+	slow := filepath.Join(t.TempDir(), "restic")
+	os.WriteFile(slow, []byte("#!/bin/sh\nsleep 1\necho '{\"message_type\":\"summary\",\"snapshot_id\":\"abcdef123456\"}'\n"), 0o755)
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := &config.Config{
+		ServerName:   "h",
+		Repositories: map[string]config.Repository{"s3": {URL: "/r", Password: "p"}},
+		Backups: []config.Backup{{Name: "site", Type: config.BackupFiles, Paths: []string{"/x"},
+			Timeout: time.Minute, Repositories: []string{"s3"}}},
+	}
+	rec := &recorder{}
+	d := &Daemon{
+		Config: cfg, Store: st,
+		Alerts:  &alert.Manager{Sender: rec, Store: st, Server: "h", Cooldown: time.Hour},
+		Backups: &backup.Runner{Config: cfg, Store: st, Bin: slow},
+	}
+	job := &cfg.Backups[0]
+
+	first := make(chan []store.BackupRun, 1)
+	go func() { first <- d.RunBackup(ctx, job) }()
+	time.Sleep(300 * time.Millisecond)
+
+	second := d.RunBackup(ctx, job)
+	if len(second) != 1 || second[0].Error != ErrAlreadyRunning || second[0].Success {
+		t.Fatalf("overlapping run = %+v", second)
+	}
+	if got := rec.titles(); len(got) != 0 {
+		t.Errorf("skipping must not alert, got %v", got)
+	}
+	if runs := <-first; !runs[0].Success {
+		t.Fatalf("first run = %+v", runs[0])
+	}
+	// Once the first finished, the job can run again.
+	if runs := d.RunBackup(ctx, job); !runs[0].Success {
+		t.Fatalf("run after completion = %+v", runs[0])
+	}
+}

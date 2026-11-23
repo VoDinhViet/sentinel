@@ -22,11 +22,13 @@ type Report struct {
 	Checks     []string            `json:"checks"` // configured uptime check names
 	BackupRuns []store.BackupRun   `json:"backup_runs"`
 	Results    []store.CheckResult `json:"check_results"`
-	Metrics    []store.Metrics     `json:"metrics"`
 	// OpenAlerts is the full set of currently firing alerts (not incremental).
 	OpenAlerts []store.Alert `json:"open_alerts"`
 	// ConfigVersion is the managed config version the agent is running (0 = local file).
 	ConfigVersion int64 `json:"config_version"`
+	// Capabilities lists the features this agent build supports (e.g.
+	// "engine:postgres"). Agents that predate it send none.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type Job struct {
@@ -34,13 +36,18 @@ type Job struct {
 	Type         string   `json:"type"`
 	Schedule     string   `json:"schedule"`
 	Repositories []string `json:"repositories"`
+	// Database is the PostgreSQL database name (never host or credentials).
+	Database  string `json:"database,omitempty"`
+	Retention string `json:"retention,omitempty"`
 }
 
 // Cursor is the highest row id the server has stored, per kind.
 type Cursor struct {
 	BackupRunID int64 `json:"backup_run_id"`
 	CheckID     int64 `json:"check_id"`
-	MetricID    int64 `json:"metric_id"`
+	// MetricID is only for agents older than the Beszel integration: the
+	// server answers MaxInt64 so they stop sending the samples it now ignores.
+	MetricID int64 `json:"metric_id"`
 }
 
 // ReportResponse acknowledges a report.

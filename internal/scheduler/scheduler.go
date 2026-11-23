@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/notify"
+	"sentinel/internal/schedule"
 	"sentinel/internal/store"
 )
 
@@ -42,7 +44,15 @@ type Daemon struct {
 
 	started time.Time
 	busy    atomic.Int32 // backups and repository checks in progress
+	// running holds one mutex per job name, so a job never runs twice at once
+	// (a "backup now" overlapping a scheduled run would fight over the repository
+	// lock and dump the same database twice).
+	running sync.Map // job name -> *sync.Mutex
 }
+
+// ErrAlreadyRunning is the Error of the run RunBackup returns, without
+// recording it, when the job is already running.
+const ErrAlreadyRunning = "backup already running"
 
 // Busy reports whether a backup or repository check is running, so a config
 // reload can wait instead of interrupting it.
@@ -107,7 +117,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 func backupKey(job, repo string) string { return "backup:" + job + ":" + repo }
 
 // RunBackup runs one job and raises or resolves an alert per repository.
+//
+// If the job is already running it does nothing and returns one unrecorded run
+// whose Error is ErrAlreadyRunning; no alert is raised for it.
 func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.BackupRun {
+	jobLock, _ := d.running.LoadOrStore(job.Name, new(sync.Mutex))
+	if !jobLock.(*sync.Mutex).TryLock() {
+		slog.Warn("backup skipped, already running", "job", job.Name)
+		return []store.BackupRun{{Job: job.Name, Error: ErrAlreadyRunning}}
+	}
+	defer jobLock.(*sync.Mutex).Unlock()
+
 	d.busy.Add(1)
 	defer d.busy.Add(-1)
 	runs := d.Backups.Run(ctx, job)
@@ -121,6 +141,14 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.Back
 		if r.Success {
 			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", job.Name, r.Repository), "")
 			okRepos = append(okRepos, fmt.Sprintf("%s: snapshot %.8s, +%d bytes", r.Repository, r.SnapshotID, r.BytesAdded))
+			// The snapshot is safe, but retention failed: warn separately from a failed backup.
+			retentionKey := "retention:" + job.Name + ":" + r.Repository
+			if r.Error != "" {
+				d.Alerts.Fire(ctx, retentionKey, notify.Warning,
+					fmt.Sprintf("Retention for %s in %s failed", job.Name, r.Repository), r.Error)
+			} else {
+				d.Alerts.Resolve(ctx, retentionKey, fmt.Sprintf("Retention for %s in %s succeeded", job.Name, r.Repository), "")
+			}
 			continue
 		}
 		d.Alerts.Fire(ctx, key, notify.Critical,
@@ -196,17 +224,9 @@ func IsStale(job *config.Backup, lastSuccess, started, now time.Time) (stale boo
 	if job.Schedule == "" {
 		return false, 0
 	}
-	sched, err := cron.ParseStandard(job.Schedule)
-	if err != nil {
+	maxGap, ok := schedule.MaxGap(job.Schedule, now)
+	if !ok {
 		return false, 0
-	}
-	// The longest gap among the next runs covers weekly or weekday-only schedules.
-	var maxGap time.Duration
-	t := sched.Next(now)
-	for i := 0; i < 14; i++ {
-		next := sched.Next(t)
-		maxGap = max(maxGap, next.Sub(t))
-		t = next
 	}
 	limit = 2*maxGap + job.Timeout
 	ref := lastSuccess

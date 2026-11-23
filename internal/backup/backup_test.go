@@ -278,3 +278,28 @@ func TestLockRetry(t *testing.T) {
 		t.Fatalf("retry should succeed: %+v", runs[0])
 	}
 }
+
+func TestRetentionFailureKeepsBackupSuccessful(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "restic")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = forget ]; then echo 'Fatal: repository is locked' >&2; exit 1; fi\n" +
+		"echo '{\"message_type\":\"summary\",\"snapshot_id\":\"abcdef123456\"}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		ServerName:   "h",
+		Repositories: map[string]config.Repository{"r": {URL: "/repo", Password: "p"}},
+	}
+	job := config.Backup{
+		Name: "site", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute,
+		Repositories: []string{"r"}, Retention: config.Retention{Last: 3},
+	}
+	runs := (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job)
+	if !runs[0].Success || runs[0].SnapshotID != "abcdef123456" {
+		t.Fatalf("a snapshot was made, so the run must count as successful: %+v", runs[0])
+	}
+	if !strings.Contains(runs[0].Error, "retention failed") {
+		t.Errorf("retention failure not reported: %q", runs[0].Error)
+	}
+}
