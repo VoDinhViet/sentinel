@@ -11,12 +11,12 @@ import (
 
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
-	"sentinel/internal/store"
 )
 
 const (
-	manageRefresh = 5 * time.Second
-	minColumn     = 6
+	manageRefresh        = 5 * time.Second
+	manageRefreshRunning = 2 * time.Second
+	minColumn            = 6
 )
 
 func (a *app) manageCmd() *cobra.Command {
@@ -62,6 +62,7 @@ const (
 	sevOK severity = iota
 	sevWarn
 	sevBad
+	sevRun // a backup that is running now
 )
 
 // manageLine is one table line of a manager tab. detail is the full text shown
@@ -74,18 +75,40 @@ type manageLine struct {
 	job, repository string
 	// history is the outcome of the latest runs, oldest first (Backups tab only).
 	history []string
+	// running says a backup of this job and repository is in progress (Backups tab only).
+	running bool
 	// entry says which part of the config a line of the Config tab stands for.
 	entry configEntry
+	// placeholder marks the row that invites adding the first entry of an empty group (Config tab).
+	placeholder bool
+	// sub is the dim line under the row ("└ the full error", the progress of a running backup).
+	sub string
+	// fields are the label/value pairs the detail panel shows for the line; without them the
+	// panel shows detail.
+	fields [][2]string
 }
 
 type manageTab struct {
 	title   string
 	headers []string
 	lines   []manageLine
+	// sections split the lines into groups with their own heading and column headers (the
+	// Config tab); without them the tab is one table under headers.
+	sections []tableSection
+	// count is the number next to the tab's title: how many lines, or how many problems.
+	count int
 	// statusCol is the column coloured by severity; historyCol (-1 = none) shows line.history.
 	statusCol, historyCol int
 	// alarm colours the tab label red.
 	alarm bool
+}
+
+// tableSection is a run of lines that starts at line index first and ends where the next
+// section starts. title and hint make the heading row; headers name the columns of the run.
+type tableSection struct {
+	title, hint string
+	headers     []string
+	first       int
 }
 
 type manageMode int
@@ -131,6 +154,9 @@ type manageModel struct {
 	inputError                string
 	targetOptions             []string // candidates the last Tab listed for the restore folder
 
+	// stopAsked is the job whose stop was asked for once; a second x confirms it.
+	stopAsked string
+
 	busyText   string
 	busyStart  time.Time
 	busyFrame  int
@@ -161,12 +187,17 @@ type (
 		report status.Report
 		err    error
 	}
-	refreshMsg    struct{}
-	spinMsg       struct{}
-	backupDoneMsg struct {
+	refreshMsg       struct{}
+	spinMsg          struct{}
+	backupStartedMsg struct {
 		job, repository string
-		runs            []store.BackupRun
+		pid             int
+		logPath         string
 		err             error
+	}
+	backupStopRequestedMsg struct {
+		job string
+		err error
 	}
 	snapshotsMsg struct {
 		job, repository string

@@ -11,7 +11,6 @@ import (
 var (
 	colourOK, colourWarn, colourBad, colourAcc color.Color
 	colourSelected, colourBorder, colourMuted  color.Color
-	colourBar                                  color.Color
 	colourOnAccent, colourOnSelected           color.Color
 
 	titleStyle, dimStyle, headerStyle, borderStyle lipgloss.Style
@@ -20,8 +19,8 @@ var (
 	activeTab           lipgloss.Style
 	keyStyle            lipgloss.Style
 	lipglossStyleAccent lipgloss.Style
-	// The key bar at the bottom and the header of a table are bands with their own background.
-	barStyle, barKeyStyle, barDimStyle, headerBand lipgloss.Style
+	// selectedDimStyle is dim text on the selected line's background; the key bar's keys and labels.
+	selectedDimStyle, barKeyStyle, barDimStyle lipgloss.Style
 )
 
 func init() { applyPalette(true) }
@@ -37,7 +36,6 @@ func applyPalette(dark bool) {
 	colourMuted = pick(hex("#5c6384"), hex("#8089b3"))
 	colourBorder = pick(hex("#8a94c4"), hex("#3f4768"))
 	colourSelected = pick(hex("#e2e4ea"), hex("#30333d"))
-	colourBar = pick(hex("#eceef2"), hex("#23252d"))
 	colourOnSelected = pick(hex("#16171c"), hex("#eceef4"))
 	colourOnAccent = pick(hex("#ffffff"), hex("#14162b"))
 
@@ -46,13 +44,13 @@ func applyPalette(dark bool) {
 	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(colourMuted)
 	borderStyle = lipgloss.NewStyle().Foreground(colourBorder)
 	selectedStyle = lipgloss.NewStyle().Background(colourSelected).Foreground(colourOnSelected)
-	activeTab = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(colourAcc)
+	// The open tab is a filled pill; the others are dim text.
+	activeTab = lipgloss.NewStyle().Bold(true).Background(colourAcc).Foreground(colourOnAccent)
 	keyStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
 	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
-	barStyle = lipgloss.NewStyle().Background(colourBar)
-	barKeyStyle = barStyle.Bold(true).Foreground(colourAcc)
-	barDimStyle = barStyle.Foreground(colourMuted)
-	headerBand = barStyle.Bold(true).Foreground(colourMuted)
+	selectedDimStyle = lipgloss.NewStyle().Background(colourSelected).Foreground(colourMuted)
+	barKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
+	barDimStyle = lipgloss.NewStyle().Foreground(colourMuted)
 }
 
 func severityStyle(level severity) lipgloss.Style {
@@ -61,6 +59,8 @@ func severityStyle(level severity) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(colourBad).Bold(true)
 	case sevWarn:
 		return lipgloss.NewStyle().Foreground(colourWarn).Bold(true)
+	case sevRun:
+		return lipgloss.NewStyle().Foreground(colourAcc).Bold(true)
 	}
 	return lipgloss.NewStyle().Foreground(colourOK)
 }
@@ -72,6 +72,6 @@ func selectedSeverityStyle(level severity) lipgloss.Style {
 
 // badge is a short status word on a coloured background, e.g. " FAILED ".
 func badge(level severity, text string) string {
-	background := map[severity]color.Color{sevOK: colourOK, sevWarn: colourWarn, sevBad: colourBad}[level]
+	background := map[severity]color.Color{sevOK: colourOK, sevWarn: colourWarn, sevBad: colourBad, sevRun: colourAcc}[level]
 	return lipgloss.NewStyle().Bold(true).Foreground(colourOnAccent).Background(background).Render(" " + text + " ")
 }

@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -51,6 +52,18 @@ func (r *Runner) Restic(repoName string) (*restic.Client, error) {
 	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName}, nil
 }
 
+// backupClient is the client a backup uses: restic is the same, but it runs at the priority
+// and upload speed the config asks for, so a large backup does not starve the server.
+func (r *Runner) backupClient(repoName string) (*restic.Client, error) {
+	client, err := r.Restic(repoName)
+	if err != nil {
+		return nil, err
+	}
+	client.LowPriority = r.Config.Resources.Priority != config.PriorityNormal
+	client.UploadLimitKiB = r.Config.Resources.UploadLimitKiB
+	return client, nil
+}
+
 // Run backs the job up to each of its repositories in turn and applies
 // retention. Every repository is attempted even if an earlier one fails;
 // the returned runs say which succeeded.
@@ -65,6 +78,12 @@ func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 		slog.Warn("backup skipped, already running", "job", job.Name)
 		return []store.BackupRun{{Job: job.Name, Error: AlreadyRunning}}
 	}
+	// Wait for a slot before the clock of the job's timeout starts: waiting is not running.
+	releaseSlot, err := r.acquireSlot(ctx, job.Name)
+	defer releaseSlot()
+	if err != nil {
+		return []store.BackupRun{{Job: job.Name, StartedAt: r.now(), FinishedAt: r.now(), Error: err.Error()}}
+	}
 	ctx, cancel := context.WithTimeout(ctx, job.Timeout)
 	defer cancel()
 
@@ -78,6 +97,9 @@ func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 			}
 		}
 		runs = append(runs, run)
+		if run.Error == Stopped {
+			break // stopping a job stops it for the repositories that are left too
+		}
 	}
 	return runs
 }
@@ -93,7 +115,7 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 		return run
 	}
 
-	client, err := r.Restic(repoName)
+	client, err := r.backupClient(repoName)
 	if err != nil {
 		return fail(err)
 	}
@@ -125,11 +147,16 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 	if r.Config != nil && r.Config.StorePath != "" {
 		progressDir = ProgressDir(r.Config.StorePath)
 	}
-	progress := newTracker(progressDir, job.Name, repoName, estimate, job.Timeout, r.now, r.OnProgress)
+	ctx, stop := context.WithCancel(ctx) // the user may stop this backup: see RequestStop
+	defer stop()
+	progress := newTracker(progressDir, job.Name, repoName, estimate, job.Timeout, r.now, r.OnProgress, stop)
 	defer progress.finish()
 	opts.OnStatus = progress.status
 
 	sum, err := client.Backup(ctx, opts)
+	if err != nil && progress.stopped.Load() {
+		return fail(errors.New(Stopped))
+	}
 	if restic.IsNoRepo(err) {
 		// The first backup into a folder of this machine creates the repository there.
 		created, initErr := initLocalRepo(ctx, client)

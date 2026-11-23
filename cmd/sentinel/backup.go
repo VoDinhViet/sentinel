@@ -65,11 +65,19 @@ func (a *app) backupCmd() *cobra.Command {
 		},
 	}
 
+	var detach bool
+	var runOutput string
 	runCmd := &cobra.Command{
 		Use:   "run <job>",
 		Short: "Chạy một job backup ngay",
-		Args:  cobra.ExactArgs(1),
+		Long: "Chạy backup của job vào mọi kho của nó (hoặc --repository), và in tiến độ.\n" +
+			"Với --detach, backup chạy ở một tiến trình riêng tách khỏi terminal: đóng terminal hay mất SSH\n" +
+			"không làm nó dừng. Xem tiến độ bằng `sentinel status` hoặc `sentinel manage`, dừng bằng `sentinel backup stop`.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkOutput(runOutput); err != nil {
+				return err
+			}
 			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
@@ -77,6 +85,18 @@ func (a *app) backupCmd() *cobra.Command {
 			job, err := pick(cfg, args[0])
 			if err != nil {
 				return err
+			}
+			if detach {
+				pid, logPath, err := startDetachedBackup(cfg, a.configPath, job.Name, repoFlag)
+				if err != nil {
+					return err
+				}
+				if runOutput == outputJSON {
+					return writeJSON(cmd.OutOrStdout(), detachedReport{Job: job.Name, PID: pid, Log: logPath})
+				}
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "backup of %s started in the background (pid %d)\nlog:    %s\nwatch:  sentinel status   (or sentinel manage)\nstop:   sentinel backup stop %s\n", job.Name, pid, logPath, job.Name)
+				return nil
 			}
 			st, err := a.openStore(cfg)
 			if err != nil {
@@ -87,18 +107,25 @@ func (a *app) backupCmd() *cobra.Command {
 			runs := (&backup.Runner{Config: cfg, Store: st, OnProgress: printProgress.show}).Run(cmd.Context(), job)
 			printProgress.done()
 
-			table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 			failed := 0
 			for _, run := range runs {
-				summary := run.Summary()
 				if !run.Success {
 					failed++
 				}
-				fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, summary, run.SnapshotID,
-					humanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 			}
-			table.Flush()
+			if runOutput == outputJSON {
+				if err := writeJSON(cmd.OutOrStdout(), newBackupRunReport(job.Name, runs)); err != nil {
+					return err
+				}
+			} else {
+				table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+				fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
+				for _, run := range runs {
+					fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, run.Summary(), run.SnapshotID,
+						humanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
+				}
+				table.Flush()
+			}
 			if failed > 0 {
 				return fmt.Errorf("%d of %d repositories failed", failed, len(runs))
 			}
@@ -106,11 +133,46 @@ func (a *app) backupCmd() *cobra.Command {
 		},
 	}
 
+	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "chạy nền ở tiến trình riêng, không dừng khi đóng terminal")
+	addOutputFlag(runCmd, &runOutput)
+
+	stopCmd := &cobra.Command{
+		Use:   "stop <job>",
+		Short: "Dừng backup đang chạy của một job",
+		Long: "Yêu cầu backup đang chạy của job dừng (dù do daemon, `backup run` hay `backup run --detach` chạy).\n" +
+			"Backup bị dừng không để lại snapshot dở và không gây cảnh báo; dump database phải làm lại từ đầu lần sau.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := a.loadConfig()
+			if err != nil {
+				return err
+			}
+			job, err := cfg.FindJob(args[0])
+			if err != nil {
+				return err
+			}
+			stopped, err := stopBackup(cfg, job.Name, 30*time.Second)
+			if err != nil {
+				return err
+			}
+			if !stopped {
+				fmt.Fprintf(cmd.OutOrStdout(), "asked the backup of %s to stop; it is still shutting down (restic can take a moment)\n", job.Name)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "backup of %s stopped\n", job.Name)
+			return nil
+		},
+	}
+
+	var listOutput string
 	listCmd := &cobra.Command{
 		Use:   "list <job>",
 		Short: "Liệt kê các snapshot của job",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkOutput(listOutput); err != nil {
+				return err
+			}
 			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
@@ -120,28 +182,27 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			runner := &backup.Runner{Config: cfg}
-			table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(table, "REPOSITORY\tSNAPSHOT\tTIME\tSIZE")
+			listing := snapListing{Job: job.Name, Repositories: make([]repoSnaps, 0, len(job.Repositories))}
 			var errs []error
 			for _, name := range job.Repositories {
 				rc, _ := runner.Restic(name)
 				snaps, err := rc.Snapshots(cmd.Context(), backup.JobTags(job))
 				if err != nil {
 					errs = append(errs, fmt.Errorf("%s: %w", name, err))
-					continue
 				}
-				for _, snap := range snaps {
-					size := ""
-					if snap.Summary != nil {
-						size = humanBytes(snap.Summary.TotalBytes)
-					}
-					fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", name, snap.ShortID, snap.Time.Local().Format("2006-01-02 15:04"), size)
-				}
+				listing.Repositories = append(listing.Repositories, newRepoSnaps(name, snaps, err))
 			}
-			table.Flush()
+			if listOutput == outputJSON {
+				if err := writeJSON(cmd.OutOrStdout(), listing); err != nil {
+					return err
+				}
+			} else {
+				printSnapListing(cmd.OutOrStdout(), listing)
+			}
 			return errors.Join(errs...)
 		},
 	}
+	addOutputFlag(listCmd, &listOutput)
 
 	var target string
 	restoreCmd := &cobra.Command{
@@ -182,6 +243,7 @@ func (a *app) backupCmd() *cobra.Command {
 		sub.Flags().StringVarP(&repoFlag, "repository", "r", "", "chỉ kho này (mặc định: mọi kho của job)")
 		cmd.AddCommand(sub)
 	}
+	cmd.AddCommand(stopCmd)
 	return cmd
 }
 

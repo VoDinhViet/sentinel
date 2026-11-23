@@ -67,3 +67,34 @@ func TestReportJSONKeys(t *testing.T) {
 		t.Errorf("the old %q key is still there: %s", "backups", encoded)
 	}
 }
+
+func TestReportCarriesTheRecentResultsOfEachCheck(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	at := time.Now().Add(-time.Hour)
+	for _, result := range []struct {
+		ok      bool
+		latency time.Duration
+	}{{true, 10 * time.Millisecond}, {false, 0}, {true, 30 * time.Millisecond}} {
+		at = at.Add(time.Minute)
+		if err := st.RecordCheck(ctx, store.CheckResult{Name: "web", At: at, OK: result.ok, Latency: result.latency}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report, err := Build(ctx, &config.Config{ServerName: "web-01"}, st, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Checks) != 1 {
+		t.Fatalf("checks = %+v", report.Checks)
+	}
+	check := report.Checks[0]
+	if !slices.Equal(check.RecentLatencyMs, []int64{10, 0, 30}) || !slices.Equal(check.RecentOK, []bool{true, false, true}) {
+		t.Errorf("recent latency %v, ok %v: oldest first", check.RecentLatencyMs, check.RecentOK)
+	}
+}

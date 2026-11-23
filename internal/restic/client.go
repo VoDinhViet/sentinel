@@ -61,6 +61,31 @@ type Client struct {
 	// ExtraEnv is appended to the environment (e.g. PGPASSWORD for pg_dump,
 	// which restic launches as a child process).
 	ExtraEnv []string
+	// LowPriority runs restic, and so the dump tool it starts, with a low CPU and disk priority
+	// (nice 10, best-effort disk class 7) when `nice` and `ionice` are installed.
+	LowPriority bool
+	// UploadLimitKiB caps the upload speed in KiB/s (0 = no cap).
+	UploadLimitKiB int
+}
+
+// command is the process to start for restic and args: restic itself, or `nice`/`ionice`
+// wrapping it. Both tools replace themselves with what they run, so the process stays the
+// one that gets the interrupt on cancel, and what restic starts inherits the priority.
+func (c *Client) command(args []string) (string, []string) {
+	if c.UploadLimitKiB > 0 {
+		args = append([]string{"--limit-upload", strconv.Itoa(c.UploadLimitKiB)}, args...)
+	}
+	argv := append([]string{c.bin()}, args...)
+	if !c.LowPriority {
+		return argv[0], argv[1:]
+	}
+	if ionice, err := exec.LookPath("ionice"); err == nil {
+		argv = append([]string{ionice, "-c", "2", "-n", "7"}, argv...)
+	}
+	if nice, err := exec.LookPath("nice"); err == nil {
+		argv = append([]string{nice, "-n", "10"}, argv...)
+	}
+	return argv[0], argv[1:]
 }
 
 func (c *Client) bin() string {
@@ -94,7 +119,8 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 // memory. Every other line (the summary, errors) is kept for the caller as usual. It is called
 // from the goroutine that copies restic's output, one line at a time.
 func (c *Client) runFiltered(ctx context.Context, onStatus func(Status), args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, c.bin(), args...)
+	name, argv := c.command(args)
+	cmd := exec.CommandContext(ctx, name, argv...)
 	cmd.Env = c.env()
 	if onStatus != nil {
 		cmd.Env = append(cmd.Env, "RESTIC_PROGRESS_FPS=0.5") // a status line every two seconds is plenty

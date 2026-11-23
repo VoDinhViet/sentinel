@@ -229,12 +229,13 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	}...)
 	form.fields = append(form.fields, []formField{
 		{key: "advanced", label: "Tuỳ chọn nâng cao", hint: "enter hoặc space để mở hoặc đóng các tuỳ chọn bên dưới", kind: fieldToggle, section: sectionAdvanced},
+		{key: "timeout", label: "Timeout", hint: "một lần backup được chạy tối đa bao lâu rồi bị cắt, vd. 12h, 36h. Để trống = 6h. Database lớn nên đặt rộng hơn thời gian backup thường lệ: backup qua stdin bị cắt thì phải làm lại từ đầu", value: job.Timeout, placeholder: "6h", section: sectionAdvanced},
 		{key: "exclude", label: "Loại trừ", hint: "mẫu cần bỏ qua, cách nhau bằng dấu phẩy, ví dụ *.tmp, node_modules", value: strings.Join(job.Exclude, ", "), section: sectionAdvanced},
 		{key: "tls", label: "TLS", hint: "chỉ với mysql: để trống, disabled hoặc required", value: job.TLS, section: sectionAdvanced},
 		{key: "auth_database", label: "Auth database", hint: "chỉ với mongodb: database nơi user được tạo", value: job.AuthDatabase, section: sectionAdvanced},
 	}...)
 	form.syncSchedules()
-	form.advancedOpen = len(job.Exclude) > 0 || job.TLS != "" || job.AuthDatabase != "" // keep what is set in view
+	form.advancedOpen = len(job.Exclude) > 0 || job.Timeout != "" || job.TLS != "" || job.AuthDatabase != "" // keep what is set in view
 	for i := range form.fields {
 		if types, restricted := jobFieldTypes[form.fields[i].key]; restricted {
 			form.fields[i].onField, form.fields[i].only = "type", types
@@ -247,7 +248,6 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 var jobFieldTypes = map[string][]string{
 	"paths":         {config.JobFiles},
 	"exclude":       {config.JobFiles},
-	"advanced":      {config.JobFiles, config.JobMySQL, config.JobMongoDB}, // postgres has nothing advanced
 	"database":      configedit.DatabaseTypes,
 	"host":          configedit.DatabaseTypes,
 	"port":          configedit.DatabaseTypes,
@@ -377,6 +377,7 @@ func (f form) job() (configedit.Job, error) {
 		Schedule:     strings.TrimSpace(f.field("schedule").value),
 		TLS:          strings.TrimSpace(f.field("tls").value),
 		AuthDatabase: strings.TrimSpace(f.field("auth_database").value),
+		Timeout:      strings.TrimSpace(f.field("timeout").value),
 
 		Paths:           splitList(f.field("paths").value),
 		Exclude:         splitList(f.field("exclude").value),

@@ -25,9 +25,10 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*Daemon, err
 		return nil, fmt.Errorf("load alert state: %w", err)
 	}
 	return &Daemon{
-		Config: cfg,
-		Store:  st,
-		Alerts: alerts,
+		Config:       cfg,
+		Store:        st,
+		ShutdownWait: cfg.ShutdownWait,
+		Alerts:       alerts,
 		Runner: &backup.Runner{
 			Config: cfg, Store: st,
 			LockRetries: 3, LockRetryDelay: 5 * time.Minute,

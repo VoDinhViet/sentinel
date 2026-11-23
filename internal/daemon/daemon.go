@@ -37,6 +37,11 @@ type Daemon struct {
 	Alerts *alert.Manager
 	Runner *backup.Runner
 	Tasks  []Task
+	// ShutdownWait is how long Run lets running jobs finish on its own after it is asked to
+	// stop, before it cancels them. Zero cancels them at once.
+	ShutdownWait time.Duration
+	// ForceStop, when closed, ends the ShutdownWait early (a second stop signal).
+	ForceStop <-chan struct{}
 	// ShutdownTimeout bounds how long Run waits for jobs after cancelling them.
 	ShutdownTimeout time.Duration
 	// HistoryMaxAge is how long check results are kept.
@@ -50,8 +55,8 @@ type Daemon struct {
 }
 
 // Run schedules all work and blocks until ctx is cancelled. It then stops
-// scheduling, cancels running jobs (restic gets SIGINT so it can release its
-// lock) and waits for them to exit.
+// scheduling, gives running jobs up to ShutdownWait to finish, cancels the rest (restic
+// gets SIGINT so it can release its lock) and waits for them to exit.
 func (d *Daemon) Run(ctx context.Context) error {
 	d.started = time.Now()
 	d.sweepStaleSecretFiles()
@@ -94,8 +99,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	slog.Info("sentinel started", "server", d.Config.ServerName, "backups", len(d.Config.Jobs), "tasks", len(tasks))
 	<-ctx.Done()
 
-	slog.Info("shutting down, waiting for running jobs")
+	slog.Info("shutting down")
 	stopped := cronRunner.Stop()
+	if d.ShutdownWait > 0 {
+		select {
+		case <-stopped.Done():
+		default:
+			slog.Info("waiting for running jobs to finish; stop again to cancel them", "up_to", d.ShutdownWait)
+			wait := time.NewTimer(d.ShutdownWait)
+			select {
+			case <-stopped.Done():
+			case <-wait.C:
+				slog.Warn("running jobs did not finish in time, cancelling them", "after", d.ShutdownWait)
+			case <-d.ForceStop:
+				slog.Warn("stopped again, cancelling running jobs")
+			}
+			wait.Stop()
+		}
+	}
 	cancelJobs()
 	timeout := d.ShutdownTimeout
 	if timeout == 0 {
@@ -133,6 +154,9 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 	var successLines []string
 	for _, run := range runs {
 		key := alert.BackupKey(job.Name, run.Repository)
+		if run.Error == backup.Stopped {
+			continue // somebody stopped it on purpose: neither a failure nor a success
+		}
 		if run.Success {
 			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", job.Name, run.Repository), "")
 			successLines = append(successLines, fmt.Sprintf("%s: snapshot %.8s, +%d bytes", run.Repository, run.SnapshotID, run.BytesAdded))

@@ -237,14 +237,14 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	path := writeConfig(t, sectionsConfig)
 	settings := Settings{
 		ServerName: "web-02", Store: "/var/lib/sentinel/state.db", Cooldown: "30m", NotifySuccess: true,
-		VerifySchedule: "weekly sun 04:00", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
+		VerifySchedule: "weekly sun 04:00", ShutdownWait: "90m", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
 		DefaultRetention: config.Retention{Daily: 7, Weekly: 4},
 	}
 	if err := SaveSettings(path, settings); err != nil {
 		t.Fatal(err)
 	}
 	saved := readFile(t, path)
-	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "notify_success: true", "verify_schedule: weekly sun 04:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
+	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "shutdown_wait: 90m", "notify_success: true", "verify_schedule: weekly sun 04:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("saved lacks %q:\n%s", want, saved)
 		}
@@ -264,6 +264,9 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 		}
 	}
 	var invalid *InvalidError
+	if err := SaveSettings(path, Settings{ShutdownWait: "soon"}); !errors.As(err, &invalid) || invalid.Field != "shutdown_wait" {
+		t.Errorf("bad shutdown_wait = %v", err)
+	}
 	if err := SaveSettings(path, Settings{Cooldown: "often"}); !errors.As(err, &invalid) || invalid.Field != "cooldown" {
 		t.Errorf("bad cooldown = %v", err)
 	}
@@ -272,5 +275,36 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	}
 	if err := SaveSettings(path, Settings{VerifySchedule: "weekly someday 04:00"}); !errors.As(err, &invalid) {
 		t.Errorf("bad schedule = %v", err)
+	}
+}
+
+func TestResourceSettingsAreWrittenAndRemovedWhenEmpty(t *testing.T) {
+	path := writeConfig(t, sectionsConfig)
+	if err := SaveSettings(path, Settings{Priority: "normal", MaxParallel: "2", UploadLimitKiB: "20480"}); err != nil {
+		t.Fatal(err)
+	}
+	saved := readFile(t, path)
+	for _, want := range []string{"resources:", "priority: normal", "max_parallel: 2", "upload_limit_kib: 20480"} {
+		if !strings.Contains(saved, want) {
+			t.Errorf("saved lacks %q:\n%s", want, saved)
+		}
+	}
+	overview, err := Read(path)
+	if err != nil || overview.Settings.Priority != "normal" || overview.Settings.MaxParallel != "2" || overview.Settings.UploadLimitKiB != "20480" {
+		t.Errorf("read back: %+v %v", overview.Settings, err)
+	}
+	if err := SaveSettings(path, Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if cleared := readFile(t, path); strings.Contains(cleared, "resources:") {
+		t.Errorf("empty values remove the block:\n%s", cleared)
+	}
+	var invalid *InvalidError
+	for field, settings := range map[string]Settings{
+		"priority": {Priority: "turbo"}, "max_parallel": {MaxParallel: "0"}, "upload_limit_kib": {UploadLimitKiB: "fast"},
+	} {
+		if err := SaveSettings(path, settings); !errors.As(err, &invalid) || invalid.Field != field {
+			t.Errorf("%s: %v", field, err)
+		}
 	}
 }

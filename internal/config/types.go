@@ -15,12 +15,35 @@ type Config struct {
 	Repositories   map[string]Repository `yaml:"repositories"`
 	Jobs           []Job                 `yaml:"jobs"`
 	VerifySchedule string                `yaml:"verify_schedule"`
-	Defaults       Defaults              `yaml:"defaults"`
+	// Resources limits how much of the server a backup may take.
+	Resources Resources `yaml:"resources"`
+	// ShutdownWait is how long the daemon lets running backups finish when it is stopped.
+	ShutdownWait time.Duration `yaml:"shutdown_wait"`
+	Defaults     Defaults      `yaml:"defaults"`
 	// Monitor is accepted for old config files and ignored: Sentinel no longer
 	// monitors server resources.
 	Monitor      any           `yaml:"monitor"`
 	UptimeChecks []UptimeCheck `yaml:"uptime"`
 }
+
+// Resources keeps backups from starving the services on the server. The defaults are the
+// careful ones: backups run at low CPU and disk priority and one at a time.
+type Resources struct {
+	// Priority is "low" (default: nice 10 and the lowest best-effort disk priority for restic
+	// and the dump tool it starts) or "normal".
+	Priority string `yaml:"priority"`
+	// MaxParallel is how many backups may run at once across the daemon and every
+	// `sentinel backup run` on the machine; the others wait for a free slot. Default 1.
+	MaxParallel int `yaml:"max_parallel"`
+	// UploadLimitKiB caps the upload speed of every backup, in KiB/s (0 = no cap).
+	UploadLimitKiB int `yaml:"upload_limit_kib"`
+}
+
+// Resource priorities.
+const (
+	PriorityLow    = "low"
+	PriorityNormal = "normal"
+)
 
 // Defaults are the values a backup job takes when it does not set its own, so a file with
 // several similar jobs does not repeat them. A job's own value always wins.

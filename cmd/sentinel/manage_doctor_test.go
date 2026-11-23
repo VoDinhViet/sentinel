@@ -76,7 +76,7 @@ func TestDoctorTabShowsFindingsAndHints(t *testing.T) {
 	screen = model.(manageModel)
 	screen.tab = doctorTab
 	view := plain(screen.render())
-	for _, want := range []string{"4 Doctor 3", "config", "ok", "FAIL", "warn", "not found in PATH", "none configured"} {
+	for _, want := range []string{"4 Doctor 2", "config", "ok", "LỖI", "cảnh báo", "not found in PATH", "none configured"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}

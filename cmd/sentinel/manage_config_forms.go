@@ -291,6 +291,10 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 		{key: "server_name", label: "Tên server", hint: "tên hiện trong cảnh báo và trên màn hình này", value: settings.ServerName, placeholder: "tên máy này"},
 		{key: "store", label: "File trạng thái", hint: "nơi lưu lịch sử chạy và khoá job (đường dẫn file)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
 		{key: "cooldown", label: "Lặp cảnh báo", hint: "chờ bao lâu rồi nhắc lại một cảnh báo còn mở, vd. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
+		{key: "shutdown_wait", label: "Chờ khi dừng", hint: "khi dừng daemon (restart, systemctl stop), chờ backup đang chạy xong tối đa bao lâu rồi mới huỷ, vd. 2h, 30m. Phải nhỏ hơn TimeoutStopSec của systemd", value: settings.ShutdownWait, placeholder: "2h"},
+		{key: "priority", label: "Ưu tiên backup", hint: "low: backup chạy với CPU và đĩa ưu tiên thấp để không làm chậm dịch vụ khác (mặc định); normal: không hạ", kind: fieldChoice, value: orDefault(settings.Priority, "low"), choices: []string{"low", "normal"}},
+		{key: "max_parallel", label: "Backup song song", hint: "tối đa bao nhiêu backup chạy cùng lúc trên máy này, job còn lại chờ đến lượt", value: settings.MaxParallel, placeholder: "1"},
+		{key: "upload_limit_kib", label: "Giới hạn upload", hint: "KiB/s cho mỗi backup, vd. 20480 = 20 MiB/s. Để trống = không giới hạn", value: settings.UploadLimitKiB, placeholder: "không giới hạn"},
 		{key: "notify_success", label: "Báo thành công", hint: "cũng gửi tin sau mỗi backup thành công", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
 	}
 	fields = append(fields, scheduleFields("verify_schedule", "Kiểm tra repo", "khi nào chạy `restic check` trên mọi repository. "+scheduleHint, settings.VerifySchedule, "không bao giờ", "")...)
@@ -307,7 +311,9 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 func (f form) settings() (configedit.Settings, error) {
 	settings := configedit.Settings{
 		ServerName: strings.TrimSpace(f.field("server_name").value), Store: strings.TrimSpace(f.field("store").value),
-		Cooldown: strings.TrimSpace(f.field("cooldown").value), NotifySuccess: f.field("notify_success").value == "yes",
+		Cooldown: strings.TrimSpace(f.field("cooldown").value), ShutdownWait: strings.TrimSpace(f.field("shutdown_wait").value),
+		// low is the default: the key is left out.
+		Priority: strings.TrimPrefix(f.field("priority").value, "low"), MaxParallel: strings.TrimSpace(f.field("max_parallel").value), UploadLimitKiB: strings.TrimSpace(f.field("upload_limit_kib").value), NotifySuccess: f.field("notify_success").value == "yes",
 		VerifySchedule: strings.TrimSpace(f.field("verify_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
 	}
 	repositories := f.field("default_repositories")

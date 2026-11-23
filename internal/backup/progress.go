@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -46,6 +48,9 @@ type Progress struct {
 	Remaining time.Duration // 0 when unknown
 	Timeout   time.Duration // how long the job may run in all
 }
+
+// Stopped is the Error of a backup the user stopped on purpose; it is not a failure to alert about.
+const Stopped = "stopped by the user"
 
 // stalledAfter is how long without new data makes a running backup look stuck.
 const stalledAfter = 10 * time.Minute
@@ -117,6 +122,18 @@ func HumanDuration(dur time.Duration) string {
 func ProgressDir(storePath string) string { return filepath.Join(filepath.Dir(storePath), "progress") }
 
 func progressFile(dir, job string) string { return filepath.Join(dir, safeFileName(job)+".json") }
+func stopFile(dir, job string) string     { return filepath.Join(dir, safeFileName(job)+".stop") }
+
+// RequestStop asks whichever process is running the job's backup (the daemon, a
+// `sentinel backup run`, a detached run) to stop it, by leaving a request file that process
+// looks for every second. A signal to the process would do harm when it is the daemon, which
+// runs backups itself. It is an error when the job is not running.
+func RequestStop(dir, job string, now time.Time) error {
+	if !slices.ContainsFunc(ReadRunning(dir, now), func(p Progress) bool { return p.Job == job }) {
+		return fmt.Errorf("no backup of %q is running", job)
+	}
+	return os.WriteFile(stopFile(dir, job), nil, 0o600)
+}
 
 // safeFileName keeps a job name from reaching outside the directory.
 func safeFileName(name string) string {
@@ -138,6 +155,9 @@ type tracker struct {
 	now        func() time.Time
 	estimate   int64 // the size of the last successful backup, 0 if none
 
+	onStop  func() // cancels the backup when the user asks to stop it
+	stopped atomic.Bool
+
 	mu        sync.Mutex
 	p         Progress
 	samples   []rateSample
@@ -152,9 +172,12 @@ type rateSample struct {
 	bytes int64
 }
 
-func newTracker(dir, job, repository string, estimate int64, timeout time.Duration, now func() time.Time, onProgress func(Progress)) *tracker {
+func newTracker(dir, job, repository string, estimate int64, timeout time.Duration, now func() time.Time, onProgress func(Progress), onStop func()) *tracker {
 	started := now()
-	t := &tracker{dir: dir, onProgress: onProgress, now: now, estimate: estimate, stop: make(chan struct{}),
+	if dir != "" {
+		os.Remove(stopFile(dir, job)) // a request left over from an earlier run is not for this one
+	}
+	t := &tracker{dir: dir, onProgress: onProgress, now: now, estimate: estimate, onStop: onStop, stop: make(chan struct{}),
 		p: Progress{Job: job, Repository: repository, PID: os.Getpid(), Phase: PhaseBackup, StartedAt: started, UpdatedAt: started, LastDataAt: started, Percent: -1, Timeout: timeout}}
 	t.write()
 	t.done.Add(1)
@@ -162,20 +185,39 @@ func newTracker(dir, job, repository string, estimate int64, timeout time.Durati
 	return t
 }
 
+// heartbeat keeps the file fresh and, every second, looks for a request to stop the backup.
 func (t *tracker) heartbeat() {
 	defer t.done.Done()
-	ticker := time.NewTicker(progressHeartbeat)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for {
+	for tick := 1; ; tick++ {
 		select {
 		case <-t.stop:
 			return
 		case <-ticker.C:
-			t.mu.Lock()
-			t.write()
-			t.mu.Unlock()
+			t.checkStop()
+			if time.Duration(tick)*time.Second%progressHeartbeat == 0 {
+				t.mu.Lock()
+				t.write()
+				t.mu.Unlock()
+			}
 		}
 	}
+}
+
+// checkStop cancels the backup when a stop was asked for.
+func (t *tracker) checkStop() {
+	if t.dir == "" || t.onStop == nil {
+		return
+	}
+	name := stopFile(t.dir, t.p.Job)
+	if _, err := os.Stat(name); err != nil {
+		return
+	}
+	os.Remove(name)
+	t.stopped.Store(true)
+	slog.Warn("backup stopped on request", "job", t.p.Job)
+	t.onStop()
 }
 
 // status takes restic's latest progress line.
@@ -266,6 +308,7 @@ func (t *tracker) finish() {
 	t.done.Wait()
 	if t.dir != "" {
 		os.Remove(progressFile(t.dir, t.p.Job))
+		os.Remove(stopFile(t.dir, t.p.Job))
 	}
 }
 

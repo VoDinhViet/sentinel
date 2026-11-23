@@ -11,8 +11,11 @@ ExecStart=/usr/local/bin/sentinel run --config /etc/sentinel/config.yaml
 EnvironmentFile=-/etc/sentinel/sentinel.env
 Restart=on-failure
 RestartSec=10s
-# restic gets SIGINT on shutdown to release its lock; give it time.
-TimeoutStopSec=90s
+# On stop the daemon lets running backups finish for up to `shutdown_wait` (default 2h) and only
+# then cancels them (restic gets SIGINT to release its lock). This must be longer than that,
+# or systemd kills the daemon, and the backup with it, first. Backups started with
+# `sentinel backup run --detach` or from `sentinel manage` run on their own and are not affected.
+TimeoutStopSec=2h30m
 
 # Runs as root so file backups can read everything. To run unprivileged,
 # create a user, grant it read access to the backup paths and set User=.

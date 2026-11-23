@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -19,8 +18,8 @@ func (a *app) statusCmd() *cobra.Command {
 		Short: "Xem các backup gần nhất, cảnh báo đang mở và uptime check",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output != "text" && output != "json" {
-				return fmt.Errorf("--output: want text or json, got %q", output)
+			if err := checkOutput(output); err != nil {
+				return err
 			}
 			cfg, err := a.loadConfig()
 			if err != nil {
@@ -35,15 +34,13 @@ func (a *app) statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if output == "json" {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-				return encoder.Encode(report)
+			if output == outputJSON {
+				return writeJSON(cmd.OutOrStdout(), report)
 			}
 			return printStatus(cmd.OutOrStdout(), report)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "text hoặc json")
+	addOutputFlag(cmd, &output)
 	return cmd
 }
 
@@ -79,6 +76,21 @@ func printStatus(w io.Writer, report status.Report) error {
 		fmt.Fprintf(table, "  %s\t%s\tsince %s\n", alert.Key, alert.Message, ago(alert.Since, now))
 	}
 	table.Flush()
+
+	if len(report.Running) > 0 {
+		fmt.Fprintln(w, "\nRunning now:")
+		for _, running := range report.Running {
+			note := ""
+			switch {
+			case running.Stalled:
+				note = "  (no new data for 10+ minutes)"
+			case running.WillExceedTimeout:
+				note = "  (at this speed it will pass the job's timeout)"
+			}
+			fmt.Fprintf(table, "  %s\t%s\t%s%s\n", running.Job, running.Repository, running.Summary, note)
+		}
+		table.Flush()
+	}
 
 	fmt.Fprintln(w, "\nLast backups:")
 	if len(report.Jobs) == 0 {

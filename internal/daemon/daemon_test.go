@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,5 +226,80 @@ func TestRunBackupSkipsWhenJobAlreadyRunning(t *testing.T) {
 	// Once the first finished, the job can run again.
 	if runs := d.RunBackup(ctx, job); !runs[0].Success {
 		t.Fatalf("run after completion = %+v", runs[0])
+	}
+}
+
+// shutdownDaemon runs a daemon whose one task runs until it is cancelled or released, stops it
+// and says how long Run took to return and whether the task was cancelled. The task ends by itself
+// after releaseAfter, and a second stop signal arrives after forceAfter (zero = never).
+func shutdownDaemon(t *testing.T, wait, releaseAfter, forceAfter time.Duration) (took time.Duration, cancelled bool) {
+	t.Helper()
+	cfg := &config.Config{ServerName: "h"}
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	started := make(chan struct{})
+	release, force := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	var wasCancelled atomic.Bool
+	dm := &Daemon{
+		Config: cfg, Store: st, Alerts: &alert.Manager{}, Runner: &backup.Runner{Config: cfg},
+		Tasks: []Task{{Name: "long", Every: time.Second, Run: func(ctx context.Context) {
+			once.Do(func() { close(started) })
+			select {
+			case <-ctx.Done():
+				wasCancelled.Store(true)
+			case <-release:
+			}
+		}}},
+		ShutdownWait: wait, ForceStop: force, ShutdownTimeout: 5 * time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- dm.Run(ctx) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("task never ran")
+	}
+	begin := time.Now()
+	cancel()
+	if releaseAfter > 0 {
+		time.AfterFunc(releaseAfter, func() { close(release) })
+	}
+	if forceAfter > 0 {
+		time.AfterFunc(forceAfter, func() { close(force) })
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	return time.Since(begin), wasCancelled.Load()
+}
+
+func TestRunWaitsForRunningJobsBeforeCancelling(t *testing.T) {
+	took, cancelled := shutdownDaemon(t, time.Minute, 300*time.Millisecond, 0)
+	if cancelled || took < 250*time.Millisecond {
+		t.Errorf("a job that finishes within shutdown_wait must not be cancelled (took %v, cancelled %v)", took, cancelled)
+	}
+}
+
+func TestRunCancelsJobsThatOutlastShutdownWait(t *testing.T) {
+	took, cancelled := shutdownDaemon(t, 400*time.Millisecond, 0, 0)
+	if !cancelled || took < 350*time.Millisecond {
+		t.Errorf("a job past shutdown_wait must be cancelled after it (took %v, cancelled %v)", took, cancelled)
+	}
+}
+
+func TestSecondStopSignalCancelsAtOnce(t *testing.T) {
+	took, cancelled := shutdownDaemon(t, time.Hour, 0, 300*time.Millisecond)
+	if !cancelled || took > 5*time.Second {
+		t.Errorf("a second stop must cancel the job without waiting (took %v, cancelled %v)", took, cancelled)
 	}
 }

@@ -21,7 +21,7 @@ func (c *clock) read() time.Time { return c.now }
 
 func newTestTracker(t *testing.T, estimate int64, c *clock) *tracker {
 	t.Helper()
-	tr := newTracker("", "shop", "local", estimate, 6*time.Hour, c.read, nil)
+	tr := newTracker("", "shop", "local", estimate, 6*time.Hour, c.read, nil, nil)
 	t.Cleanup(tr.finish)
 	return tr
 }
@@ -107,7 +107,7 @@ func TestProgressNoticesStallsAndATimeoutThatWillBeMissed(t *testing.T) {
 
 func TestProgressFileIsWrittenReadAndRemoved(t *testing.T) {
 	dir := t.TempDir()
-	tr := newTracker(dir, "site/with slash", "local", 0, time.Hour, time.Now, nil)
+	tr := newTracker(dir, "site/with slash", "local", 0, time.Hour, time.Now, nil, nil)
 	tr.status(restic.Status{BytesDone: 123})
 	running := ReadRunning(dir, time.Now())
 	if len(running) != 1 || running[0].Job != "site/with slash" || running[0].PID != os.Getpid() || running[0].Phase != PhaseBackup {
@@ -219,5 +219,46 @@ func TestLastBackupSizeComesFromTheLatestSuccessOfThatRepository(t *testing.T) {
 	record("s3", 400, true, 99)
 	if size, ok, err := st.LastBackupSize(ctx, "db", "local"); err != nil || !ok || size != 12<<30 {
 		t.Errorf("size = %d, %v, %v", size, ok, err)
+	}
+}
+
+func TestRequestStopCancelsTheRunningBackupAndRecordsItAsStopped(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "restic")
+	// A restic that runs "for an hour" and dies of the interrupt it is sent.
+	script := "#!/bin/sh\necho '{\"message_type\":\"status\",\"bytes_done\":10}'\nexec sleep 3600\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		ServerName:   "h",
+		StorePath:    filepath.Join(dir, "state", "state.db"),
+		Repositories: map[string]config.Repository{"r1": {URL: "/repo1", Password: "p"}, "r2": {URL: "/repo2", Password: "p"}},
+	}
+	job := config.Job{Name: "site", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Hour, Repositories: []string{"r1", "r2"}}
+	done := make(chan []store.BackupRun, 1)
+	go func() { done <- (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job) }()
+
+	progressDir := ProgressDir(cfg.StorePath)
+	if err := RequestStop(progressDir, "site", time.Now()); err == nil {
+		t.Error("stopping a backup that has not started is an error")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(ReadRunning(progressDir, time.Now())) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := RequestStop(progressDir, "site", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case runs := <-done:
+		if len(runs) != 1 || runs[0].Error != Stopped || runs[0].Success || runs[0].Repository != "r1" {
+			t.Errorf("a stop ends the job, for the repositories that were left too: %+v", runs)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the backup did not stop")
+	}
+	if left, _ := filepath.Glob(filepath.Join(progressDir, "*")); len(left) != 0 {
+		t.Errorf("files left behind: %v", left)
 	}
 }

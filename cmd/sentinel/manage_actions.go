@@ -39,8 +39,11 @@ func configuredJobRepositories(cfg *config.Config) []jobRepository {
 // manageActions are the things the manager does besides reading the store. They
 // are fields so tests can replace them.
 type manageActions struct {
-	runBackup func(ctx context.Context, job, repository string) ([]store.BackupRun, error)
-	snapshots func(ctx context.Context, job, repository string) ([]restic.Snapshot, error)
+	// startBackup runs a backup in a process of its own, so it goes on when the manager is left;
+	// stopBackup asks the running backup of a job to stop.
+	startBackup func(job, repository string) (pid int, logPath string, err error)
+	stopBackup  func(job string) error
+	snapshots   func(ctx context.Context, job, repository string) ([]restic.Snapshot, error)
 	// restore returns the command that loads a restored database dump, or "".
 	restore func(ctx context.Context, job, repository string, snapshot restic.Snapshot, target string) (string, error)
 	// The config file: read the jobs, save a database job, remove one.
@@ -117,17 +120,18 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		doctor: func(ctx context.Context) []doctor.Finding {
 			return doctor.Run(ctx, cfg, configPath, func(cfg *config.Config) (*store.Store, error) { return store.Open(cfg.StorePath) })
 		},
-		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
+		startBackup: func(jobName, repository string) (int, string, error) {
 			job, err := cfg.FindJob(jobName)
 			if err != nil {
-				return nil, err
+				return 0, "", err
 			}
-			scoped, err := job.OnlyRepo(repository)
-			if err != nil {
-				return nil, err
+			if _, err := job.OnlyRepo(repository); err != nil {
+				return 0, "", err
 			}
-			// The runner's job lock keeps this from overlapping the daemon or a CLI run.
-			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, scoped), nil
+			return startDetachedBackup(cfg, configPath, job.Name, repository)
+		},
+		stopBackup: func(jobName string) error {
+			return backup.RequestStop(backup.ProgressDir(cfg.StorePath), jobName, time.Now())
 		},
 		snapshots: func(ctx context.Context, jobName, repository string) ([]restic.Snapshot, error) {
 			job, client, err := jobAndRestic(jobName, repository)

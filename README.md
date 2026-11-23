@@ -96,6 +96,8 @@ Tạo bot với @BotFather để lấy token, thêm bot vào nhóm, gửi một 
 ```sh
 sentinel doctor                      # kiểm tra config, restic/rclone/pg_dump, kho, nơi lưu trạng thái
 sentinel backup run appdb            # chạy backup ngay
+sentinel backup run appdb --detach   # chạy nền ở tiến trình riêng, thoát terminal cũng không dừng
+sentinel backup stop appdb           # dừng backup đang chạy của job
 sentinel backup list appdb           # liệt kê snapshot
 sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                       # chạy mọi uptime check một lần
@@ -104,6 +106,20 @@ sentinel status -o json              # như trên, cho script
 sentinel notify test                 # gửi tin thử tới mọi kênh cảnh báo
 journalctl -u sentinel -f            # log của daemon
 ```
+
+### Dùng trong script hoặc với AI agent
+
+`status`, `doctor`, `check`, `backup list` và `backup run` có `-o json`: JSON ra stdout, tiến độ và log ra stderr, exit code 0 khi mọi thứ ổn và 1 khi có lỗi (JSON vẫn được in đủ trước khi trả lỗi). Công cụ như Claude Code hay Codex gọi thẳng các lệnh này qua shell, không cần MCP.
+
+```sh
+sentinel doctor -o json | jq '.ok, (.findings[] | select(.status != "ok"))'
+sentinel check -o json  | jq '.checks[] | select(.ok | not)'
+sentinel backup list appdb -o json | jq '.repositories[].snapshots[0]'
+sentinel backup run appdb -o json   # {job, runs: [{repository, success, result, snapshot_id, bytes_added, duration_seconds}]}
+sentinel backup run appdb --detach -o json   # {job, pid, log}
+```
+
+`sentinel manage` và `sentinel init` là màn hình tương tác, script không dùng được.
 
 Chạy tay ngoài systemd thì nạp biến trước: `set -a; . /etc/sentinel/sentinel.env; set +a`.
 
@@ -126,11 +142,19 @@ Job `files` thì file nằm ngay trong `--target`.
 
 ## Màn hình quản lý
 
-`sentinel manage` mở trong terminal với năm tab (phím `1`-`5`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**. Dòng tóm tắt trên cùng cho biết cần chú ý gì, cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải). Màn hình tự làm mới mỗi 5 giây; chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
+`sentinel manage` mở trong terminal với năm tab (phím `1`-`5`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**. Màn hình chia thành các khung (panel):
+
+- **Hàng khung trên cùng** (màn hình từ 110 cột, 28 dòng): *tổng quan* (số job ổn / cảnh báo / lỗi, alert đang mở, số repository và dung lượng), *đang chạy* (thanh tiến độ của backup đang chạy, hoặc job sẽ chạy kế tiếp) và *uptime* (mỗi check một dòng, kèm biểu đồ độ trễ các lần gần nhất; lần lỗi là `✗`). Khung nào có vấn đề thì viền đỏ. Màn hình nhỏ hơn chỉ có một dòng tóm tắt.
+- **Khung bảng** với tên các tab trên viền (tab có vấn đề tô đỏ, số bên cạnh là số dòng, riêng Doctor là số lỗi và cảnh báo). Cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải), cột LẦN TỚI là lần chạy theo lịch kế tiếp. Job lỗi hoặc đang chạy có thêm một dòng mờ `└ …` ngay dưới (lỗi, hoặc dung lượng, tốc độ, thời gian còn lại).
+- **Khung chi tiết** dưới bảng: dòng đang chọn dạng nhãn và giá trị (loại, nguồn, lịch, lần tới, giữ bao nhiêu bản…), kết quả hoặc lỗi đầy đủ, và kết quả của thao tác vừa làm.
+- **Tab Config** chia theo mục đích: *Repository* (nơi lưu backup), *Job*, *Uptime check*, *Notifier* (nơi gửi cảnh báo) và *Cài đặt chung*, mỗi nhóm có cột riêng. Nhóm chưa có gì hiện một dòng mờ `+ … bấm a để thêm`. Dòng phím ở dưới cùng chỉ hiện phím dùng được cho mục đang chọn (ví dụ `t gửi thử` chỉ có ở Notifier).
+
+Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 
 | Phím | Việc |
 |---|---|
-| `b` | backup ngay job đang chọn (không chạy chồng với daemon) |
+| `b` | backup ngay job đang chọn, **chạy nền** (đóng manage cũng không dừng) và không chạy chồng với daemon |
+| `x` | dừng backup đang chạy của dòng đang chọn (bấm hai lần để xác nhận) |
 | `s` | xem snapshot của job và restore |
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
 | `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
@@ -140,6 +164,29 @@ Job `files` thì file nằm ngay trong `--target`.
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 
 Form sửa giữ nguyên comment và thứ tự trong `config.yaml`; bản cũ được lưu thành `config.yaml.bak`. Mật khẩu và token không nhập ở đây, chỉ nhập *tên* biến môi trường. Sửa xong, daemon đang chạy cần `systemctl restart sentinel` để nhận thay đổi.
+
+## Database lớn: tiến độ, chạy nền, dừng, tài nguyên
+
+Với database vài chục GB, một lần backup mất hàng giờ. Sentinel lo bốn việc:
+
+- **Thấy tiến độ.** Backup đang chạy hiện ở tab Backups (`⏳ ~37%`, dung lượng đã dump, tốc độ, thời gian còn lại, đã chạy bao lâu) và trong `sentinel status` (mục "Đang chạy"). Dump database đi qua stdin nên restic không biết tổng dung lượng: `%` là **ước lượng theo dung lượng lần backup thành công trước** (nên có dấu `~`, không bao giờ quá 99% trước khi xong). Chưa có lần trước thì chỉ hiện dung lượng đã dump và tốc độ. Cảnh báo hiện ra khi 10 phút không có dữ liệu mới, hoặc khi với tốc độ này backup sẽ vượt `timeout` của job.
+- **Không bị ngắt.** `b` trong `sentinel manage` và `sentinel backup run <job> --detach` (`-d`) chạy backup ở **tiến trình riêng** (phiên riêng, log ở `<thư mục state>/logs/backup-<job>.log`), nên thoát manage, đóng terminal hay đứt SSH không làm backup dừng. Mở lại manage lúc nào cũng thấy tiến độ. Hai nơi không chạy chồng một job (khoá `flock`: daemon, CLI và manage dùng chung). Server reboot giữa chừng thì backup tách riêng **không tự chạy lại**; lần chạy theo lịch kế tiếp của daemon vẫn chạy.
+- **Dừng giữa chừng.** `x` trong manage (hai lần) hoặc `sentinel backup stop <job>` dừng backup đang chạy, ở bất cứ tiến trình nào. Lần dừng không gửi cảnh báo, nhưng vẫn ghi vào lịch sử là `stopped by the user`.
+- **Không chiếm server.** Mặc định restic và công cụ dump chạy với CPU `nice 10` và ưu tiên đĩa thấp nhất, mỗi lúc chỉ **một** backup chạy (job khác chờ đến lượt, trên cả daemon lẫn lệnh gõ tay), bản thân sentinel dùng tối đa 2 core. Chỉnh trong `config.yaml` hoặc tab Config → Settings:
+
+```yaml
+resources:
+  priority: low          # low (mặc định) hoặc normal
+  max_parallel: 1        # số backup chạy cùng lúc
+  upload_limit_kib: 20480  # tuỳ chọn, KiB/s cho mỗi backup
+shutdown_wait: 2h        # xem bên dưới
+```
+
+**Timeout.** Một lần backup được chạy tối đa `timeout` của job (mặc định 6h; ô *Timeout* trong "Tuỳ chọn nâng cao" của form job). Backup qua stdin bị cắt (timeout, dừng tay, mất điện) thì **phải làm lại từ đầu**, restic không để lại snapshot dở; với database rất lớn hãy đặt `timeout` rộng hơn thời gian backup thường lệ.
+
+**Khi dừng hoặc restart daemon.** Daemon ngừng nhận lịch mới nhưng **chờ backup đang chạy xong** tối đa `shutdown_wait` (mặc định 2h) rồi mới huỷ; gửi tín hiệu dừng lần hai (Ctrl+C lần nữa) thì huỷ ngay. Trong lúc chờ, lịch (kể cả uptime check) tạm ngưng, nên `systemctl restart sentinel` khi đang có backup lớn có thể mất tới 2 giờ và có khoảng trống theo dõi uptime. `deploy/sentinel.service` đặt `TimeoutStopSec=2h30m`; nếu đổi `shutdown_wait` thì giữ `TimeoutStopSec` lớn hơn nó. Backup chạy tách riêng không bị ảnh hưởng bởi restart daemon.
+
+**Ngoài phạm vi.** `restore` database lớn vẫn chạy trong tiến trình manage hoặc CLI, chưa có tiến độ và chưa chạy nền.
 
 ## Chạy bằng Docker
 

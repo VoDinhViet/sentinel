@@ -92,6 +92,31 @@ func TestSaveAddsAJobAndKeepsEverythingElse(t *testing.T) {
 	}
 }
 
+func TestJobTimeoutIsWrittenReadBackAndRemovedWhenEmpty(t *testing.T) {
+	path := writeConfig(t, baseConfig)
+	job := Job{Name: "big", Type: config.JobPostgres, Database: "big", Repositories: []string{"s3"}, Timeout: "36h"}
+	if err := Save(path, "", job); err != nil {
+		t.Fatal(err)
+	}
+	if text := readFile(t, path); !strings.Contains(text, "timeout: 36h") {
+		t.Fatalf("timeout not written:\n%s", text)
+	}
+	listing, err := List(path)
+	if err != nil || listing.Jobs[len(listing.Jobs)-1].Timeout != "36h0m0s" {
+		t.Fatalf("read back: %+v %v", listing.Jobs, err)
+	}
+	if untouched := listing.Jobs[0]; untouched.Timeout != "" {
+		t.Errorf("a job without a timeout shows the default as empty, got %q", untouched.Timeout)
+	}
+	job.Timeout = ""
+	if err := Save(path, "big", job); err != nil {
+		t.Fatal(err)
+	}
+	if text := readFile(t, path); strings.Contains(text, "timeout: 36h") {
+		t.Errorf("an empty timeout removes the key:\n%s", text)
+	}
+}
+
 func TestSaveKeepsPermissionsAndLeavesABackup(t *testing.T) {
 	path := writeConfig(t, baseConfig)
 	if err := Save(path, "", Job{Name: "a", Type: config.JobPostgres, Database: "a", Repositories: []string{"s3"}}); err != nil {
@@ -226,6 +251,8 @@ func TestValidate(t *testing.T) {
 		"negative":         func(j *Job) { j.Retention.Daily = -1 },
 		"unknown type":     func(j *Job) { j.Type = "oracle" },
 		"bad mysql tls":    func(j *Job) { j.Type, j.TLS = config.JobMySQL, "maybe" },
+		"bad timeout":      func(j *Job) { j.Timeout = "forever" },
+		"zero timeout":     func(j *Job) { j.Timeout = "0s" },
 		"files no path":    func(j *Job) { j.Type, j.Database = config.JobFiles, "" },
 		"files line break": func(j *Job) { j.Type, j.Paths = config.JobFiles, []string{"/a\nb"} },
 	} {

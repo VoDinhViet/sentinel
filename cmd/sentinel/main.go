@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -28,6 +29,7 @@ type app struct {
 }
 
 func main() {
+	limitCPU()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := newRootCmd().ExecuteContext(ctx); err != nil {
@@ -81,4 +83,13 @@ func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
 		return nil, fmt.Errorf("open store %s: %w", cfg.StorePath, err)
 	}
 	return st, nil
+}
+
+// limitCPU keeps sentinel itself to two cores: it only supervises restic and the dump tools,
+// which are separate processes, so more would take CPU from the server for nothing.
+// GOMAXPROCS in the environment still wins.
+func limitCPU() {
+	if os.Getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(min(runtime.NumCPU(), 2))
+	}
 }

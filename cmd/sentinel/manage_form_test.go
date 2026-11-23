@@ -154,6 +154,8 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "4")
 	screen = keys(t, screen, "tab", "enter") // the advanced line, opened
 	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "12h") // Timeout
+	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "disabled") // TLS, the last visible field
 	screen = keys(t, screen, "enter")
 	if len(configFile.saved) != 1 {
@@ -162,7 +164,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	got := configFile.saved[0]
 	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.JobMySQL || got.Database != "shopdb" || got.User != "dump" ||
 		got.PasswordEnv != "MYSQL_PW" || got.Schedule != "daily 02:30" || strings.Join(got.Repositories, ",") != "local,s3" ||
-		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" {
+		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" || got.Timeout != "12h" {
 		t.Errorf("job saved = %+v", got)
 	}
 	if screen.mode != modeTable || !strings.Contains(screen.notice, "Đã thêm job shop") || !strings.Contains(screen.notice, "Khởi động lại daemon") {

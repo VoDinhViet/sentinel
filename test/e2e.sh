@@ -2,7 +2,7 @@
 # End-to-end test: back up a real Postgres database and a directory to an S3
 # (SeaweedFS S3) and a local repository, restore both and compare with the originals,
 # then check that a failed backup is reported.
-# Needs docker, restic, pg_dump/pg_restore/psql (major version 18), curl in PATH.
+# Needs docker, restic, pg_dump/pg_restore/psql (major version 18), curl, jq in PATH.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -91,6 +91,7 @@ S backup init files >/dev/null || fail "init files"
 pass "repositories initialized"
 S doctor >/dev/null || fail "doctor"
 pass "doctor"
+S doctor -o json | jq -e '.ok and (.findings | length > 0)' >/dev/null && pass "doctor -o json" || fail "doctor -o json"
 
 echo "== postgres backup + restore"
 S backup run db >/dev/null || fail "backup db"
@@ -98,6 +99,8 @@ pass "backup db to s3 and local"
 for _ in 1 2; do S backup run db -r s3 >/dev/null; done
 count=$(S backup list db -r s3 | tail -n +2 | wc -l)
 [ "$count" -eq 2 ] && pass "retention keeps last 2 (have $count)" || fail "retention: $count snapshots"
+S backup list db -r s3 -o json | jq -e '.job == "db" and (.repositories | length == 1) and (.repositories[0].snapshots | length == 2)' >/dev/null &&
+	pass "backup list -o json" || fail "backup list -o json"
 
 S backup restore db latest -r s3 --target "$WORK/restore-db" >/dev/null
 psql -q -d postgres -c "CREATE DATABASE restored"
@@ -106,8 +109,10 @@ rows=$(psql -tA -d restored -c "SELECT count(*) FROM orders")
 [ "$rows" -eq 5000 ] && pass "restored database has 5000 rows" || fail "restored rows: $rows"
 
 echo "== files backup + restore"
-S backup run files >/dev/null || fail "backup files"
+files_run=$(S backup run files -o json) || fail "backup files"
 pass "backup files"
+printf '%s' "$files_run" | jq -e '.job == "files" and (.runs | length == 1) and .runs[0].success and (.runs[0].snapshot_id | length > 0)' >/dev/null &&
+	pass "backup run -o json" || fail "backup run -o json: $files_run"
 S backup restore files latest --target "$WORK/restore-files" >/dev/null
 restored="$WORK/restore-files$WORK/files"
 cmp "$WORK/files/blob.bin" "$restored/blob.bin" && diff -q "$WORK/files/sub" "$restored/sub" >/dev/null &&
@@ -116,8 +121,10 @@ cmp "$WORK/files/blob.bin" "$restored/blob.bin" && diff -q "$WORK/files/sub" "$r
 
 echo "== failure handling"
 "${COMPOSE[@]}" stop postgres >/dev/null
-if S backup run db -r local >/dev/null 2>&1; then fail "backup with postgres down reported success"; fi
+if failed_run=$(S backup run db -r local -o json 2>/dev/null); then fail "backup with postgres down reported success"; fi
 pass "backup fails when postgres is down"
+printf '%s' "$failed_run" | jq -e '.runs[0].success == false and (.runs[0].result | startswith("FAILED"))' >/dev/null &&
+	pass "failed backup still prints its -o json report" || fail "failed backup -o json: $failed_run"
 status_out=$(S status)
 printf '%s' "$status_out" | grep -q "FAILED" && pass "status shows the failed run" || fail "status missing failure"
 

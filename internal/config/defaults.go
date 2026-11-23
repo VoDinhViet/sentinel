@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// DefaultJobTimeout is how long one run of a job may take when the job sets no timeout.
+const DefaultJobTimeout = 6 * time.Hour
+
 func (c *Config) applyDefaults() {
 	if c.ServerName == "" {
 		c.ServerName, _ = os.Hostname()
@@ -14,13 +17,22 @@ func (c *Config) applyDefaults() {
 	if c.StorePath == "" {
 		c.StorePath = "/var/lib/sentinel/state.db"
 	}
+	if c.Resources.Priority == "" {
+		c.Resources.Priority = PriorityLow
+	}
+	if c.Resources.MaxParallel == 0 {
+		c.Resources.MaxParallel = 1
+	}
+	if c.ShutdownWait == 0 {
+		c.ShutdownWait = 2 * time.Hour
+	}
 	if c.Alert.Cooldown == 0 {
 		c.Alert.Cooldown = time.Hour
 	}
 	for i := range c.Jobs {
 		job := &c.Jobs[i]
 		if job.Timeout == 0 {
-			job.Timeout = 6 * time.Hour
+			job.Timeout = DefaultJobTimeout
 		}
 		c.inheritDefaults(job)
 		ApplyDatabaseDefaults(job)

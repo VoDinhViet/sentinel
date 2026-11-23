@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -272,5 +274,42 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 	var version int
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 3 {
 		t.Errorf("user_version = %d, %v; want 3", version, err)
+	}
+}
+
+func TestRecentChecks(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	at := time.Unix(1_700_000_000, 0)
+	record := func(name string, ok bool, latency time.Duration) {
+		t.Helper()
+		at = at.Add(time.Minute)
+		if err := s.RecordCheck(ctx, CheckResult{Name: name, At: at, OK: ok, Latency: latency}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, ok := range []bool{true, true, false, true} {
+		record("web", ok, time.Duration(i+1)*10*time.Millisecond)
+	}
+	record("api", true, 5*time.Millisecond)
+
+	recent, err := s.RecentChecks(ctx, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, result := range recent {
+		outcome := "up"
+		if !result.OK {
+			outcome = "down"
+		}
+		got = append(got, fmt.Sprintf("%s:%s:%dms", result.Name, outcome, result.Latency.Milliseconds()))
+	}
+	want := []string{"api:up:5ms", "web:up:20ms", "web:down:30ms", "web:up:40ms"} // the three newest of web, oldest first
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if none, err := openTemp(t).RecentChecks(ctx, 3); err != nil || len(none) != 0 {
+		t.Errorf("empty store: %v, %v", none, err)
 	}
 }

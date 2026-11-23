@@ -1,0 +1,106 @@
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"sentinel/internal/backup"
+	"sentinel/internal/status"
+)
+
+// runningFor is the backup in progress for a job and repository, if there is one.
+func (m manageModel) runningFor(job, repository string) (status.Running, bool) {
+	for _, running := range m.report.Running {
+		if running.Job == job && running.Repository == repository {
+			return running, true
+		}
+	}
+	return status.Running{}, false
+}
+
+// runningResult is the short text for the RESULT cell of a backup in progress: "⏳ ~37%".
+func runningResult(running status.Running) string {
+	switch {
+	case running.Phase == backup.PhaseRetention:
+		return "⏳ retention"
+	case running.Percent != nil && running.Estimated:
+		return fmt.Sprintf("⏳ ~%.0f%%", *running.Percent)
+	case running.Percent != nil:
+		return fmt.Sprintf("⏳ %.0f%%", *running.Percent)
+	}
+	return "⏳ " + humanBytes(running.BytesDone)
+}
+
+// runningBrief is the short line under a running backup's row: "1.2 GiB / 1.9 GiB · 12 MiB/s · còn ~25 phút".
+func runningBrief(running status.Running, now time.Time) string {
+	if running.Phase == backup.PhaseRetention {
+		return "đang áp dụng retention (xoá snapshot cũ)"
+	}
+	text := humanBytes(running.BytesDone)
+	if running.BytesTotal > 0 {
+		text += " / " + humanBytes(running.BytesTotal)
+		if running.Estimated {
+			text += " (ước lượng)"
+		}
+	}
+	if running.BytesPerSecond > 0 {
+		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
+	}
+	if running.RemainingSeconds > 0 {
+		text += " · còn ~" + vietnameseDuration(time.Duration(running.RemainingSeconds)*time.Second)
+	}
+	text += " · đã chạy " + vietnameseDuration(now.Sub(running.StartedAt))
+	switch {
+	case running.Stalled:
+		text += " · ⚠ không có dữ liệu mới hơn 10 phút"
+	case running.WillExceedTimeout:
+		text += " · ⚠ sẽ vượt timeout"
+	}
+	return text
+}
+
+// runningDetail is the line under the table for a backup in progress.
+func runningDetail(running status.Running, now time.Time) string {
+	text := running.Job + " → " + running.Repository + ": "
+	if running.Phase == backup.PhaseRetention {
+		return text + "đang áp dụng retention (xoá snapshot cũ). Bấm x để dừng."
+	}
+	text += "đang backup, "
+	switch {
+	case running.Percent != nil && running.Estimated:
+		text += fmt.Sprintf("~%.0f%% (đã dump %s, ước lượng ~%s theo lần backup trước)", *running.Percent, humanBytes(running.BytesDone), humanBytes(running.BytesTotal))
+	case running.Percent != nil:
+		text += fmt.Sprintf("%.0f%% (%s / %s)", *running.Percent, humanBytes(running.BytesDone), humanBytes(running.BytesTotal))
+	default:
+		text += "đã xử lý " + humanBytes(running.BytesDone) + " (chưa có lần backup trước để ước lượng %)"
+	}
+	if running.BytesPerSecond > 0 {
+		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
+	}
+	if running.RemainingSeconds > 0 {
+		text += " · còn ~" + vietnameseDuration(time.Duration(running.RemainingSeconds)*time.Second)
+	}
+	text += " · đã chạy " + vietnameseDuration(now.Sub(running.StartedAt))
+	switch {
+	case running.Stalled:
+		text += ". ⚠ Không có dữ liệu mới hơn 10 phút: database hoặc mạng có thể đang treo"
+	case running.WillExceedTimeout:
+		text += fmt.Sprintf(". ⚠ Với tốc độ này sẽ vượt timeout %s của job và bị cắt: tăng timeout trong Tuỳ chọn nâng cao", vietnameseDuration(time.Duration(running.TimeoutSeconds)*time.Second))
+	}
+	return text + ". Bấm x để dừng; đóng manage không làm backup dừng."
+}
+
+// vietnameseDuration writes a time like "25 phút" or "3 giờ 10 phút".
+func vietnameseDuration(dur time.Duration) string {
+	dur = dur.Round(time.Minute)
+	switch {
+	case dur < time.Minute:
+		return "chưa tới 1 phút"
+	case dur < time.Hour:
+		return fmt.Sprintf("%d phút", int(dur.Minutes()))
+	}
+	if minutes := int(dur.Minutes()) % 60; minutes > 0 {
+		return fmt.Sprintf("%d giờ %d phút", int(dur.Hours()), minutes)
+	}
+	return fmt.Sprintf("%d giờ", int(dur.Hours()))
+}

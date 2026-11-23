@@ -84,17 +84,41 @@ func (m manageModel) whenText(spec string) string {
 	return schedule.Describe(spec)
 }
 
+// configSections are the groups of the Config tab, in the order of configSection: what each
+// group is for, and the columns that suit it.
+var configSections = [...]struct {
+	title, hint string
+	headers     []string
+	empty       string // the row that invites adding the first entry of an empty group
+}{
+	secRepository: {"REPOSITORY", "nơi lưu các bản backup", []string{"TÊN", "ĐỊA CHỈ", "MẬT KHẨU", "DÙNG BỞI"}, "chưa có repository nào"},
+	secJob:        {"JOB", "những gì được backup, và khi nào", []string{"TÊN", "LOẠI", "LỊCH", "REPOSITORY", "GIỮ"}, "chưa có job nào"},
+	secUptime:     {"UPTIME CHECK", "kiểm tra dịch vụ còn sống", []string{"TÊN", "LOẠI", "ĐÍCH", "MỖI"}, "chưa có uptime check nào"},
+	secNotifier:   {"NOTIFIER", "nơi gửi cảnh báo", []string{"KÊNH", "CẤU HÌNH"}, "chưa có nơi nhận cảnh báo nào"},
+	secSettings:   {"CÀI ĐẶT CHUNG", "tên máy và giá trị mặc định của job", []string{"TÊN MÁY", "LỊCH", "REPOSITORY", "RETENTION"}, ""},
+}
+
 func (m manageModel) buildConfigTab() manageTab {
-	tab := manageTab{title: "Config", headers: []string{"MỤC", "TÊN", "LÀ GÌ", "CHI TIẾT"}, statusCol: -1, historyCol: -1}
-	add := func(entry configEntry, level severity, what, details, detail string) {
-		tab.lines = append(tab.lines, manageLine{
-			cells:    []string{sectionNames[entry.section], entry.name, what, details},
-			severity: level, detail: detail, entry: entry,
-		})
-	}
+	tab := manageTab{title: "Config", headers: configSections[secRepository].headers, statusCol: -1, historyCol: -1}
 	overview, listing := m.config.overview, m.config.listing
+	// begin opens the group of a section; finish adds the invitation to an empty one.
+	begin := func(section configSection) {
+		heading := configSections[section]
+		tab.sections = append(tab.sections, tableSection{title: heading.title, hint: heading.hint, headers: heading.headers, first: len(tab.lines)})
+	}
+	finish := func(section configSection) {
+		if first := tab.sections[len(tab.sections)-1].first; first == len(tab.lines) {
+			text := configSections[section].empty + ": bấm a để thêm"
+			tab.lines = append(tab.lines, manageLine{cells: []string{text}, detail: text, entry: configEntry{section: section}, placeholder: true})
+		}
+	}
+	add := func(entry configEntry, level severity, cells []string, detail string, fields [][2]string) {
+		tab.lines = append(tab.lines, manageLine{cells: cells, severity: level, detail: detail, entry: entry, fields: fields})
+	}
+
+	begin(secRepository)
 	for _, repository := range overview.Repositories {
-		level, password := sevOK, "mật khẩu "+envOrNone(repository.PasswordEnv, repository.PasswordLiteral)
+		level, password := sevOK, envOrNone(repository.PasswordEnv, repository.PasswordLiteral)
 		if repository.PasswordLiteral {
 			level = sevWarn
 		}
@@ -102,12 +126,16 @@ func (m manageModel) buildConfigTab() manageTab {
 		if len(repository.UsedBy) > 0 {
 			users = "dùng bởi " + strings.Join(repository.UsedBy, ", ")
 		}
-		detail := fmt.Sprintf("Repository %s: %s · %s · %s", repository.Name, repository.URL, password, users)
+		detail := fmt.Sprintf("Repository %s: %s · mật khẩu %s · %s", repository.Name, repository.URL, password, users)
 		if repository.PasswordLiteral {
 			detail += ". Mật khẩu đang ghi thẳng trong file: bấm sửa và nhập tên env var để thay."
 		}
-		add(configEntry{secRepository, repository.Name}, level, repository.URL, password+" · "+users, detail)
+		add(configEntry{secRepository, repository.Name}, level, []string{repository.Name, repository.URL, password, users}, detail,
+			[][2]string{{"Địa chỉ", repository.URL}, {"Mật khẩu", password}, {"Dùng bởi", strings.TrimPrefix(users, "dùng bởi ")}})
 	}
+	finish(secRepository)
+
+	begin(secJob)
 	for _, job := range listing.Jobs {
 		repositories, keep := strings.Join(job.Repositories, ", "), job.Retention.String()
 		if job.Inherited.Repositories {
@@ -117,25 +145,39 @@ func (m manageModel) buildConfigTab() manageTab {
 			keep = overview.Settings.DefaultRetention.String() + " (mặc định)"
 		}
 		when := m.whenText(job.Schedule)
-		add(configEntry{secJob, job.Name}, sevOK, job.Type+" · "+when, "→ "+repositories+" · giữ "+keep,
-			fmt.Sprintf("Job %s: %s, %s, lưu vào %s, giữ %s.", job.Name, job.Type, when, repositories, keep))
+		add(configEntry{secJob, job.Name}, sevOK, []string{job.Name, job.Type, when, repositories, keep},
+			fmt.Sprintf("Job %s: %s, %s, lưu vào %s, giữ %s.", job.Name, job.Type, when, repositories, keep),
+			m.jobSetupFields(job, repositories, keep))
 	}
+	finish(secJob)
+
+	begin(secUptime)
 	for _, check := range overview.Uptime {
 		target := orDefault(check.URL, orDefault(check.Address, check.Host))
 		every := orDefault(check.Interval, "1m") + " (mặc định)"
 		if check.Interval != "" {
 			every = check.Interval
 		}
-		add(configEntry{secUptime, check.Name}, sevOK, check.Type+" "+target, "mỗi "+every, fmt.Sprintf("Uptime check %s: %s %s, mỗi %s.", check.Name, check.Type, target, every))
+		fields := [][2]string{{"Loại", check.Type}, {"Đích", target}, {"Mỗi", every}}
+		if check.Timeout != "" {
+			fields = append(fields, [2]string{"Timeout", check.Timeout})
+		}
+		add(configEntry{secUptime, check.Name}, sevOK, []string{check.Name, check.Type, target, "mỗi " + every},
+			fmt.Sprintf("Uptime check %s: %s %s, mỗi %s.", check.Name, check.Type, target, every), fields)
 	}
+	finish(secUptime)
+
+	begin(secNotifier)
 	for _, notifier := range overview.Notifiers {
 		var parts []string
+		var fields [][2]string
 		for _, spec := range configedit.NotifierFields(notifier.Kind) {
 			switch {
 			case spec.Secret:
-				parts = append(parts, spec.Key+" "+envOrNone(notifier.Values[spec.Key], notifier.Literal[spec.Key]))
+				value := envOrNone(notifier.Values[spec.Key], notifier.Literal[spec.Key])
+				parts, fields = append(parts, spec.Key+" "+value), append(fields, [2]string{spec.Label, value})
 			case notifier.Values[spec.Key] != "":
-				parts = append(parts, spec.Key+" "+notifier.Values[spec.Key])
+				parts, fields = append(parts, spec.Key+" "+notifier.Values[spec.Key]), append(fields, [2]string{spec.Label, notifier.Values[spec.Key]})
 			}
 		}
 		level := sevOK
@@ -144,19 +186,44 @@ func (m manageModel) buildConfigTab() manageTab {
 				level = sevWarn // a secret written in the file
 			}
 		}
-		add(configEntry{secNotifier, notifier.Kind}, level, "cảnh báo gửi vào đây", strings.Join(parts, " · "), "Notifier "+notifier.Kind+": "+strings.Join(parts, " · "))
+		add(configEntry{secNotifier, notifier.Kind}, level, []string{notifier.Kind, strings.Join(parts, " · ")}, "Notifier "+notifier.Kind+": "+strings.Join(parts, " · "), fields)
 	}
+	finish(secNotifier)
+
+	begin(secSettings)
 	settings := overview.Settings
 	defaults := "chưa có mặc định"
 	if settings.DefaultSchedule != "" || len(settings.DefaultRepositories) > 0 || !settings.DefaultRetention.Empty() {
 		defaults = "mặc định: " + strings.Join(nonEmpty(settings.DefaultSchedule, strings.Join(settings.DefaultRepositories, ", "), settings.DefaultRetention.String()), " · ")
 	}
-	add(configEntry{secSettings, "general"}, sevOK, "server "+orDefault(settings.ServerName, "(tên máy)"), defaults,
-		fmt.Sprintf("Cài đặt: server %s, cảnh báo lặp lại mỗi %s, kiểm tra repository %s. %s", orDefault(settings.ServerName, "(tên máy)"), orDefault(settings.Cooldown, "1h (mặc định)"), schedule.Describe(settings.VerifySchedule), defaults))
+	serverName := orDefault(settings.ServerName, "(tên máy)")
+	defaultSchedule := orDefault(settings.DefaultSchedule, "chưa đặt")
+	defaultRepositories := orDefault(strings.Join(settings.DefaultRepositories, ", "), "chưa đặt")
+	defaultRetention := orDefault(strings.Join(nonEmpty(settings.DefaultRetention.String()), ""), "chưa đặt")
+	add(configEntry{secSettings, "general"}, sevOK, []string{serverName, defaultSchedule, defaultRepositories, defaultRetention},
+		fmt.Sprintf("Cài đặt: server %s, cảnh báo lặp lại mỗi %s, kiểm tra repository %s. %s", serverName, orDefault(settings.Cooldown, "1h (mặc định)"), schedule.Describe(settings.VerifySchedule), defaults),
+		[][2]string{
+			{"Tên máy", serverName}, {"Cảnh báo lặp lại", orDefault(settings.Cooldown, "1h (mặc định)")}, {"Kiểm tra repo", schedule.Describe(settings.VerifySchedule)},
+			{"Lịch mặc định", defaultSchedule}, {"Repository mặc định", defaultRepositories}, {"Retention mặc định", defaultRetention},
+		})
+	tab.count = 0
 	if m.config.err != nil {
 		return manageTab{title: "Config", headers: tab.headers, statusCol: -1, historyCol: -1}
 	}
 	return tab
+}
+
+// jobSetupFields are the label/value pairs that say how a job is set up.
+func (m manageModel) jobSetupFields(job configedit.Job, repositories, keep string) [][2]string {
+	source := strings.Join(job.Paths, ", ")
+	if job.Type != "files" {
+		source = strings.Trim(job.Host+" / "+job.Database, " /")
+	}
+	nextRun, _ := m.nextRun(job.Name)
+	return [][2]string{
+		{"Loại", job.Type}, {"Nguồn", source}, {"Repository", repositories},
+		{"Lịch", m.whenText(job.Schedule)}, {"Lần tới", nextRun}, {"Giữ", keep},
+	}
 }
 
 func nonEmpty(values ...string) []string {
@@ -211,6 +278,9 @@ func (m manageModel) configEdit() manageModel {
 	if !ok {
 		return m
 	}
+	if entry.name == "" { // the invitation row of an empty group: there is nothing to edit yet
+		return m.configAdd()
+	}
 	overview, listing := m.config.overview, m.config.listing
 	switch entry.section {
 	case secJob:
@@ -246,6 +316,10 @@ func (m manageModel) configRemove() manageModel {
 	if !ok {
 		return m
 	}
+	if entry.name == "" {
+		m.notice, m.noticeBad = "Nhóm này chưa có mục nào để xoá: bấm a để thêm.", false
+		return m
+	}
 	actions := m.actions
 	switch entry.section {
 	case secJob:
@@ -270,7 +344,7 @@ func (m manageModel) configRemove() manageModel {
 // configTestNotifier sends a test message through the selected notifier, in the background.
 func (m manageModel) configTestNotifier() (tea.Model, tea.Cmd) {
 	entry, ok := m.selectedConfig()
-	if !ok || entry.section != secNotifier {
+	if !ok || entry.section != secNotifier || entry.name == "" {
 		m.notice, m.noticeBad = "Chọn một dòng Notifier rồi bấm t để gửi thử.", false
 		return m, nil
 	}

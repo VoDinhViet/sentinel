@@ -274,6 +274,14 @@ func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
 		WHERE id = (SELECT MAX(id) FROM check_results WHERE name = c.name) ORDER BY name`)
 }
 
+// RecentChecks returns up to perName of the latest results of each check, ordered by name
+// and, within a check, oldest first.
+func (s *Store) RecentChecks(ctx context.Context, perName int) ([]CheckResult, error) {
+	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY name ORDER BY id DESC) AS recency
+			FROM check_results) WHERE recency <= ? ORDER BY name, id`, perName)
+}
+
 // ChecksSince returns up to limit results with id > afterID, oldest first.
 func (s *Store) ChecksSince(ctx context.Context, afterID int64, limit int) ([]CheckResult, error) {
 	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results

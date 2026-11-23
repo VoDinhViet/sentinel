@@ -57,6 +57,9 @@ func TestParseValid(t *testing.T) {
 	if c.Alert.Cooldown != time.Hour {
 		t.Errorf("cooldown default = %v", c.Alert.Cooldown)
 	}
+	if c.ShutdownWait != 2*time.Hour {
+		t.Errorf("shutdown_wait default = %v", c.ShutdownWait)
+	}
 	web := c.UptimeChecks[0]
 	if web.Interval != time.Minute || web.Timeout != 10*time.Second || web.FailAfter != 3 || web.ExpectStatus != 200 {
 		t.Errorf("uptime defaults not applied: %+v", web)
@@ -374,5 +377,29 @@ func TestLoadNotifierNeedsOnlyItsOwnVariables(t *testing.T) {
 	}
 	if _, err := LoadNotifier(filepath.Join(t.TempDir(), "missing.yaml"), "slack"); err == nil {
 		t.Error("a missing file is an error")
+	}
+}
+
+func TestResourcesDefaultToCarefulAndAreValidated(t *testing.T) {
+	const base = `
+repositories: { r: { url: /tmp/r, password: p } }
+jobs:
+  - { name: a, type: files, paths: [/a], repositories: [r] }
+`
+	c, err := Parse([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Resources != (Resources{Priority: PriorityLow, MaxParallel: 1}) {
+		t.Errorf("resource defaults = %+v", c.Resources)
+	}
+	c, err = Parse([]byte(base + "resources: { priority: normal, max_parallel: 3, upload_limit_kib: 20480 }\nshutdown_wait: 30m\n"))
+	if err != nil || c.Resources != (Resources{Priority: PriorityNormal, MaxParallel: 3, UploadLimitKiB: 20480}) || c.ShutdownWait != 30*time.Minute {
+		t.Errorf("explicit resources = %+v, wait %v, %v", c.Resources, c.ShutdownWait, err)
+	}
+	for _, bad := range []string{"resources: { priority: high }", "resources: { max_parallel: -1 }", "resources: { upload_limit_kib: -5 }", "shutdown_wait: -1h"} {
+		if _, err := Parse([]byte(base + bad + "\n")); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
 	}
 }

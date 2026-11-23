@@ -41,12 +41,12 @@ func TestConfigTabListsEveryPartOfTheConfig(t *testing.T) {
 	model, _ := screen.Update(wideScreen())
 	view := plain(model.(manageModel).render())
 	for _, want := range []string{
-		"5 Config", "Repository", "local", "/var/backups/repo", "mật khẩu ${RESTIC_PW}", "chưa job nào dùng",
+		"5 Config", "REPOSITORY", "ĐỊA CHỈ", "MẬT KHẨU", "local", "/var/backups/repo", "${RESTIC_PW}", "chưa job nào dùng",
 		"ghi thẳng trong file", "dùng bởi appdb",
-		"Job", "appdb", "postgres", "→ s3", "giữ daily 7",
-		"Uptime", "web", "http https://example.com", "mỗi 30s",
-		"Notifier", "telegram", "token ${TG_TOKEN}", "chat_id -100",
-		"Cài đặt", "server web-01", "mặc định: daily 02:00",
+		"JOB", "LỊCH", "appdb", "postgres", "daily 7",
+		"UPTIME CHECK", "web", "https://example.com", "mỗi 30s",
+		"NOTIFIER", "telegram", "token ${TG_TOKEN}", "chat_id -100",
+		"CÀI ĐẶT CHUNG", "TÊN MÁY", "web-01", "daily 02:00",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Config tab lacks %q:\n%s", want, view)
@@ -326,5 +326,81 @@ func TestTestKeyNeedsANotifierLine(t *testing.T) {
 	}
 	if view := plain(screen.render()); !strings.Contains(view, "gửi thử") {
 		t.Errorf("the key bar offers the test:\n%s", view)
+	}
+}
+
+func TestConfigTabGroupsEntriesByPurposeAndInvitesToFillAnEmptyGroup(t *testing.T) {
+	screen, configFile := configScreen(t)
+	configFile.overview.Notifiers = nil
+	model, _ := screen.refreshConfig().Update(wideScreen())
+	screen = model.(manageModel)
+
+	view := plain(screen.render())
+	last := -1
+	for _, heading := range []string{"REPOSITORY", "JOB", "UPTIME CHECK", "NOTIFIER", "CÀI ĐẶT CHUNG"} {
+		at := strings.Index(view, heading)
+		if at <= last {
+			t.Fatalf("group %q is missing or out of order:\n%s", heading, view)
+		}
+		last = at
+	}
+	if !strings.Contains(view, "+ chưa có nơi nhận cảnh báo nào: bấm a để thêm") {
+		t.Errorf("an empty group invites adding its first entry:\n%s", view)
+	}
+
+	screen = goTo(t, screen, secNotifier, "")
+	footer := plain(screen.render())
+	if !strings.Contains(footer, "a thêm") || strings.Contains(footer, "e sửa") || strings.Contains(footer, "d xoá") {
+		t.Errorf("on the invitation only a (add) makes sense:\n%s", footer)
+	}
+	if model, _ := screen.onKey("d", "d"); !strings.Contains(model.(manageModel).notice, "chưa có mục nào để xoá") {
+		t.Errorf("d on the invitation: %q", model.(manageModel).notice)
+	}
+	if model, _ := screen.onKey("t", "t"); model.(manageModel).mode != modeTable || !strings.Contains(model.(manageModel).notice, "Chọn một dòng Notifier") {
+		t.Errorf("t on the invitation sends nothing: %q", model.(manageModel).notice)
+	}
+	for _, key := range []string{"a", "e", "enter"} { // enter and e add too, as there is nothing to edit
+		model, _ := screen.onKey(key, key)
+		if model.(manageModel).mode != modeForm {
+			t.Errorf("%s on the invitation should open the form to add (mode %d)", key, model.(manageModel).mode)
+		}
+	}
+}
+
+func TestConfigKeyHintsFollowTheSelectedEntry(t *testing.T) {
+	screen, _ := configScreen(t)
+	model, _ := screen.Update(wideScreen())
+	screen = model.(manageModel)
+	for _, tc := range []struct {
+		section     configSection
+		name        string
+		want, avoid []string
+	}{
+		{secNotifier, "telegram", []string{"a thêm", "e sửa", "d xoá", "t gửi thử"}, nil},
+		{secRepository, "local", []string{"a thêm", "e sửa", "d xoá"}, []string{"t gửi thử"}},
+		{secSettings, "general", []string{"e sửa"}, []string{"a thêm", "d xoá", "t gửi thử"}},
+	} {
+		view := plain(goTo(t, screen, tc.section, tc.name).render())
+		for _, want := range tc.want {
+			if !strings.Contains(view, want) {
+				t.Errorf("%s %s: no %q hint", sectionNames[tc.section], tc.name, want)
+			}
+		}
+		for _, avoid := range tc.avoid {
+			if strings.Contains(view, avoid) {
+				t.Errorf("%s %s: %q does nothing here and must not be offered", sectionNames[tc.section], tc.name, avoid)
+			}
+		}
+	}
+}
+
+func TestConfigDetailShowsTheJobSetupAsLabelsAndValues(t *testing.T) {
+	screen, _ := configScreen(t)
+	model, _ := screen.Update(wideScreen())
+	view := plain(goTo(t, model.(manageModel), secJob, "appdb").render())
+	for _, want := range []string{"Job · appdb", "Loại", "postgres", "Repository", "Lịch", "Lần tới", "Giữ", "daily 7"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the detail of a job lacks %q:\n%s", want, view)
+		}
 	}
 }

@@ -7,9 +7,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// click presses the left button at a screen position. The main screen has no frame; the other
+// screens sit inside one, which moves their content two columns and one row.
 func click(t *testing.T, screen manageModel, col, row int) (manageModel, tea.Cmd) {
 	t.Helper()
-	model, cmd := screen.Update(tea.MouseClickMsg{X: col + 2, Y: row + 1, Button: tea.MouseLeft})
+	x, y := col, row
+	if screen.mode != modeTable {
+		x, y = col+2, row+1
+	}
+	model, cmd := screen.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	return model.(manageModel), cmd
 }
 
@@ -22,6 +28,9 @@ func wheel(t *testing.T, m manageModel, button tea.MouseButton) manageModel {
 // screenRow returns the text of one screen row, without colours.
 func screenRow(m manageModel, y int) string {
 	rows := strings.Split(plain(m.render()), "\n")
+	if m.mode == modeTable {
+		return rows[y]
+	}
 	if y+2 >= len(rows) { // the top and bottom border lines are not content rows
 		return ""
 	}
@@ -131,8 +140,8 @@ func TestMouseFooterChipsPressTheirKeys(t *testing.T) {
 func TestSelectedLineHasABackground(t *testing.T) {
 	m := loadedModel(t)
 	rows := strings.Split(m.render(), "\n")
-	selected := rows[targetFor(t, m, "row:0").row+1] // +1: the frame's top border
-	other := rows[targetFor(t, m, "row:1").row+1]
+	selected := rows[targetFor(t, m, "row:0").row]
+	other := rows[targetFor(t, m, "row:1").row]
 	if !strings.Contains(selected, "48;2;48;51;61") { // the dark palette's selection colour
 		t.Errorf("the selected line has no background: %q", selected)
 	}
@@ -275,5 +284,26 @@ func TestClickTargetsNeverOverlap(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestClickingTheDimRowUnderALineSelectsThatLine(t *testing.T) {
+	m := loadedModel(t) // the failed job "files" (line 1) has its error under its row
+	m.render()
+	var rows []int
+	for _, target := range m.hits.targets {
+		if target.action == "row:1" {
+			rows = append(rows, target.row)
+		}
+	}
+	if len(rows) != 2 || rows[1] != rows[0]+1 {
+		t.Fatalf("a line with a dim row has two click rows, one under the other: %v", rows)
+	}
+	if row := screenRow(m, rows[1]); !strings.Contains(row, "└ restic exited 1") {
+		t.Fatalf("the second row is not the dim row: %q", row)
+	}
+	m, _ = click(t, m, 10, rows[1])
+	if m.cursor != 1 {
+		t.Errorf("clicking the dim row selects its line: cursor %d", m.cursor)
 	}
 }

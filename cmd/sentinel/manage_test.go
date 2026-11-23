@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"sentinel/internal/status"
 )
@@ -88,8 +89,9 @@ func TestManageSummaryAllGoodAndNarrow(t *testing.T) {
 func TestManageKeysSwitchTabsAndMoveSelection(t *testing.T) {
 	screen := loadedModel(t)
 	screen, _ = press(t, screen, "down")
-	if screen.cursor != 1 || !strings.Contains(plain(screen.render()), "files → local: FAILED: restic exited 1") {
-		t.Fatalf("cursor %d; detail of the selected line missing:\n%s", screen.cursor, screen.render())
+	view := plain(screen.render())
+	if screen.cursor != 1 || !strings.Contains(view, "files → local") || !strings.Contains(view, "FAILED: restic exited 1") {
+		t.Fatalf("cursor %d; detail of the selected line missing:\n%s", screen.cursor, view)
 	}
 	screen, _ = press(t, screen, "2")
 	if screen.tab != 1 || screen.cursor != 0 {
@@ -158,24 +160,106 @@ func TestPrintStatusAndJSONReport(t *testing.T) {
 	}
 }
 
-func TestWideScreenShowsCardsAndPinsTheKeyBarToTheBottom(t *testing.T) {
-	model, _ := loadedModel(t).Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+func TestWideScreenShowsPanelsAndPinsTheKeyBarToTheBottom(t *testing.T) {
+	model, _ := loadedModel(t).Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	screen := model.(manageModel)
 	lines := strings.Split(plain(screen.render()), "\n")
-	if len(lines) != 24 {
-		t.Fatalf("the frame fills the screen: %d lines, want 24", len(lines))
+	if len(lines) != 30 {
+		t.Fatalf("the screen is filled: %d lines, want 30", len(lines))
+	}
+	for i, line := range lines {
+		if width := len([]rune(line)); width > 120 {
+			t.Errorf("line %d is %d cells wide on a 120-column screen: %q", i, width, line)
+		}
 	}
 	view := strings.Join(lines, "\n")
-	for _, want := range []string{"╭─ ◆ Sentinel", "1 ổn", "1 lỗi", "1 cảnh báo", "1 alert", "1 check down"} {
+	for _, want := range []string{"◆ Sentinel", "tổng quan", "đang chạy", "uptime", "Jobs", "Alerts", "Repos"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}
-	if !strings.Contains(lines[len(lines)-2], "q thoát") {
-		t.Errorf("the key bar is the last line inside the frame: %q", lines[len(lines)-2])
+	if !strings.Contains(lines[len(lines)-1], "q thoát") {
+		t.Errorf("the key bar is the last line: %q", lines[len(lines)-1])
 	}
 	model, _ = screen.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
-	if narrow := plain(model.(manageModel).render()); strings.Contains(narrow, "╭───") && strings.Count(narrow, "╭") > 1 {
-		t.Errorf("below %d columns the summary is one line, not cards:\n%s", cardsMinWidth, narrow)
+	narrow := plain(model.(manageModel).render())
+	if strings.Contains(narrow, "tổng quan") {
+		t.Errorf("below %d columns the panels give way to the summary line:\n%s", topPanelsMinWidth, narrow)
+	}
+}
+
+// longTextModel is a screen whose texts are far wider than any terminal.
+func longTextModel(t *testing.T) manageModel {
+	t.Helper()
+	long := strings.Repeat("/very/long/path/", 30)
+	report := sampleReport()
+	for i := range report.Jobs {
+		if !report.Jobs[i].Success {
+			report.Jobs[i].Error, report.Jobs[i].Result = "restic exited 1: "+long, "FAILED: restic exited 1: "+long
+		}
+	}
+	report.Checks[1].Error = "dial tcp: " + long
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return report, nil }, manageActions{}, nil).Update(reportMsg{report: report})
+	screen := model.(manageModel)
+	screen.notice, screen.noticeBad = "Đã chạy nền. Log: "+long, false
+	return screen
+}
+
+func TestEveryScreenFitsTheTerminalWhateverTheTextLength(t *testing.T) {
+	for _, size := range [][2]int{{44, 14}, {60, 20}, {80, 24}, {100, 30}, {130, 34}, {160, 40}} {
+		width, height := size[0], size[1]
+		model, _ := longTextModel(t).Update(tea.WindowSizeMsg{Width: width, Height: height})
+		screen := model.(manageModel)
+		for tab := range len(screen.tabs()) {
+			screen.tab, screen.cursor = tab, 1
+			lines := strings.Split(plain(screen.render()), "\n")
+			if len(lines) != height {
+				t.Errorf("%dx%d tab %d: %d lines, want %d", width, height, tab, len(lines), height)
+			}
+			for i, line := range lines {
+				if got := lipgloss.Width(line); got > width {
+					t.Errorf("%dx%d tab %d: line %d is %d cells wide: %q", width, height, tab, i, got, line)
+				}
+			}
+		}
+	}
+}
+
+func TestOtherScreensPinTheKeyBarToTheBottomAndItsKeysStillClick(t *testing.T) {
+	formScreen, _ := formModel(t)
+	for name, start := range map[string]struct {
+		screen manageModel
+		key    string
+	}{
+		"help":     {loadedModel(t), "?"},
+		"add form": {formScreen, "a"},
+	} {
+		model, _ := start.screen.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+		screen, _ := press(t, model.(manageModel), start.key)
+		lines := strings.Split(plain(screen.render()), "\n")
+		if len(lines) != 40 {
+			t.Fatalf("%s: %d lines, want 40", name, len(lines))
+		}
+		if bar, rule := lines[len(lines)-2], lines[len(lines)-3]; !strings.Contains(rule, "────") || strings.TrimSpace(bar) == "" {
+			t.Errorf("%s: the key bar must sit under a rule on the last row inside the frame:\n%s", name, strings.Join(lines[len(lines)-4:], "\n"))
+		}
+	}
+	model, _ := loadedModel(t).Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	screen, _ := press(t, model.(manageModel), "?")
+	if row := screenRow(screen, targetFor(t, screen, "esc").row); !strings.Contains(row, "đóng") {
+		t.Errorf("the click target of the help's key bar is not on the key bar: %q", row)
+	}
+}
+
+func TestTheOpenTabAndTheCountsFollowTheReport(t *testing.T) {
+	screen := loadedModel(t)
+	if title, _ := screen.tabTitle(screen.tabs(), 100); !strings.Contains(plain(title), "1 Backups 3") || !strings.Contains(plain(title), "3 Alerts 1") {
+		t.Errorf("tab title: %q", plain(title))
+	}
+	if tabs := screen.tabs(); !tabs[backupsTab].alarm || !tabs[uptimeTab].alarm || !tabs[alertsTab].alarm {
+		t.Errorf("a tab with a failed job, a check down or an open alert is red: %+v", []bool{tabs[backupsTab].alarm, tabs[uptimeTab].alarm, tabs[alertsTab].alarm})
+	}
+	if view := plain(screen.render()); !strings.Contains(view, "└ restic exited 1") {
+		t.Errorf("a failed job shows its error under its row:\n%s", view)
 	}
 }

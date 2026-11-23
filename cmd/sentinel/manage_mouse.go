@@ -54,6 +54,18 @@ func (h *hitMap) safeTargets() []clickTarget {
 	return h.targets
 }
 
+// moveRow moves the targets of screen row from to row to (the key bar, pinned to the bottom).
+func (h *hitMap) moveRow(from, to int) {
+	if h == nil {
+		return
+	}
+	for i := range h.targets {
+		if h.targets[i].row == from {
+			h.targets[i].row = to
+		}
+	}
+}
+
 // truncate forgets the targets recorded after the first n.
 func (h *hitMap) truncate(count int) {
 	if h != nil && count <= len(h.targets) {
@@ -92,8 +104,8 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 	if !left {
 		return m, nil
 	}
-	m.render()                              // rebuild the targets for what is on screen now
-	action, ok := m.hits.at(col-1-1, row-1) // inside the frame: its border and the space after it, and the top border
+	m.render() // rebuild the targets for what is on screen now
+	action, ok := m.clickedAction(col, row)
 	if !ok {
 		return m, nil
 	}
@@ -104,7 +116,7 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if index, ok := actionIndex(action, "row:"); ok {
-		if index == m.cursor && (m.tab == 0 || m.tab == configTab) {
+		if index == m.cursor && (m.tab == backupsTab || m.tab == configTab) {
 			return m.onTableKey("s") // a second click opens the job, or the entry to edit
 		}
 		m.cursor, m.notice = index, ""
@@ -136,6 +148,15 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m.onKey(action, "")
+}
+
+// clickedAction is the target under a click. The main screen has no frame; the others sit inside
+// one, so the click is moved past its border and the space after it, and past the top border.
+func (m manageModel) clickedAction(col, row int) (string, bool) {
+	if m.mode == modeTable {
+		return m.hits.at(col, row)
+	}
+	return m.hits.at(col-2, row-1)
 }
 
 // onWheel moves the selection by wheelStep lines in the current list.

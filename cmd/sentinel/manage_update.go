@@ -27,13 +27,17 @@ func (m manageModel) reload() tea.Cmd {
 }
 
 func (m manageModel) scheduleRefresh() tea.Cmd {
-	return tea.Tick(manageRefresh, func(time.Time) tea.Msg { return refreshMsg{} })
+	every := manageRefresh
+	if len(m.report.Running) > 0 {
+		every = manageRefreshRunning // watch a backup's progress closely
+	}
+	return tea.Tick(every, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
 func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
 	next := model.(manageModel)
-	if next.mode == modeTable && next.tab == configTab && !next.config.loaded {
+	if next.mode == modeTable && !next.config.loaded { // the schedules in the Backups tab and the Config tab come from the file
 		next = next.refreshConfig()
 	}
 	return next.startDoctorIfNeeded(cmd)
@@ -64,8 +68,10 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busyFrame++
 			return m, m.spin()
 		}
-	case backupDoneMsg:
-		return m.afterBackup(msg)
+	case backupStartedMsg:
+		return m.afterBackupStarted(msg)
+	case backupStopRequestedMsg:
+		return m.afterBackupStopRequested(msg)
 	case snapshotsMsg:
 		return m.afterSnapshots(msg), nil
 	case restoreDoneMsg:
@@ -143,6 +149,9 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 	tabCount := len(m.tabs())
 	m.notice = ""
+	if key != "x" {
+		m.stopAsked = ""
+	}
 	switch key {
 	case "?":
 		m.helpReturn, m.mode = modeTable, modeHelp
@@ -171,12 +180,27 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		return m, m.reload()
 	case "b":
 		if line, ok := m.selectedBackup(); ok {
-			ctx := m.startBusy(fmt.Sprintf("Đang backup %s → %s", line.job, line.repository))
+			if line.running {
+				m.notice = fmt.Sprintf("%s → %s đang chạy rồi (bấm x để dừng)", line.job, line.repository)
+				return m, nil
+			}
 			job, repository, actions := line.job, line.repository, m.actions
-			return m, tea.Batch(m.spin(), func() tea.Msg {
-				runs, err := actions.runBackup(ctx, job, repository)
-				return backupDoneMsg{job: job, repository: repository, runs: runs, err: err}
-			})
+			m.notice = fmt.Sprintf("Đang khởi động backup %s → %s…", job, repository)
+			return m, func() tea.Msg {
+				pid, logPath, err := actions.startBackup(job, repository)
+				return backupStartedMsg{job: job, repository: repository, pid: pid, logPath: logPath, err: err}
+			}
+		}
+	case "x":
+		if line, ok := m.selectedBackup(); ok && line.running {
+			if m.stopAsked != line.job {
+				m.stopAsked = line.job
+				m.notice, m.noticeBad = fmt.Sprintf("Dừng backup %s? Bấm x lần nữa để xác nhận (lần backup sau sẽ phải chạy lại từ đầu)", line.job), true
+				return m, nil
+			}
+			m.stopAsked = ""
+			job, actions := line.job, m.actions
+			return m, func() tea.Msg { return backupStopRequestedMsg{job: job, err: actions.stopBackup(job)} }
 		}
 	case "t":
 		if m.tab == configTab {
@@ -186,21 +210,21 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		if m.tab == configTab {
 			return m.configAdd(), nil
 		}
-		if m.tab == 0 {
+		if m.tab == backupsTab {
 			return m.startAdd(), nil
 		}
 	case "e":
 		if m.tab == configTab {
 			return m.configEdit(), nil
 		}
-		if m.tab == 0 {
+		if m.tab == backupsTab {
 			return m.startEdit(), nil
 		}
 	case "d":
 		if m.tab == configTab {
 			return m.configRemove(), nil
 		}
-		if m.tab == 0 {
+		if m.tab == backupsTab {
 			return m.startDelete(), nil
 		}
 	case "s", "enter":
@@ -222,27 +246,27 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 // selectedBackup is the backup line under the cursor, on the Backups tab.
 func (m manageModel) selectedBackup() (manageLine, bool) {
 	lines := m.tabs()[m.tab].lines
-	if m.tab != 0 || m.cursor >= len(lines) {
+	if m.tab != backupsTab || m.cursor >= len(lines) {
 		return manageLine{}, false
 	}
 	return lines[m.cursor], true
 }
 
-func (m manageModel) afterBackup(msg backupDoneMsg) (tea.Model, tea.Cmd) {
-	m.endBusy()
-	m.mode = modeTable
-	switch {
-	case msg.err != nil:
+func (m manageModel) afterBackupStarted(msg backupStartedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
 		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
-	case len(msg.runs) == 0:
-		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: không có kết quả chạy nào được báo", msg.job, msg.repository), true
-	default:
-		run := msg.runs[0]
-		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, run.Summary()), !run.Success
-		if run.Success {
-			m.notice += "  " + shortID(run.SnapshotID)
-		}
+		return m, m.reload()
 	}
+	m.notice, m.noticeBad = fmt.Sprintf("%s → %s: đã chạy nền (pid %d), đóng manage cũng không sao. Log: %s", msg.job, msg.repository, msg.pid, msg.logPath), false
+	return m, m.reload()
+}
+
+func (m manageModel) afterBackupStopRequested(msg backupStopRequestedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.notice, m.noticeBad = fmt.Sprintf("%s: không dừng được: %v", msg.job, msg.err), true
+		return m, nil
+	}
+	m.notice, m.noticeBad = msg.job+": đã gửi yêu cầu dừng, backup sẽ dừng trong vài giây", false
 	return m, m.reload()
 }
 

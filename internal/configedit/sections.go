@@ -84,13 +84,16 @@ func NotifierFields(kind string) []NotifierField {
 
 // Settings are the general options.
 type Settings struct {
-	ServerName, Store   string
-	Cooldown            string
-	NotifySuccess       bool
-	VerifySchedule      string
-	DefaultSchedule     string
-	DefaultRepositories []string
-	DefaultRetention    config.Retention
+	ServerName, Store string
+	Cooldown          string
+	NotifySuccess     bool
+	VerifySchedule    string
+	ShutdownWait      string
+	// Priority is "", "low" or "normal"; MaxParallel and UploadLimitKiB are numbers or "".
+	Priority, MaxParallel, UploadLimitKiB string
+	DefaultSchedule                       string
+	DefaultRepositories                   []string
+	DefaultRetention                      config.Retention
 }
 
 // Overview is everything Read finds in a config file besides the backup jobs.
@@ -196,7 +199,8 @@ func Read(path string) (Overview, error) {
 		overview.Settings = Settings{
 			ServerName: text(root, "server_name"), Store: text(root, "store"),
 			Cooldown: text(mapGet(root, "alert"), "cooldown"), NotifySuccess: text(mapGet(root, "alert"), "notify_success") == "true",
-			VerifySchedule:  text(root, "verify_schedule"),
+			VerifySchedule: text(root, "verify_schedule"), ShutdownWait: text(root, "shutdown_wait"),
+			Priority: text(mapGet(root, "resources"), "priority"), MaxParallel: text(mapGet(root, "resources"), "max_parallel"), UploadLimitKiB: text(mapGet(root, "resources"), "upload_limit_kib"),
 			DefaultSchedule: text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
 			DefaultRetention: retentionOf(mapGet(defaults, "retention")),
 		}
@@ -593,6 +597,24 @@ func ValidateSettings(settings Settings) error {
 			return fieldError("cooldown", "cooldown: %q không phải khoảng thời gian như 1h hoặc 30m", settings.Cooldown)
 		}
 	}
+	if settings.Priority != "" && settings.Priority != config.PriorityLow && settings.Priority != config.PriorityNormal {
+		return fieldError("priority", "priority: chọn low hoặc normal")
+	}
+	if settings.MaxParallel != "" {
+		if count, err := strconv.Atoi(settings.MaxParallel); err != nil || count < 1 {
+			return fieldError("max_parallel", "max_parallel: %q không phải số nguyên từ 1 trở lên", settings.MaxParallel)
+		}
+	}
+	if settings.UploadLimitKiB != "" {
+		if limit, err := strconv.Atoi(settings.UploadLimitKiB); err != nil || limit < 0 {
+			return fieldError("upload_limit_kib", "upload_limit_kib: %q không phải số KiB/s như 20480", settings.UploadLimitKiB)
+		}
+	}
+	if settings.ShutdownWait != "" {
+		if duration, err := time.ParseDuration(settings.ShutdownWait); err != nil || duration <= 0 {
+			return fieldError("shutdown_wait", "shutdown_wait: %q không phải khoảng thời gian như 2h hoặc 30m", settings.ShutdownWait)
+		}
+	}
 	if !schedule.IsManual(settings.VerifySchedule) {
 		if _, err := schedule.Parse(settings.VerifySchedule); err != nil {
 			return fieldError("verify_schedule", "%v", err)
@@ -620,6 +642,15 @@ func SaveSettings(path string, settings Settings) error {
 		setText(root, "server_name", settings.ServerName)
 		setText(root, "store", settings.Store)
 		setText(root, "verify_schedule", settings.VerifySchedule)
+		setText(root, "shutdown_wait", settings.ShutdownWait)
+
+		resources := ensureMapping(root, "resources", 0)
+		setText(resources, "priority", settings.Priority)
+		setNumber(resources, "max_parallel", settings.MaxParallel)
+		setNumber(resources, "upload_limit_kib", settings.UploadLimitKiB)
+		if len(resources.Content) == 0 {
+			mapDelete(root, "resources")
+		}
 
 		alert := ensureMapping(root, "alert", 0)
 		setText(alert, "cooldown", settings.Cooldown)

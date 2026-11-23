@@ -91,6 +91,19 @@ func (c *Config) validate() error {
 		}
 	}
 
+	if c.Resources.Priority != PriorityLow && c.Resources.Priority != PriorityNormal {
+		add("resources.priority: must be %q or %q", PriorityLow, PriorityNormal)
+	}
+	if c.Resources.MaxParallel < 1 {
+		add("resources.max_parallel: must be at least 1")
+	}
+	if c.Resources.UploadLimitKiB < 0 {
+		add("resources.upload_limit_kib: must not be negative")
+	}
+	if c.ShutdownWait < 0 {
+		add("shutdown_wait: must not be negative")
+	}
+
 	seenChecks := map[string]bool{}
 	for i, check := range c.UptimeChecks {
 		where := fmt.Sprintf("uptime[%d] %q", i, check.Name)

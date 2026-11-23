@@ -11,7 +11,6 @@ import (
 
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
-	"sentinel/internal/store"
 )
 
 // messagesOf runs a command and returns what it produced; batches are flattened
@@ -57,6 +56,7 @@ func typeText(t *testing.T, screen manageModel, text string) manageModel {
 
 type fakeActions struct {
 	backups   []string
+	stopped   []string
 	restored  []string
 	restoreTo string
 	failWith  error
@@ -64,12 +64,16 @@ type fakeActions struct {
 
 func (f *fakeActions) actions() manageActions {
 	return manageActions{
-		runBackup: func(_ context.Context, job, repository string) ([]store.BackupRun, error) {
+		startBackup: func(job, repository string) (int, string, error) {
 			f.backups = append(f.backups, job+"/"+repository)
 			if f.failWith != nil {
-				return nil, f.failWith
+				return 0, "", f.failWith
 			}
-			return []store.BackupRun{{Job: job, Repository: repository, Success: true, SnapshotID: "aabbccddeeff0011"}}, nil
+			return 4242, "/state/logs/backup-" + job + ".log", nil
+		},
+		stopBackup: func(job string) error {
+			f.stopped = append(f.stopped, job)
+			return f.failWith
 		},
 		snapshots: func(context.Context, string, string) ([]restic.Snapshot, error) {
 			if f.failWith != nil {
@@ -99,30 +103,82 @@ func modelWith(t *testing.T, fake *fakeActions) manageModel {
 	return model.(manageModel)
 }
 
-func TestBackupNowRunsTheSelectedJobAndShowsTheOutcome(t *testing.T) {
+func TestBackupNowStartsADetachedBackupWithoutBlockingTheScreen(t *testing.T) {
 	fake := &fakeActions{}
 	screen := modelWith(t, fake)
 	model, cmd := screen.onKey("b", "")
 	screen = model.(manageModel)
-	if screen.mode != modeBusy || !strings.Contains(plain(screen.render()), "Đang backup appdb → s3") {
-		t.Fatalf("busy screen missing:\n%s", plain(screen.render()))
+	if screen.mode != modeTable {
+		t.Fatalf("b must not switch to the busy screen (mode %d)", screen.mode)
 	}
 	screen = feed(t, screen, messagesOf(cmd))
 	if len(fake.backups) != 1 || fake.backups[0] != "appdb/s3" {
-		t.Fatalf("backups run: %v", fake.backups)
+		t.Fatalf("backups started: %v", fake.backups)
 	}
-	if view := plain(screen.render()); screen.mode != modeTable || !strings.Contains(view, "appdb → s3: ok aabbccdd") {
-		t.Errorf("outcome missing (mode %d):\n%s", screen.mode, view)
+	if view := plain(screen.render()); !strings.Contains(view, "đã chạy nền (pid 4242)") || !strings.Contains(view, "backup-appdb.log") {
+		t.Errorf("outcome missing:\n%s", view)
 	}
 }
 
-func TestBackupFailureIsShownNotHidden(t *testing.T) {
-	fake := &fakeActions{failWith: errors.New("unknown job")}
+func TestBackupStartFailureIsShownNotHidden(t *testing.T) {
+	fake := &fakeActions{failWith: errors.New("already running")}
 	screen := modelWith(t, fake)
 	_, cmd := screen.onKey("b", "")
 	screen = feed(t, screen, messagesOf(cmd))
-	if !screen.noticeBad || !strings.Contains(plain(screen.render()), "unknown job") {
+	if !screen.noticeBad || !strings.Contains(plain(screen.render()), "already running") {
 		t.Errorf("want the failure on screen:\n%s", plain(screen.render()))
+	}
+}
+
+func runningReport() status.Report {
+	report := sampleReport()
+	percent := 37.0
+	report.Running = []status.Running{{Job: "appdb", Repository: "s3", Percent: &percent, Estimated: true, BytesDone: 7 << 30, BytesTotal: 20 << 30, StartedAt: time.Now().Add(-40 * time.Minute)}}
+	return report
+}
+
+func TestRunningBackupShowsProgressAndCannotBeStartedTwice(t *testing.T) {
+	fake := &fakeActions{}
+	screen := modelWith(t, fake)
+	model, _ := screen.Update(reportMsg{report: runningReport()})
+	screen = model.(manageModel)
+	if view := plain(screen.render()); !strings.Contains(view, "⏳ ~37%") || !strings.Contains(view, "ước lượng") {
+		t.Fatalf("progress missing:\n%s", view)
+	}
+	_, cmd := screen.onKey("b", "")
+	if cmd != nil || len(fake.backups) != 0 {
+		t.Error("b on a running backup must not start another")
+	}
+	if screen.scheduleRefresh() == nil {
+		t.Error("a refresh must be scheduled while a backup runs")
+	}
+}
+
+func TestStopNeedsTwoPresses(t *testing.T) {
+	fake := &fakeActions{}
+	screen := modelWith(t, fake)
+	model, _ := screen.Update(reportMsg{report: runningReport()})
+	model, cmd := model.(manageModel).onKey("x", "")
+	if cmd != nil || len(fake.stopped) != 0 || !strings.Contains(model.(manageModel).notice, "x lần nữa") {
+		t.Fatalf("first x must only ask (stopped %v, notice %q)", fake.stopped, model.(manageModel).notice)
+	}
+	model, cmd = model.(manageModel).onKey("x", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if len(fake.stopped) != 1 || fake.stopped[0] != "appdb" || !strings.Contains(screen.notice, "yêu cầu dừng") {
+		t.Errorf("second x must stop (stopped %v, notice %q)", fake.stopped, screen.notice)
+	}
+}
+
+func TestAnotherKeyCancelsTheStopConfirmation(t *testing.T) {
+	fake := &fakeActions{}
+	screen := modelWith(t, fake)
+	model, _ := screen.Update(reportMsg{report: runningReport()})
+	model, _ = model.(manageModel).onKey("x", "")
+	model, _ = model.(manageModel).onKey("down", "")
+	model, _ = model.(manageModel).onKey("up", "")
+	_, cmd := model.(manageModel).onKey("x", "")
+	if cmd != nil || len(fake.stopped) != 0 {
+		t.Error("x after another key must ask again, not stop")
 	}
 }
 

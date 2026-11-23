@@ -47,7 +47,7 @@ defaults:
 jobs:
   - name: appdb
     type: postgres
-    timeout: 6h
+    timeout: 6h              # longest one run may take (default 6h); raise it for a very large database
     postgres:
       host: localhost
       port: 5432
@@ -77,6 +77,15 @@ jobs:
     retention: { daily: 7, weekly: 4 }
 
 verify_schedule: weekly sun 04:00    # `restic check` of every repository
+
+# Keep backups from starving the server. These are the defaults.
+# resources:
+#   priority: low          # low = nice 10 + lowest disk priority for restic and the dump tool; or normal
+#   max_parallel: 1        # backups running at once on this machine; the others wait for a slot
+#   upload_limit_kib: 0    # KiB/s per backup, 0 = no cap
+# On stop (systemctl restart) the daemon lets running backups finish for this long before it
+# cancels them. Keep TimeoutStopSec in deploy/sentinel.service longer than this.
+# shutdown_wait: 2h
 
 uptime:
   - name: website

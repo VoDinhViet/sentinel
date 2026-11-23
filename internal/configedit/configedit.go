@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -67,6 +68,8 @@ type Job struct {
 	AuthDatabase    string // mongodb
 	Paths           []string
 	Exclude         []string
+	// Timeout is how long one run may take, as in the file ("" = the default, config.DefaultJobTimeout).
+	Timeout string
 
 	// Inherited says which of Schedule, Repositories and Retention are not in the job's own
 	// entry: they are left empty here and the config's defaults apply.
@@ -147,6 +150,9 @@ func inheritedRepositories(cfg *config.Config) []string {
 func jobFromConfig(cfgJob config.Job) Job {
 	job := Job{Name: cfgJob.Name, Type: cfgJob.Type, Schedule: cfgJob.Schedule, Repositories: cfgJob.Repositories, Retention: cfgJob.Retention, Inherited: cfgJob.Inherited,
 		Paths: cfgJob.Paths, Exclude: cfgJob.Excludes}
+	if cfgJob.Timeout != config.DefaultJobTimeout {
+		job.Timeout = cfgJob.Timeout.String()
+	}
 	if cfgJob.Inherited.Schedule {
 		job.Schedule = ""
 	}
@@ -261,6 +267,11 @@ func commonProblems(job *Job, known Known) []*InvalidError {
 			add("schedule", "schedule không hợp lệ: %v (thử \"daily 02:00\", \"weekly monday 3am\", \"every 6 hours\" hoặc biểu thức cron)", err)
 		}
 	}
+	if job.Timeout != "" {
+		if timeout, err := time.ParseDuration(job.Timeout); err != nil || timeout <= 0 {
+			add("timeout", "timeout %q không hợp lệ: dùng khoảng thời gian như 12h hoặc 36h", job.Timeout)
+		}
+	}
 	if len(job.Repositories) == 0 && !known.InheritsRepositories {
 		add("repositories", "chọn ít nhất một repository")
 	}
@@ -348,6 +359,7 @@ func editJob(root *yaml.Node, original string, job Job) error {
 
 	mapSet(jobNode, "name", scalar(job.Name, 0))
 	mapSet(jobNode, "type", scalar(job.Type, 0))
+	setOrDelete(jobNode, "timeout", job.Timeout)
 	if job.Schedule == "" {
 		mapDelete(jobNode, "schedule")
 	} else {

@@ -52,27 +52,31 @@ func doctorSeverity(finding doctor.Finding) severity {
 	return sevBad
 }
 
-// doctorProblems counts the findings that are failures.
-func (m manageModel) doctorProblems() int {
-	failed := 0
+// doctorProblems counts the findings that are failures; doctorWarnings those that only warn.
+func (m manageModel) doctorProblems() int { return m.doctorFindings(sevBad) }
+
+func (m manageModel) doctorWarnings() int { return m.doctorFindings(sevWarn) }
+
+func (m manageModel) doctorFindings(level severity) int {
+	found := 0
 	for _, finding := range m.doctor.findings {
-		if doctorSeverity(finding) == sevBad {
-			failed++
+		if doctorSeverity(finding) == level {
+			found++
 		}
 	}
-	return failed
+	return found
 }
 
 func (m manageModel) buildDoctorTab() manageTab {
-	tab := manageTab{title: "Doctor", headers: []string{"KIỂM TRA", "TRẠNG THÁI", "CHI TIẾT"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0}
+	tab := manageTab{title: "Doctor", headers: []string{"KIỂM TRA", "TRẠNG THÁI", "CHI TIẾT"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0, count: m.doctorProblems() + m.doctorWarnings()}
 	for _, finding := range m.doctor.findings {
 		level := doctorSeverity(finding)
 		status, message := "ok", finding.Info
 		switch level {
 		case sevBad:
-			status, message = "FAIL", finding.Err.Error()
+			status, message = "LỖI", finding.Err.Error()
 		case sevWarn:
-			status, message = "warn", finding.Err.Error()
+			status, message = "cảnh báo", finding.Err.Error()
 		}
 		detail := finding.Name + ": " + message
 		if finding.Hint != "" && level != sevOK {
