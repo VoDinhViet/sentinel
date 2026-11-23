@@ -31,11 +31,21 @@ func runningResult(running status.Running) string {
 	return "⏳ " + humanBytes(running.BytesDone)
 }
 
-// runningBrief is the short line under a running backup's row: "1.2 GiB / 1.9 GiB · 12 MiB/s · còn ~25 phút".
+// runningBrief is the short line under a running backup's row: the progress, how long it has run
+// and a warning when there is one.
 func runningBrief(running status.Running, now time.Time) string {
 	if running.Phase == backup.PhaseRetention {
 		return "đang áp dụng retention (xoá snapshot cũ)"
 	}
+	text := runningProgress(running) + " · đã chạy " + vietnameseDuration(now.Sub(running.StartedAt))
+	if warning := runningWarning(running); warning != "" {
+		text += " · " + warning
+	}
+	return text
+}
+
+// runningProgress is "1.2 GiB / 1.9 GiB · 12 MiB/s · còn ~25 phút".
+func runningProgress(running status.Running) string {
 	text := humanBytes(running.BytesDone)
 	if running.BytesTotal > 0 {
 		text += " / " + humanBytes(running.BytesTotal)
@@ -47,16 +57,20 @@ func runningBrief(running status.Running, now time.Time) string {
 		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
 	}
 	if running.RemainingSeconds > 0 {
-		text += " · còn ~" + vietnameseDuration(time.Duration(running.RemainingSeconds)*time.Second)
-	}
-	text += " · đã chạy " + vietnameseDuration(now.Sub(running.StartedAt))
-	switch {
-	case running.Stalled:
-		text += " · ⚠ không có dữ liệu mới hơn 10 phút"
-	case running.WillExceedTimeout:
-		text += " · ⚠ sẽ vượt timeout"
+		text += " · " + timeLeftText(running.RemainingSeconds)
 	}
 	return text
+}
+
+// runningWarning says what is wrong with a running backup, or "" when nothing is.
+func runningWarning(running status.Running) string {
+	switch {
+	case running.Stalled:
+		return "⚠ không có dữ liệu mới hơn 10 phút"
+	case running.WillExceedTimeout:
+		return "⚠ sẽ vượt timeout"
+	}
+	return ""
 }
 
 // runningDetail is the line under the table for a backup in progress.
@@ -78,7 +92,7 @@ func runningDetail(running status.Running, now time.Time) string {
 		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
 	}
 	if running.RemainingSeconds > 0 {
-		text += " · còn ~" + vietnameseDuration(time.Duration(running.RemainingSeconds)*time.Second)
+		text += " · " + timeLeftText(running.RemainingSeconds)
 	}
 	text += " · đã chạy " + vietnameseDuration(now.Sub(running.StartedAt))
 	switch {
@@ -88,6 +102,15 @@ func runningDetail(running status.Running, now time.Time) string {
 		text += fmt.Sprintf(". ⚠ Với tốc độ này sẽ vượt timeout %s của job và bị cắt: tăng timeout trong Tuỳ chọn nâng cao", vietnameseDuration(time.Duration(running.TimeoutSeconds)*time.Second))
 	}
 	return text + ". Bấm x để dừng; đóng manage không làm backup dừng."
+}
+
+// timeLeftText is "còn ~25 phút", or "còn <1 phút" when the estimate is under a minute.
+func timeLeftText(seconds int64) string {
+	left := time.Duration(seconds) * time.Second
+	if left.Round(time.Minute) < time.Minute {
+		return "còn <1 phút"
+	}
+	return "còn ~" + vietnameseDuration(left)
 }
 
 // vietnameseDuration writes a time like "25 phút" or "3 giờ 10 phút".

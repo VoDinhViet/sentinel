@@ -348,7 +348,7 @@ func panelTitle(text string, colour color.Color) string {
 // renderTopPanels is the row of three panels above the tabs: the overview, the backups that
 // are running now and the uptime checks. A panel whose subject has a problem gets a red border.
 func (m manageModel) renderTopPanels(width int) []string {
-	overviewWidth := min(max(width/4, 28), 36)
+	overviewWidth := min(max(width/5, 26), 34)
 	runningWidth := (width - overviewWidth) * 11 / 20
 	uptimeWidth := width - overviewWidth - runningWidth
 	counts := m.healthCounts()
@@ -447,7 +447,11 @@ func (m manageModel) runningBody(inner int) []string {
 		default:
 			lines = append(lines, dimStyle.Render("đã xử lý ")+humanBytes(current.BytesDone))
 		}
-		return append(lines, severityStyle(level).Render(truncate(runningBrief(current, now), inner)))
+		lines = append(lines, dimStyle.Render(truncate(runningProgress(current), inner)))
+		if warning := runningWarning(current); warning != "" {
+			lines = append(lines, severityStyle(level).Render(truncate(warning, inner)))
+		}
+		return lines
 	}
 	shown := running
 	if len(running) > maxPanelItems {
