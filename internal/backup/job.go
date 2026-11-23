@@ -92,6 +92,9 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 		if err != nil {
 			return fail(err)
 		}
+		if dump.Cleanup != nil {
+			defer dump.Cleanup()
+		}
 		opts.Command, opts.StdinFilename = dump.Command, dump.Filename
 		rc.ExtraEnv = append(rc.ExtraEnv, dump.Env...)
 	}
@@ -112,12 +115,14 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 		return fail(err)
 	}
 
+	run.Success = true
 	if err := rc.Forget(ctx, JobTags(job), job.Retention); err != nil {
-		// The new snapshot is safe; retention can catch up next run.
-		return fail(fmt.Errorf("backup ok (snapshot %.8s) but retention failed: %w", sum.SnapshotID, err))
+		// The new snapshot is safe, so the backup counts as successful; Error
+		// carries the retention failure and retention catches up next run.
+		run.Error = fmt.Sprintf("retention failed: %v", err)
+		log.Error("retention failed", "snapshot", sum.SnapshotID, "error", err)
 	}
-
-	run.FinishedAt, run.Success = r.now(), true
+	run.FinishedAt = r.now()
 	log.Info("backup finished", "snapshot", sum.SnapshotID[:min(8, len(sum.SnapshotID))],
 		"bytes_added", sum.BytesAdded, "duration", run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 	return run

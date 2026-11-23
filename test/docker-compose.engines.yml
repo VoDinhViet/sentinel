@@ -1,0 +1,33 @@
+name: sentinel-engines
+
+# Database servers for test/e2e-engines.sh (MariaDB, MySQL 5.7, MongoDB 5.0 with auth).
+services:
+  mariadb:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: e2e-maria-pass
+      MARIADB_DATABASE: shop
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      retries: 60
+
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: 'e2e#my sql'
+      MYSQL_DATABASE: shop
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 2s
+      retries: 60
+
+  mongo:
+    image: mongo:5.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: e2e-mongo-pass
+    healthcheck:
+      test: ["CMD-SHELL", "mongo --quiet -u root -p e2e-mongo-pass --authenticationDatabase admin --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
+      interval: 2s
+      retries: 60

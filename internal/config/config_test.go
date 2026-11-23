@@ -61,15 +61,8 @@ func TestParseValid(t *testing.T) {
 	if c.Uptime[1].FailAfter != 5 {
 		t.Errorf("explicit fail_after overwritten: %d", c.Uptime[1].FailAfter)
 	}
-	cpu := c.Monitor.Thresholds.CPU
-	if cpu.Value != 90 || cpu.For != 5*time.Minute {
-		t.Errorf("cpu threshold = %+v", cpu)
-	}
-	if c.Monitor.Thresholds.Memory != nil {
-		t.Errorf("unset threshold should be nil")
-	}
-	if c.Monitor.Interval != time.Minute {
-		t.Errorf("monitor interval default = %v", c.Monitor.Interval)
+	if c.Monitor == nil {
+		t.Errorf("legacy monitor section must still parse")
 	}
 }
 
@@ -94,7 +87,23 @@ backups:
 		"bad type": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 backups:
-  - { name: a, type: mysql, repositories: [r] }`, "type must be"},
+  - { name: a, type: oracle, repositories: [r] }`, "type must be"},
+		"mysql without database": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: a, type: mysql, repositories: [r] }`, "mysql.database is required"},
+		"mysql bad tls": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: a, type: mysql, mysql: { database: d, tls: maybe }, repositories: [r] }`, "mysql.tls must be"},
+		"mongodb without database": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: a, type: mongodb, repositories: [r] }`, "mongodb.database is required"},
+		"mongodb password without user": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: a, type: mongodb, mongodb: { database: d, password: x }, repositories: [r] }`, "mongodb.user is required"},
 		"duplicate backup": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 backups:
@@ -109,8 +118,6 @@ uptime:
   - { name: w, type: http }`, "url is required"},
 		"unknown field": {`
 servername: x`, "field servername not found"},
-		"bad threshold": {`
-monitor: { thresholds: { cpu: "ninety" } }`, "bad value"},
 		"repo without password": {`
 repositories: { r: { url: "/tmp/r" } }`, "password is required"},
 	}
@@ -121,34 +128,6 @@ repositories: { r: { url: "/tmp/r" } }`, "password is required"},
 				t.Fatalf("want error containing %q, got %v", tc.want, err)
 			}
 		})
-	}
-}
-
-func TestParseThreshold(t *testing.T) {
-	cases := []struct {
-		in      string
-		want    Threshold
-		wantErr bool
-	}{
-		{"85%", Threshold{Value: 85}, false},
-		{"90%/5m", Threshold{Value: 90, For: 5 * time.Minute}, false},
-		{"2.0/30s", Threshold{Value: 2, For: 30 * time.Second}, false},
-		{" 75 % / 1m ", Threshold{}, true},
-		{"0%", Threshold{}, true},
-		{"90%/soon", Threshold{}, true},
-		{"", Threshold{}, true},
-	}
-	for _, tc := range cases {
-		got, err := ParseThreshold(tc.in)
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("%q: want error, got %+v", tc.in, got)
-			}
-			continue
-		}
-		if err != nil || got != tc.want {
-			t.Errorf("%q: got %+v, %v; want %+v", tc.in, got, err, tc.want)
-		}
 	}
 }
 
@@ -233,5 +212,56 @@ func TestParseServer(t *testing.T) {
 	}
 	if _, err := ParseServer(nil); err == nil {
 		t.Error("missing admin should be rejected")
+	}
+}
+
+func TestRetentionString(t *testing.T) {
+	if got := (Retention{}).String(); got != "keep all" {
+		t.Errorf("empty = %q", got)
+	}
+	if got := (Retention{Last: 7, Daily: 14, Yearly: 2}).String(); got != "last 7 · daily 14 · yearly 2" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestParseServerBeszel(t *testing.T) {
+	base := `admin: { username: admin, password_hash: "$2a$10$abcdefghijklmnopqrstuv" }` + "\n"
+	c, err := ParseServer([]byte(base))
+	if err != nil || c.Beszel != nil {
+		t.Fatalf("no beszel section: %+v %v", c.Beszel, err)
+	}
+	t.Setenv("BESZEL_PW", "s3cret")
+	c, err = ParseServer([]byte(base + "beszel: { url: \"https://beszel.example.com\", email: sentinel@example.com, password: \"${BESZEL_PW}\" }"))
+	if err != nil || c.Beszel == nil || c.Beszel.Password != "s3cret" || c.Beszel.Poll != 30*time.Second {
+		t.Fatalf("beszel = %+v, %v", c.Beszel, err)
+	}
+	for name, bad := range map[string]string{
+		"url":      `beszel: { url: "beszel.example.com", email: a@b.c, password: x }`,
+		"email":    `beszel: { url: "http://h", password: x }`,
+		"password": `beszel: { url: "http://h", email: a@b.c }`,
+		"poll":     `beszel: { url: "http://h", email: a@b.c, password: x, poll: 1s }`,
+		"public":   `beszel: { url: "http://h", email: a@b.c, password: x, public_url: "hub.example.com" }`,
+	} {
+		if _, err := ParseServer([]byte(base + bad)); err == nil {
+			t.Errorf("%s: invalid beszel section accepted", name)
+		}
+	}
+}
+
+func TestDatabaseEngineDefaults(t *testing.T) {
+	c, err := Parse([]byte(`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - { name: m, type: mysql, mysql: { database: shop }, repositories: [r] }
+  - { name: g, type: mongodb, mongodb: { database: crm, user: app }, repositories: [r] }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := c.Backups[0].MySQL; m.Host != "localhost" || m.Port != 3306 || m.User != "root" {
+		t.Errorf("mysql defaults = %+v", m)
+	}
+	if g := c.Backups[1].MongoDB; g.Host != "localhost" || g.Port != 27017 || g.AuthDatabase != "admin" {
+		t.Errorf("mongodb defaults = %+v", g)
 	}
 }

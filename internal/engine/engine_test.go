@@ -82,3 +82,9 @@ func TestToolsForDeduplicates(t *testing.T) {
 		t.Errorf("files-only config needs no tools, got %v", got)
 	}
 }
+
+func TestCapabilitiesListEngines(t *testing.T) {
+	if got := Capabilities(); !slices.Equal(got, []string{"engine:mongodb", "engine:mysql", "engine:postgres"}) {
+		t.Errorf("capabilities = %v", got)
+	}
+}
