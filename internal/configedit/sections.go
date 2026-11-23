@@ -87,7 +87,7 @@ type Settings struct {
 	ServerName, Store   string
 	Cooldown            string
 	NotifySuccess       bool
-	RepoCheckSchedule   string
+	VerifySchedule      string
 	DefaultSchedule     string
 	DefaultRepositories []string
 	DefaultRetention    config.Retention
@@ -119,8 +119,8 @@ func listOf(mapping *yaml.Node, key string) []string {
 		return nil
 	}
 	if node := mapGet(mapping, key); node != nil && node.Kind == yaml.SequenceNode {
-		for _, item := range node.Content {
-			items = append(items, item.Value)
+		for _, child := range node.Content {
+			items = append(items, child.Value)
 		}
 	}
 	return items
@@ -137,8 +137,8 @@ func secretOf(value string) (envName string, literal bool) {
 
 func retentionOf(mapping *yaml.Node) config.Retention {
 	number := func(key string) int {
-		n, _ := strconv.Atoi(text(mapping, key))
-		return n
+		num, _ := strconv.Atoi(text(mapping, key))
+		return num
 	}
 	return config.Retention{Last: number("last"), Daily: number("daily"), Weekly: number("weekly"), Monthly: number("monthly"), Yearly: number("yearly")}
 }
@@ -150,10 +150,10 @@ func Read(path string) (Overview, error) {
 		usedBy := repositoryUsers(current)
 		if repositories := mapGet(root, "repositories"); repositories != nil && repositories.Kind == yaml.MappingNode {
 			for i := 0; i+1 < len(repositories.Content); i += 2 {
-				entry := repositories.Content[i+1]
-				repository := Repository{Name: repositories.Content[i].Value, URL: text(entry, "url"), Env: map[string]string{}, UsedBy: usedBy[repositories.Content[i].Value]}
-				repository.PasswordEnv, repository.PasswordLiteral = secretOf(text(entry, "password"))
-				if env := mapGet(entry, "env"); env != nil && env.Kind == yaml.MappingNode {
+				repoNode := repositories.Content[i+1]
+				repository := Repository{Name: repositories.Content[i].Value, URL: text(repoNode, "url"), Env: map[string]string{}, UsedBy: usedBy[repositories.Content[i].Value]}
+				repository.PasswordEnv, repository.PasswordLiteral = secretOf(text(repoNode, "password"))
+				if env := mapGet(repoNode, "env"); env != nil && env.Kind == yaml.MappingNode {
 					for j := 0; j+1 < len(env.Content); j += 2 {
 						if name, literal := secretOf(env.Content[j+1].Value); !literal && name != "" {
 							repository.Env[env.Content[j].Value] = name
@@ -164,30 +164,30 @@ func Read(path string) (Overview, error) {
 			}
 		}
 		if checks := mapGet(root, "uptime"); checks != nil && checks.Kind == yaml.SequenceNode {
-			for _, entry := range checks.Content {
+			for _, checkNode := range checks.Content {
 				overview.Uptime = append(overview.Uptime, Uptime{
-					Name: text(entry, "name"), Type: text(entry, "type"), URL: text(entry, "url"), Address: text(entry, "address"), Host: text(entry, "host"),
-					Interval: text(entry, "interval"), Timeout: text(entry, "timeout"), ExpectStatus: text(entry, "expect_status"), Keyword: text(entry, "keyword"),
-					CertExpiryDays: text(entry, "cert_expiry_days"), FailAfter: text(entry, "fail_after"),
+					Name: text(checkNode, "name"), Type: text(checkNode, "type"), URL: text(checkNode, "url"), Address: text(checkNode, "address"), Host: text(checkNode, "host"),
+					Interval: text(checkNode, "interval"), Timeout: text(checkNode, "timeout"), ExpectStatus: text(checkNode, "expect_status"), Keyword: text(checkNode, "keyword"),
+					CertExpiryDays: text(checkNode, "cert_expiry_days"), FailAfter: text(checkNode, "fail_after"),
 				})
 			}
 		}
 		notifiers := mapGet(root, "notifiers")
 		for _, kind := range NotifierKinds {
-			entry := mapGet(notifiers, kind)
-			if notifiers == nil || entry == nil || entry.Kind != yaml.MappingNode {
+			notifierNode := mapGet(notifiers, kind)
+			if notifiers == nil || notifierNode == nil || notifierNode.Kind != yaml.MappingNode {
 				continue
 			}
 			notifier := Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
 			for _, field := range NotifierFields(kind) {
 				switch {
 				case field.Secret:
-					name, literal := secretOf(text(entry, field.Key))
+					name, literal := secretOf(text(notifierNode, field.Key))
 					notifier.Values[field.Key], notifier.Literal[field.Key] = name, literal
 				case field.List:
-					notifier.Values[field.Key] = strings.Join(listOf(entry, field.Key), ", ")
+					notifier.Values[field.Key] = strings.Join(listOf(notifierNode, field.Key), ", ")
 				default:
-					notifier.Values[field.Key] = text(entry, field.Key)
+					notifier.Values[field.Key] = text(notifierNode, field.Key)
 				}
 			}
 			overview.Notifiers = append(overview.Notifiers, notifier)
@@ -196,8 +196,8 @@ func Read(path string) (Overview, error) {
 		overview.Settings = Settings{
 			ServerName: text(root, "server_name"), Store: text(root, "store"),
 			Cooldown: text(mapGet(root, "alert"), "cooldown"), NotifySuccess: text(mapGet(root, "alert"), "notify_success") == "true",
-			RepoCheckSchedule: text(root, "repo_check_schedule"),
-			DefaultSchedule:   text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
+			VerifySchedule:  text(root, "verify_schedule"),
+			DefaultSchedule: text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
 			DefaultRetention: retentionOf(mapGet(defaults, "retention")),
 		}
 		return nil
@@ -208,7 +208,7 @@ func Read(path string) (Overview, error) {
 // repositoryUsers maps each repository to the jobs that use it ("defaults" for the defaults block).
 func repositoryUsers(cfg *config.Config) map[string][]string {
 	users := map[string][]string{}
-	for _, job := range cfg.Backups {
+	for _, job := range cfg.Jobs {
 		for _, name := range job.Repositories {
 			users[name] = append(users[name], job.Name)
 		}
@@ -250,8 +250,8 @@ func setNumber(mapping *yaml.Node, key, value string) {
 		mapDelete(mapping, key)
 		return
 	}
-	n, _ := strconv.Atoi(value) // validated by the caller
-	mapSet(mapping, key, intNode(n))
+	num, _ := strconv.Atoi(value) // validated by the caller
+	mapSet(mapping, key, intNode(num))
 }
 
 // setEnvRef writes ${NAME}, or removes the key (keepLiteral keeps a literal value in the file).
@@ -281,7 +281,7 @@ func readConfig(path string, read func(root *yaml.Node, current *config.Config) 
 }
 
 func checkEnvName(field, name string) error {
-	if name != "" && !envName.MatchString(name) {
+	if name != "" && !envNameRe.MatchString(name) {
 		return &InvalidError{Message: fmt.Sprintf("%q is not an environment variable name (the secret itself is never entered here)", name), Field: field}
 	}
 	return nil
@@ -299,7 +299,7 @@ func RepositoryProblems(repository Repository) []*InvalidError {
 	add := func(field, format string, args ...any) {
 		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
 	}
-	if !jobName.MatchString(repository.Name) {
+	if !nameRe.MatchString(repository.Name) {
 		add("name", "invalid repository name %q: use letters, digits, '.', '_' or '-'", repository.Name)
 	}
 	if strings.TrimSpace(repository.URL) == "" || strings.ContainsAny(repository.URL, "\x00\n\r") {
@@ -308,13 +308,13 @@ func RepositoryProblems(repository Repository) []*InvalidError {
 	switch {
 	case repository.PasswordEnv == "" && !repository.PasswordLiteral:
 		add("password_env", "name the environment variable that holds the repository password")
-	case repository.PasswordEnv != "" && !envName.MatchString(repository.PasswordEnv):
+	case repository.PasswordEnv != "" && !envNameRe.MatchString(repository.PasswordEnv):
 		add("password_env", "%q is not an environment variable name (the password itself is never entered here)", repository.PasswordEnv)
 	}
 	for _, key := range slices.Sorted(maps.Keys(repository.Env)) {
-		if !envName.MatchString(key) {
+		if !envNameRe.MatchString(key) {
 			add("env", "%q is not a variable name", key)
-		} else if name := repository.Env[key]; name != "" && !envName.MatchString(name) {
+		} else if name := repository.Env[key]; name != "" && !envNameRe.MatchString(name) {
 			add("env", "%q is not an environment variable name (the secret itself is never entered here)", name)
 		}
 	}
@@ -340,19 +340,19 @@ func SaveRepository(path, original string, repository Repository) error {
 			return invalid("a repository cannot be renamed: jobs refer to it by name (add a new one and move the jobs)")
 		}
 		repositories := ensureMapping(root, "repositories", 0)
-		entry := mapGet(repositories, repository.Name)
+		repoNode := mapGet(repositories, repository.Name)
 		switch {
-		case original == "" && entry != nil:
+		case original == "" && repoNode != nil:
 			return fmt.Errorf("%q: %w", repository.Name, ErrExists)
-		case original != "" && entry == nil:
+		case original != "" && repoNode == nil:
 			return fmt.Errorf("repository %q: %w", original, ErrNotFound)
-		case entry == nil:
-			entry = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
-			repositories.Content = append(repositories.Content, scalar(repository.Name, 0), entry)
+		case repoNode == nil:
+			repoNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+			repositories.Content = append(repositories.Content, scalar(repository.Name, 0), repoNode)
 		}
-		mapSet(entry, "url", scalar(repository.URL, yaml.DoubleQuotedStyle))
-		setEnvRef(entry, "password", repository.PasswordEnv, repository.PasswordLiteral)
-		env := mapGet(entry, "env")
+		mapSet(repoNode, "url", scalar(repository.URL, yaml.DoubleQuotedStyle))
+		setEnvRef(repoNode, "password", repository.PasswordEnv, repository.PasswordLiteral)
+		env := mapGet(repoNode, "env")
 		if env == nil || env.Kind != yaml.MappingNode {
 			env = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
 		}
@@ -370,9 +370,9 @@ func SaveRepository(path, original string, repository Repository) error {
 			}
 		}
 		if len(env.Content) == 0 {
-			mapDelete(entry, "env")
+			mapDelete(repoNode, "env")
 		} else {
-			mapSet(entry, "env", env)
+			mapSet(repoNode, "env", env)
 		}
 		return nil
 	})
@@ -397,7 +397,7 @@ func DeleteRepository(path, name string) error {
 
 // ValidateUptime checks an uptime check and clears the fields its type does not use.
 func ValidateUptime(check *Uptime) error {
-	if !jobName.MatchString(check.Name) {
+	if !nameRe.MatchString(check.Name) {
 		return fieldError("name", "invalid check name %q: use letters, digits, '.', '_' or '-'", check.Name)
 	}
 	switch check.Type {
@@ -412,7 +412,7 @@ func ValidateUptime(check *Uptime) error {
 		}
 		check.URL, check.Host, check.ExpectStatus, check.Keyword, check.CertExpiryDays = "", "", "", "", ""
 	case config.CheckPing:
-		if !hostName.MatchString(check.Host) {
+		if !hostRe.MatchString(check.Host) {
 			return fieldError("host", "give a host name or address to ping")
 		}
 		check.URL, check.Address, check.ExpectStatus, check.Keyword, check.CertExpiryDays = "", "", "", "", ""
@@ -428,16 +428,16 @@ func ValidateUptime(check *Uptime) error {
 		}
 	}
 	for field, value := range map[string]string{"expect_status": check.ExpectStatus, "cert_expiry_days": check.CertExpiryDays, "fail_after": check.FailAfter} {
-		if n, err := strconv.Atoi(value); value != "" && (err != nil || n < 0) {
+		if num, err := strconv.Atoi(value); value != "" && (err != nil || num < 0) {
 			return fieldError(field, "%s: %q is not a number", field, value)
 		}
 	}
 	return nil
 }
 
-func findByName(sequence *yaml.Node, name string) int {
-	for i, item := range sequence.Content {
-		if item.Kind == yaml.MappingNode && text(item, "name") == name {
+func findByName(seq *yaml.Node, name string) int {
+	for i, node := range seq.Content {
+		if node.Kind == yaml.MappingNode && text(node, "name") == name {
 			return i
 		}
 	}
@@ -450,33 +450,33 @@ func SaveUptime(path, original string, check Uptime) error {
 		if err := ValidateUptime(&check); err != nil {
 			return err
 		}
-		sequence := ensureSequence(root, "uptime")
-		var entry *yaml.Node
+		seq := ensureSequence(root, "uptime")
+		var checkNode *yaml.Node
 		if original != "" {
-			i := findByName(sequence, original)
+			i := findByName(seq, original)
 			if i < 0 {
 				return fmt.Errorf("uptime check %q: %w", original, ErrNotFound)
 			}
-			entry = sequence.Content[i]
+			checkNode = seq.Content[i]
 		}
-		if i := findByName(sequence, check.Name); i >= 0 && (entry == nil || sequence.Content[i] != entry) {
+		if i := findByName(seq, check.Name); i >= 0 && (checkNode == nil || seq.Content[i] != checkNode) {
 			return fmt.Errorf("%q: %w", check.Name, ErrExists)
 		}
-		if entry == nil {
-			entry = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			sequence.Content = append(sequence.Content, entry)
+		if checkNode == nil {
+			checkNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			seq.Content = append(seq.Content, checkNode)
 		}
-		mapSet(entry, "name", scalar(check.Name, 0))
-		mapSet(entry, "type", scalar(check.Type, 0))
-		setText(entry, "url", check.URL)
-		setText(entry, "address", check.Address)
-		setText(entry, "host", check.Host)
-		setText(entry, "interval", check.Interval)
-		setText(entry, "timeout", check.Timeout)
-		setNumber(entry, "expect_status", check.ExpectStatus)
-		setText(entry, "keyword", check.Keyword)
-		setNumber(entry, "cert_expiry_days", check.CertExpiryDays)
-		setNumber(entry, "fail_after", check.FailAfter)
+		mapSet(checkNode, "name", scalar(check.Name, 0))
+		mapSet(checkNode, "type", scalar(check.Type, 0))
+		setText(checkNode, "url", check.URL)
+		setText(checkNode, "address", check.Address)
+		setText(checkNode, "host", check.Host)
+		setText(checkNode, "interval", check.Interval)
+		setText(checkNode, "timeout", check.Timeout)
+		setNumber(checkNode, "expect_status", check.ExpectStatus)
+		setText(checkNode, "keyword", check.Keyword)
+		setNumber(checkNode, "cert_expiry_days", check.CertExpiryDays)
+		setNumber(checkNode, "fail_after", check.FailAfter)
 		return nil
 	})
 }
@@ -484,13 +484,13 @@ func SaveUptime(path, original string, check Uptime) error {
 // DeleteUptime removes an uptime check; its recorded history stays in the store until it ages out.
 func DeleteUptime(path, name string) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
-		sequence := mapGet(root, "uptime")
-		if sequence == nil || sequence.Kind != yaml.SequenceNode || findByName(sequence, name) < 0 {
+		seq := mapGet(root, "uptime")
+		if seq == nil || seq.Kind != yaml.SequenceNode || findByName(seq, name) < 0 {
 			return fmt.Errorf("uptime check %q: %w", name, ErrNotFound)
 		}
-		i := findByName(sequence, name)
-		sequence.Content = append(sequence.Content[:i], sequence.Content[i+1:]...)
-		if len(sequence.Content) == 0 {
+		i := findByName(seq, name)
+		seq.Content = append(seq.Content[:i], seq.Content[i+1:]...)
+		if len(seq.Content) == 0 {
 			mapDelete(root, "uptime")
 		}
 		return nil
@@ -515,7 +515,7 @@ func ValidateNotifier(notifier Notifier) error {
 				return err
 			}
 		case field.Number:
-			if n, err := strconv.Atoi(value); value != "" && (err != nil || n < 1 || n > 65535) {
+			if num, err := strconv.Atoi(value); value != "" && (err != nil || num < 1 || num > 65535) {
 				return fieldError(field.Key, "%s must be a port number", strings.ToLower(field.Label))
 			}
 		}
@@ -531,38 +531,38 @@ func SaveNotifier(path string, notifier Notifier) error {
 		}
 		fields := NotifierFields(notifier.Kind)
 		channels := ensureMapping(root, "notifiers", 0)
-		entry := mapGet(channels, notifier.Kind)
-		if entry == nil || entry.Kind != yaml.MappingNode {
-			entry = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			mapSet(channels, notifier.Kind, entry)
+		notifierNode := mapGet(channels, notifier.Kind)
+		if notifierNode == nil || notifierNode.Kind != yaml.MappingNode {
+			notifierNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			mapSet(channels, notifier.Kind, notifierNode)
 		}
 		for _, field := range fields {
 			value := strings.TrimSpace(notifier.Values[field.Key])
 			switch {
 			case field.Secret:
-				setEnvRef(entry, field.Key, value, notifier.Literal[field.Key])
+				setEnvRef(notifierNode, field.Key, value, notifier.Literal[field.Key])
 			case field.List:
 				list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
-				for _, item := range strings.Split(value, ",") {
-					if item = strings.TrimSpace(item); item != "" {
-						list.Content = append(list.Content, scalar(item, 0))
+				for _, part := range strings.Split(value, ",") {
+					if part = strings.TrimSpace(part); part != "" {
+						list.Content = append(list.Content, scalar(part, 0))
 					}
 				}
 				if len(list.Content) == 0 {
-					mapDelete(entry, field.Key)
+					mapDelete(notifierNode, field.Key)
 				} else {
-					mapSet(entry, field.Key, list)
+					mapSet(notifierNode, field.Key, list)
 				}
 			case field.Number:
-				setNumber(entry, field.Key, value)
+				setNumber(notifierNode, field.Key, value)
 			case field.Key == "chat_id":
 				if value == "" {
-					mapDelete(entry, field.Key)
+					mapDelete(notifierNode, field.Key)
 				} else {
-					mapSet(entry, field.Key, scalar(value, yaml.DoubleQuotedStyle)) // a negative id must stay text
+					mapSet(notifierNode, field.Key, scalar(value, yaml.DoubleQuotedStyle)) // a negative id must stay text
 				}
 			default:
-				setText(entry, field.Key, value)
+				setText(notifierNode, field.Key, value)
 			}
 		}
 		return nil
@@ -593,9 +593,9 @@ func ValidateSettings(settings Settings) error {
 			return fieldError("cooldown", "cooldown: %q is not a duration like 1h or 30m", settings.Cooldown)
 		}
 	}
-	if !schedule.IsManual(settings.RepoCheckSchedule) {
-		if _, err := schedule.Parse(settings.RepoCheckSchedule); err != nil {
-			return fieldError("repo_check_schedule", "%v", err)
+	if !schedule.IsManual(settings.VerifySchedule) {
+		if _, err := schedule.Parse(settings.VerifySchedule); err != nil {
+			return fieldError("verify_schedule", "%v", err)
 		}
 	}
 	if !schedule.IsManual(settings.DefaultSchedule) {
@@ -603,8 +603,8 @@ func ValidateSettings(settings Settings) error {
 			return fieldError("default_schedule", "%v", err)
 		}
 	}
-	for _, n := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
-		if n < 0 {
+	for _, count := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
+		if count < 0 {
 			return fieldError("retention", "retention values cannot be negative")
 		}
 	}
@@ -619,7 +619,7 @@ func SaveSettings(path string, settings Settings) error {
 		}
 		setText(root, "server_name", settings.ServerName)
 		setText(root, "store", settings.Store)
-		setText(root, "repo_check_schedule", settings.RepoCheckSchedule)
+		setText(root, "verify_schedule", settings.VerifySchedule)
 
 		alert := ensureMapping(root, "alert", 0)
 		setText(alert, "cooldown", settings.Cooldown)

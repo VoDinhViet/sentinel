@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +23,7 @@ func needRestic(t *testing.T) {
 	}
 }
 
-func testRunner(t *testing.T, jobs ...config.Backup) (*Runner, *store.Store) {
+func testRunner(t *testing.T, jobs ...config.Job) (*Runner, *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{
@@ -31,7 +32,7 @@ func testRunner(t *testing.T, jobs ...config.Backup) (*Runner, *store.Store) {
 			"local":  {URL: filepath.Join(dir, "repo1"), Password: "pw1"},
 			"local2": {URL: filepath.Join(dir, "repo2"), Password: "pw2"},
 		},
-		Backups: jobs,
+		Jobs: jobs,
 	}
 	st, err := store.Open(filepath.Join(dir, "state.db"))
 	if err != nil {
@@ -63,9 +64,9 @@ func TestFilesBackupRestoreRetention(t *testing.T) {
 	os.WriteFile(filepath.Join(src, "keep.txt"), []byte("important"), 0o644)
 	os.WriteFile(filepath.Join(src, "skip.tmp"), []byte("junk"), 0o644)
 
-	job := config.Backup{
-		Name: "files", Type: config.BackupFiles, Timeout: time.Minute,
-		Paths: []string{src}, Exclude: []string{"*.tmp"},
+	job := config.Job{
+		Name: "files", Type: config.JobFiles, Timeout: time.Minute,
+		Paths: []string{src}, Excludes: []string{"*.tmp"},
 		Repositories: []string{"local", "local2"},
 		Retention:    config.Retention{Last: 2},
 	}
@@ -74,7 +75,7 @@ func TestFilesBackupRestoreRetention(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		os.WriteFile(filepath.Join(src, "counter.txt"), []byte{byte('0' + i)}, 0o644)
-		runs := r.Run(ctx, &r.Config.Backups[0])
+		runs := r.Run(ctx, &r.Config.Jobs[0])
 		if len(runs) != 2 {
 			t.Fatalf("want 2 runs, got %d", len(runs))
 		}
@@ -147,8 +148,8 @@ func TestStdinCommandBackup(t *testing.T) {
 func TestBackupErrors(t *testing.T) {
 	needRestic(t)
 	ctx := context.Background()
-	r, st := testRunner(t, config.Backup{
-		Name: "gone", Type: config.BackupFiles, Timeout: time.Minute,
+	r, st := testRunner(t, config.Job{
+		Name: "gone", Type: config.JobFiles, Timeout: time.Minute,
 		Paths: []string{"/definitely/not/here"}, Repositories: []string{"local"},
 	})
 	client, _ := r.Restic("local")
@@ -157,13 +158,13 @@ func TestBackupErrors(t *testing.T) {
 	if ok, err := client.Exists(ctx); ok || err != nil {
 		t.Fatalf("Exists on missing repo = %v, %v", ok, err)
 	}
-	runs := r.Run(ctx, &r.Config.Backups[0])
+	runs := r.Run(ctx, &r.Config.Jobs[0])
 	if runs[0].Success || runs[0].Error == "" {
 		t.Fatalf("backup to missing repo should fail: %+v", runs[0])
 	}
 
 	initRepos(t, r, "local")
-	runs = r.Run(ctx, &r.Config.Backups[0])
+	runs = r.Run(ctx, &r.Config.Jobs[0])
 	if runs[0].Success || !strings.Contains(runs[0].Error, "do not exist") {
 		t.Fatalf("missing source should fail with restic's message, got %+v", runs[0])
 	}
@@ -202,8 +203,8 @@ func TestSecretsNotInArgs(t *testing.T) {
 		ServerName:   "h",
 		Repositories: map[string]config.Repository{"r": {URL: "/repo", Password: "repo-secret"}},
 	}
-	job := config.Backup{
-		Name: "db", Type: config.BackupPostgres, Timeout: time.Minute, Repositories: []string{"r"},
+	job := config.Job{
+		Name: "db", Type: config.JobPostgres, Timeout: time.Minute, Repositories: []string{"r"},
 		Postgres: &config.Postgres{Host: "db.local", Port: 5433, User: "app", Password: "pg-secret", Database: "shop"},
 	}
 	runs := (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job)
@@ -236,7 +237,7 @@ func TestLockRetry(t *testing.T) {
 	os.WriteFile(bin, []byte(script), 0o755)
 
 	cfg := &config.Config{ServerName: "h", Repositories: map[string]config.Repository{"r": {URL: "/r", Password: "p"}}}
-	job := config.Backup{Name: "f", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
+	job := config.Job{Name: "f", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
 
 	noRetry := (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job)
 	if noRetry[0].Success || !strings.Contains(noRetry[0].Error, "locked") {
@@ -261,8 +262,8 @@ func TestRetentionFailureKeepsBackupSuccessful(t *testing.T) {
 		ServerName:   "h",
 		Repositories: map[string]config.Repository{"r": {URL: "/repo", Password: "p"}},
 	}
-	job := config.Backup{
-		Name: "site", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute,
+	job := config.Job{
+		Name: "site", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute,
 		Repositories: []string{"r"}, Retention: config.Retention{Last: 3},
 	}
 	runs := (&Runner{Config: cfg, Bin: bin}).Run(context.Background(), &job)
@@ -282,10 +283,10 @@ func TestJobLockIsSharedAcrossRunners(t *testing.T) {
 	}
 	cfg := &config.Config{
 		ServerName:   "h",
-		Store:        filepath.Join(t.TempDir(), "state.db"),
+		StorePath:    filepath.Join(t.TempDir(), "state.db"),
 		Repositories: map[string]config.Repository{"r": {URL: "/repo", Password: "p"}},
 	}
-	job := config.Backup{Name: "site/with slash", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
+	job := config.Job{Name: "site/with slash", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
 
 	// Two runners stand for the daemon and a `sentinel backup run` process.
 	first := make(chan []store.BackupRun, 1)
@@ -301,5 +302,45 @@ func TestJobLockIsSharedAcrossRunners(t *testing.T) {
 	}
 	if runs := (&Runner{Config: cfg, Bin: slowRestic}).Run(context.Background(), &job); !runs[0].Success {
 		t.Fatalf("run after the first finished = %+v", runs[0])
+	}
+}
+
+func TestRestoreLatestPrefixAndForeign(t *testing.T) {
+	needRestic(t)
+	ctx := context.Background()
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("one"), 0o644)
+	files := config.Job{Name: "files", Type: config.JobFiles, Timeout: time.Minute, Paths: []string{src}, Repositories: []string{"local"}}
+	other := config.Job{Name: "other", Type: config.JobFiles, Timeout: time.Minute, Paths: []string{src}, Repositories: []string{"local"}}
+	r, _ := testRunner(t, files, other)
+	initRepos(t, r, "local")
+	first := r.Run(ctx, &r.Config.Jobs[0])[0]
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("two"), 0o644)
+	second := r.Run(ctx, &r.Config.Jobs[0])[0]
+	foreign := r.Run(ctx, &r.Config.Jobs[1])[0]
+	if !first.Success || !second.Success || !foreign.Success {
+		t.Fatalf("setup runs failed: %+v %+v %+v", first, second, foreign)
+	}
+
+	target := t.TempDir()
+	snapID, hint, err := r.Restore(ctx, &r.Config.Jobs[0], "local", "latest", target)
+	if err != nil || snapID != second.SnapshotID || hint != "" {
+		t.Fatalf("latest = %q, %q, %v; want %q", snapID, hint, err, second.SnapshotID)
+	}
+	if b, _ := os.ReadFile(filepath.Join(target, src, "a.txt")); string(b) != "two" {
+		t.Errorf("restored a.txt = %q, want the latest content", b)
+	}
+
+	older := t.TempDir()
+	if snapID, _, err := r.Restore(ctx, &r.Config.Jobs[0], "local", first.SnapshotID[:8], older); err != nil || snapID != first.SnapshotID {
+		t.Fatalf("prefix = %q, %v; want %q", snapID, err, first.SnapshotID)
+	}
+	if b, _ := os.ReadFile(filepath.Join(older, src, "a.txt")); string(b) != "one" {
+		t.Errorf("restored a.txt = %q, want the first content", b)
+	}
+
+	_, _, err = r.Restore(ctx, &r.Config.Jobs[0], "local", foreign.SnapshotID, t.TempDir())
+	if !errors.Is(err, restic.ErrForeignSnapshot) {
+		t.Errorf("another job's snapshot: err = %v, want ErrForeignSnapshot", err)
 	}
 }

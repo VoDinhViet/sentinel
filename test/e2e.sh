@@ -71,7 +71,7 @@ repositories:
   local:
     url: "$WORK/repo-local"
     password: "\${RESTIC_PW}"
-backups:
+jobs:
   - name: db
     type: postgres
     postgres: { host: 127.0.0.1, port: 55432, user: postgres, password: "\${PGPASSWORD}", database: app }

@@ -14,21 +14,8 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
-
-// initPath is where `sentinel init` writes: --config or $SENTINEL_CONFIG when given, the system
-// path for root, the per-user path otherwise.
-func initPath(locations configLocations, root bool) string {
-	switch {
-	case locations.flagPath != "":
-		return locations.flagPath
-	case locations.envPath != "":
-		return locations.envPath
-	case root || locations.user == "":
-		return locations.system
-	}
-	return locations.user
-}
 
 // initOutcome is what a finished init tells the user.
 type initOutcome struct {
@@ -50,7 +37,7 @@ func (a *app) initCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := os.Geteuid() == 0
-			path := initPath(currentConfigLocations(a.configFlag), root)
+			path := config.DefaultLocations(a.configFlag).WritePath(root)
 			if _, err := os.Stat(path); err == nil && !force {
 				return fmt.Errorf("%s already exists: edit it with `sentinel manage`, or use --force to replace it (the old one is kept as %s.old)", path, path)
 			}
@@ -80,7 +67,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		outcome.jobName, outcome.repoName, outcome.passwordEnv = initial.Job.Name, initial.Repository.Name, initial.Repository.PasswordEnv
 		// A server install keeps secrets in sentinel.env beside the config: give the repository a password there.
-		if root && filepath.Dir(path) == filepath.Dir(systemConfigPath) {
+		if root && filepath.Dir(path) == filepath.Dir(config.SystemPath) {
 			outcome.envFile = filepath.Join(filepath.Dir(path), "sentinel.env")
 			written, err := configedit.EnsureSecret(outcome.envFile, initial.Repository.PasswordEnv)
 			if err != nil {
@@ -90,7 +77,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		return nil
 	}}
-	model := newManageModel(ctx, func() (statusReport, error) { return statusReport{Server: hostname}, nil }, actions, nil)
+	model := newManageModel(ctx, func() (status.Report, error) { return status.Report{Server: hostname}, nil }, actions, nil)
 	model.loaded = true
 	model.report.Server = hostname
 	model = model.openEntryForm(newInitForm(path, root, hostname))
@@ -150,7 +137,7 @@ func printInitOutcome(w io.Writer, outcome *initOutcome) {
 
 // ---- the form
 
-var initJobTypes = []string{config.BackupFiles, config.BackupPostgres, config.BackupMySQL, config.BackupMongoDB}
+var initJobTypes = []string{config.JobFiles, config.JobPostgres, config.JobMySQL, config.JobMongoDB}
 
 // newInitForm is the repository form plus the first job and its schedule, on one screen.
 func newInitForm(path string, root bool, hostname string) form {
@@ -183,9 +170,9 @@ func newInitForm(path string, root bool, hostname string) form {
 		}
 	}
 	fields = append(fields,
-		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.BackupFiles, choices: initJobTypes},
+		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.JobFiles, choices: initJobTypes},
 		jobField("job_name", "Job name", "letters, digits, . _ -", "documents"),
-		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder", jobPaths, config.BackupFiles),
+		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder, ctrl+o browses the server", jobPaths, config.JobFiles),
 		jobField("job_database", "Database", "the database to dump", "", configedit.DatabaseTypes...),
 		jobField("job_password_env", "DB password var", "name of the environment variable holding the database password; empty if none", "", configedit.DatabaseTypes...),
 		formField{key: "job_schedule", label: "Schedule", hint: "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression · manual; ← → for presets", kind: fieldSchedule, value: "daily 02:00"},
@@ -210,7 +197,7 @@ func (f form) initial() (configedit.Initial, error) {
 		Paths: splitList(f.field("job_paths").value), Database: strings.TrimSpace(f.field("job_database").value),
 		PasswordEnv: strings.TrimSpace(f.field("job_password_env").value),
 	}
-	if job.Type != config.BackupFiles {
+	if job.Type != config.JobFiles {
 		job.Paths = nil
 	}
 	var retention config.Retention

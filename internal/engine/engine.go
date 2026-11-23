@@ -32,12 +32,12 @@ type Engine interface {
 	// Tools are the binaries a host must have to back this engine up.
 	Tools() []string
 	// Database is the name of the database the job dumps.
-	Database(job *config.Backup) string
+	Database(job *config.Job) string
 	// Dump builds the dump invocation for a job.
-	Dump(job *config.Backup) (Dump, error)
+	Dump(job *config.Job) (Dump, error)
 	// RestoreHint is the shell command that loads a restored dump back in;
 	// dir is where the snapshot was restored to.
-	RestoreHint(job *config.Backup, dir string) string
+	RestoreHint(job *config.Job, dir string) string
 }
 
 var engines = map[string]Engine{}
@@ -65,7 +65,7 @@ func IsDatabase(jobType string) bool {
 
 // ToolsFor returns the distinct binaries needed by the database jobs among
 // jobs, in first-seen order.
-func ToolsFor(jobs []config.Backup) []string {
+func ToolsFor(jobs []config.Job) []string {
 	var tools []string
 	seenTools := map[string]bool{}
 	for i := range jobs {

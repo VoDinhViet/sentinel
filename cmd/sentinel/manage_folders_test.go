@@ -93,7 +93,7 @@ func pathsForm(t *testing.T) manageModel {
 	t.Helper()
 	screen, _ := formModel(t)
 	screen = openAddForm(t, screen)
-	screen.form.field("type").value = config.BackupFiles
+	screen.form.field("type").value = config.JobFiles
 	screen.form.focus = fieldIndex(screen, "paths")
 	return screen
 }
@@ -132,7 +132,7 @@ func TestSuggestionsShowOnlyOnTheFocusedPathsFieldAndOnlyForFilesJobs(t *testing
 	if view := plain(screen.render()); strings.Contains(view, "add: 1") {
 		t.Errorf("suggestions belong to the focused Paths field:\n%s", view)
 	}
-	screen.form.field("type").value = config.BackupPostgres
+	screen.form.field("type").value = config.JobPostgres
 	screen.form.focus = fieldIndex(screen, "database")
 	if view := plain(screen.render()); strings.Contains(view, "add: 1") || strings.Contains(view, "Paths") {
 		t.Errorf("a database job has no Paths:\n%s", view)

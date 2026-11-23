@@ -124,7 +124,7 @@ func TestMultiRetriesAndIsolatesFailures(t *testing.T) {
 func TestFromConfig(t *testing.T) {
 	ns := FromConfig(config.Notifiers{
 		Telegram: &config.Telegram{Token: "t", ChatID: "c"},
-		Slack:    &config.Webhook{Webhook: "http://x"},
+		Slack:    &config.Webhook{URL: "http://x"},
 	})
 	if len(ns) != 2 || ns[0].Name() != "telegram" || ns[1].Name() != "slack" {
 		t.Errorf("got %v", ns)

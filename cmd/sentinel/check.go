@@ -22,13 +22,13 @@ func (a *app) checkCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(cfg.Uptime) == 0 {
+			if len(cfg.UptimeChecks) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "no uptime checks configured")
 				return nil
 			}
-			results := make([]uptime.Result, len(cfg.Uptime))
+			results := make([]uptime.Result, len(cfg.UptimeChecks))
 			var wg sync.WaitGroup
-			for i, c := range cfg.Uptime {
+			for i, c := range cfg.UptimeChecks {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -40,7 +40,7 @@ func (a *app) checkCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tTARGET\tSTATUS\tLATENCY\tDETAIL")
 			failed := 0
-			for i, c := range cfg.Uptime {
+			for i, c := range cfg.UptimeChecks {
 				r := results[i]
 				status, detail := "UP", ""
 				if !r.OK {
@@ -53,7 +53,7 @@ func (a *app) checkCmd() *cobra.Command {
 			}
 			w.Flush()
 			if failed > 0 {
-				return fmt.Errorf("%d of %d checks failed", failed, len(cfg.Uptime))
+				return fmt.Errorf("%d of %d checks failed", failed, len(cfg.UptimeChecks))
 			}
 			return nil
 		},

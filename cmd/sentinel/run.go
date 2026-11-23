@@ -13,6 +13,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/daemon"
+	"sentinel/internal/doctor"
 	"sentinel/internal/store"
 	"sentinel/internal/uptime"
 )
@@ -59,7 +60,7 @@ func (a *app) runCmd() *cobra.Command {
 					Config: cfg,
 					Store:  st,
 					Alerts: alerts,
-					Backups: &backup.Runner{
+					Runner: &backup.Runner{
 						Config: cfg, Store: st,
 						LockRetries: 3, LockRetryDelay: 5 * time.Minute,
 					},
@@ -67,7 +68,7 @@ func (a *app) runCmd() *cobra.Command {
 				}, nil
 			}
 
-			if failed := printFindings(os.Stderr, checkBinaries(ctx, cfg)); failed > 0 {
+			if failed := printFindings(os.Stderr, doctor.Tools(ctx, cfg)); failed > 0 {
 				return errors.New("required tools are missing; run `sentinel doctor` for details")
 			}
 			d, err := build(cfg)
@@ -83,7 +84,7 @@ func (a *app) runCmd() *cobra.Command {
 func periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) []daemon.Task {
 	var tasks []daemon.Task
 	tracker := &daemon.UptimeTracker{Alerts: alerts, Store: st}
-	for _, c := range cfg.Uptime {
+	for _, c := range cfg.UptimeChecks {
 		tasks = append(tasks, daemon.Task{
 			Name:  "uptime:" + c.Name,
 			Every: c.Interval,

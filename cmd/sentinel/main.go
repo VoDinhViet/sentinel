@@ -49,7 +49,7 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("--log-level: %w", err)
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
-			a.configPath, a.configErr = currentConfigLocations(a.configFlag).resolve()
+			a.configPath, a.configErr = config.DefaultLocations(a.configFlag).Resolve()
 			return nil
 		},
 	}
@@ -67,9 +67,9 @@ func (a *app) loadConfig() (*config.Config, error) {
 }
 
 func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
-	s, err := store.Open(cfg.Store)
+	s, err := store.Open(cfg.StorePath)
 	if err != nil {
-		return nil, fmt.Errorf("open store %s: %w", cfg.Store, err)
+		return nil, fmt.Errorf("open store %s: %w", cfg.StorePath, err)
 	}
 	return s, nil
 }

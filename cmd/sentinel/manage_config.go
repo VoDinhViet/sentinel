@@ -150,7 +150,7 @@ func (m manageModel) buildConfigTab() manageTab {
 		defaults = "defaults: " + strings.Join(nonEmpty(settings.DefaultSchedule, strings.Join(settings.DefaultRepositories, ", "), settings.DefaultRetention.String()), " · ")
 	}
 	add(configEntry{secSettings, "general"}, sevOK, "server "+orDefault(settings.ServerName, "(host name)"), defaults,
-		fmt.Sprintf("Settings: server %s, alerts repeat every %s, repository check %s. %s", orDefault(settings.ServerName, "(host name)"), orDefault(settings.Cooldown, "1h (default)"), schedule.Describe(settings.RepoCheckSchedule), defaults))
+		fmt.Sprintf("Settings: server %s, alerts repeat every %s, repository check %s. %s", orDefault(settings.ServerName, "(host name)"), orDefault(settings.Cooldown, "1h (default)"), schedule.Describe(settings.VerifySchedule), defaults))
 	if m.config.err != nil {
 		return manageTab{title: "Config", headers: tab.headers, statusCol: -1, historyCol: -1}
 	}

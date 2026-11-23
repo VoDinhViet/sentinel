@@ -18,8 +18,8 @@ import (
 
 func TestIsStale(t *testing.T) {
 	loc := time.UTC
-	daily := &config.Backup{Schedule: "0 2 * * *", Timeout: time.Hour}
-	weekdays := &config.Backup{Schedule: "0 2 * * 1-5", Timeout: time.Hour}
+	daily := &config.Job{Schedule: "0 2 * * *", Timeout: time.Hour}
+	weekdays := &config.Job{Schedule: "0 2 * * 1-5", Timeout: time.Hour}
 	started := time.Date(2026, 10, 1, 0, 0, 0, 0, loc)
 	// Sunday 2026-10-11 03:00.
 	sunday := time.Date(2026, 10, 11, 3, 0, 0, 0, loc)
@@ -27,7 +27,7 @@ func TestIsStale(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		job   *config.Backup
+		job   *config.Job
 		last  time.Time
 		now   time.Time
 		stale bool
@@ -38,7 +38,7 @@ func TestIsStale(t *testing.T) {
 		{"weekdays over weekend", weekdays, friday2am, sunday, false},
 		{"never ran, just started", daily, time.Time{}, started.Add(time.Hour), false},
 		{"never ran, long after start", daily, time.Time{}, started.Add(72 * time.Hour), true},
-		{"unscheduled", &config.Backup{}, time.Time{}, sunday, false},
+		{"unscheduled", &config.Job{}, time.Time{}, sunday, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,17 +96,17 @@ func TestRunBackupAlerts(t *testing.T) {
 	cfg := &config.Config{
 		ServerName:   "h",
 		Repositories: map[string]config.Repository{"s3": {URL: "/r", Password: "p"}},
-		Backups: []config.Backup{{Name: "site", Type: config.BackupFiles, Paths: []string{"/x"},
+		Jobs: []config.Job{{Name: "site", Type: config.JobFiles, Paths: []string{"/x"},
 			Timeout: time.Minute, Repositories: []string{"s3"}}},
 		Alert: config.AlertSettings{NotifySuccess: true},
 	}
 	rec := &recorder{}
 	d := &Daemon{
 		Config: cfg, Store: st,
-		Alerts:  &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
-		Backups: &backup.Runner{Config: cfg, Store: st, Bin: bin},
+		Alerts: &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
+		Runner: &backup.Runner{Config: cfg, Store: st, Bin: bin},
 	}
-	job := &cfg.Backups[0]
+	job := &cfg.Jobs[0]
 
 	d.RunBackup(ctx, job)
 	if got := rec.titles(); len(got) != 1 || got[0] != "INFO Backup site completed" {
@@ -151,7 +151,7 @@ func TestRunStopsAndCancelsJobs(t *testing.T) {
 	cancelled := make(chan struct{})
 	var once sync.Once
 	d := &Daemon{
-		Config: cfg, Store: st, Alerts: &alert.Manager{}, Backups: &backup.Runner{Config: cfg},
+		Config: cfg, Store: st, Alerts: &alert.Manager{}, Runner: &backup.Runner{Config: cfg},
 		Tasks: []Task{{Name: "slow", Every: time.Second, Run: func(ctx context.Context) {
 			once.Do(func() { close(started) })
 			<-ctx.Done()
@@ -197,16 +197,16 @@ func TestRunBackupSkipsWhenJobAlreadyRunning(t *testing.T) {
 	cfg := &config.Config{
 		ServerName:   "h",
 		Repositories: map[string]config.Repository{"s3": {URL: "/r", Password: "p"}},
-		Backups: []config.Backup{{Name: "site", Type: config.BackupFiles, Paths: []string{"/x"},
+		Jobs: []config.Job{{Name: "site", Type: config.JobFiles, Paths: []string{"/x"},
 			Timeout: time.Minute, Repositories: []string{"s3"}}},
 	}
 	rec := &recorder{}
 	d := &Daemon{
 		Config: cfg, Store: st,
-		Alerts:  &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
-		Backups: &backup.Runner{Config: cfg, Store: st, Bin: slow},
+		Alerts: &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
+		Runner: &backup.Runner{Config: cfg, Store: st, Bin: slow},
 	}
-	job := &cfg.Backups[0]
+	job := &cfg.Jobs[0]
 
 	first := make(chan []store.BackupRun, 1)
 	go func() { first <- d.RunBackup(ctx, job) }()

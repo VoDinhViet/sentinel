@@ -7,13 +7,17 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"sentinel/internal/status"
+
+	"sentinel/internal/doctor"
 )
 
-func doctorFindings() []finding {
-	return []finding{
-		{name: "config", info: "/etc/sentinel/config.yaml"},
-		{name: "restic", err: errors.New("not found in PATH"), hint: "install restic >= 0.17"},
-		{name: "notifiers", err: errors.New("none configured"), warn: true, hint: "add a notifier"},
+func doctorFindings() []doctor.Finding {
+	return []doctor.Finding{
+		{Name: "config", Info: "/etc/sentinel/config.yaml"},
+		{Name: "restic", Err: errors.New("not found in PATH"), Hint: "install restic >= 0.17"},
+		{Name: "notifiers", Err: errors.New("none configured"), Warn: true, Hint: "add a notifier"},
 	}
 }
 
@@ -21,11 +25,11 @@ func doctorFindings() []finding {
 func doctorModel(t *testing.T) (manageModel, *int) {
 	t.Helper()
 	runs := new(int)
-	actions := manageActions{doctor: func(context.Context) []finding {
+	actions := manageActions{doctor: func(context.Context) []doctor.Finding {
 		*runs++
 		return doctorFindings()
 	}}
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, actions, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, actions, nil).Update(reportMsg{report: sampleReport()})
 	return model.(manageModel), runs
 }
 
@@ -117,7 +121,7 @@ func TestDoctorTabAlarmsOnlyOnFailures(t *testing.T) {
 }
 
 func TestDoctorTabWithoutAnActionStaysIdle(t *testing.T) {
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
 	screen, cmd := send(t, model.(manageModel), "4")
 	if cmd != nil || screen.doctor.running {
 		t.Error("nothing to run without a doctor action")

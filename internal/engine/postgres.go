@@ -11,10 +11,10 @@ import (
 
 type postgres struct{}
 
-func (postgres) Type() string    { return config.BackupPostgres }
+func (postgres) Type() string    { return config.JobPostgres }
 func (postgres) Tools() []string { return []string{"pg_dump"} }
 
-func (postgres) Database(job *config.Backup) string {
+func (postgres) Database(job *config.Job) string {
 	if job.Postgres == nil {
 		return ""
 	}
@@ -22,7 +22,7 @@ func (postgres) Database(job *config.Backup) string {
 }
 
 // Dump runs pg_dump in custom format (compressed, restorable with pg_restore).
-func (postgres) Dump(job *config.Backup) (Dump, error) {
+func (postgres) Dump(job *config.Job) (Dump, error) {
 	pg := job.Postgres
 	if pg == nil {
 		return Dump{}, errors.New("postgres settings are missing")
@@ -41,7 +41,7 @@ func (postgres) Dump(job *config.Backup) (Dump, error) {
 	return dump, nil
 }
 
-func (postgres) RestoreHint(job *config.Backup, dir string) string {
+func (postgres) RestoreHint(job *config.Job, dir string) string {
 	return fmt.Sprintf("pg_restore --clean --if-exists -d %s %s",
 		shellQuote(job.Postgres.Database), shellQuote(filepath.Join(dir, job.Postgres.Database+".dump")))
 }

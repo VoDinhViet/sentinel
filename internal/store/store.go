@@ -128,6 +128,29 @@ type BackupRun struct {
 	Error string
 }
 
+// Outcome is "failed", "warning" (a snapshot exists but retention failed) or "ok".
+func (r BackupRun) Outcome() string {
+	switch {
+	case !r.Success:
+		return "failed"
+	case r.Error != "":
+		return "warning"
+	}
+	return "ok"
+}
+
+// Summary is how the run reads in the CLI: "ok", "ok (warning: ...)" when the
+// snapshot was made but retention failed, or "FAILED: ...".
+func (r BackupRun) Summary() string {
+	switch {
+	case !r.Success:
+		return "FAILED: " + r.Error
+	case r.Error != "":
+		return "ok (warning: " + r.Error + ")"
+	}
+	return "ok"
+}
+
 func (s *Store) RecordBackup(ctx context.Context, run BackupRun) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO backup_runs
 		(job, repository, started_at, finished_at, success, snapshot_id, files_new, files_changed, bytes_added, total_bytes, error)

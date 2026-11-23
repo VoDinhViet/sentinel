@@ -12,9 +12,10 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
-	"sentinel/internal/engine"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
+
+	"sentinel/internal/doctor"
 )
 
 // jobRepository is one backup the manager can act on: a job and one of its repositories.
@@ -24,7 +25,7 @@ type jobRepository struct {
 
 func configuredJobRepositories(cfg *config.Config) []jobRepository {
 	var jobRepositories []jobRepository
-	for _, job := range cfg.Backups {
+	for _, job := range cfg.Jobs {
 		for _, repository := range job.Repositories {
 			jobRepositories = append(jobRepositories, jobRepository{job: job.Name, repository: repository})
 		}
@@ -44,7 +45,7 @@ type manageActions struct {
 	saveJob   func(original string, job configedit.Job) error
 	deleteJob func(name string) error
 	// doctor runs the same checks as `sentinel doctor`.
-	doctor func(ctx context.Context) []finding
+	doctor func(ctx context.Context) []doctor.Finding
 	// The rest of the config file, shown and edited on the Config tab.
 	overview         func() (configedit.Overview, error)
 	saveRepository   func(original string, repository configedit.Repository) error
@@ -59,8 +60,8 @@ type manageActions struct {
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
-	jobAndRestic := func(jobName, repository string) (*config.Backup, *restic.Client, error) {
-		job, err := cfg.FindBackup(jobName)
+	jobAndRestic := func(jobName, repository string) (*config.Job, *restic.Client, error) {
+		job, err := cfg.FindJob(jobName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -83,18 +84,20 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		saveNotifier:   func(notifier configedit.Notifier) error { return configedit.SaveNotifier(configPath, notifier) },
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
-		doctor: func(ctx context.Context) []finding {
-			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
+		doctor: func(ctx context.Context) []doctor.Finding {
+			return doctor.Run(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.StorePath) })
 		},
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
-			job, err := cfg.FindBackup(jobName)
+			job, err := cfg.FindJob(jobName)
 			if err != nil {
 				return nil, err
 			}
-			jobCopy := *job
-			jobCopy.Repositories = []string{repository}
+			scoped, err := job.OnlyRepo(repository)
+			if err != nil {
+				return nil, err
+			}
 			// The runner's job lock keeps this from overlapping the daemon or a CLI run.
-			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, &jobCopy), nil
+			return (&backup.Runner{Config: cfg, Store: st}).Run(ctx, scoped), nil
 		},
 		snapshots: func(ctx context.Context, jobName, repository string) ([]restic.Snapshot, error) {
 			job, client, err := jobAndRestic(jobName, repository)
@@ -111,25 +114,15 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			return snapshots, nil
 		},
 		restore: func(ctx context.Context, jobName, repository string, snapshot restic.Snapshot, target string) (string, error) {
-			job, client, err := jobAndRestic(jobName, repository)
+			job, err := cfg.FindJob(jobName)
 			if err != nil {
 				return "", err
 			}
-			// Look the snapshot up among the job's own, as `backup restore` does.
-			own, err := client.JobSnapshot(ctx, backup.JobTags(job), snapshot.ID)
+			_, loadHint, err := (&backup.Runner{Config: cfg}).Restore(ctx, job, repository, snapshot.ID, target)
 			if errors.Is(err, restic.ErrForeignSnapshot) {
 				return "", fmt.Errorf("snapshot %s is not a snapshot of job %q in %s", shortID(snapshot.ID), jobName, repository)
 			}
-			if err != nil {
-				return "", err
-			}
-			if err := client.Restore(ctx, own.ID, target); err != nil {
-				return "", err
-			}
-			if dbEngine, ok := engine.For(job.Type); ok {
-				return dbEngine.RestoreHint(job, target), nil
-			}
-			return "", nil
+			return loadHint, err
 		},
 	}
 }

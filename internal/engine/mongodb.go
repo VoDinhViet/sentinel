@@ -12,10 +12,10 @@ import (
 
 type mongodb struct{}
 
-func (mongodb) Type() string    { return config.BackupMongoDB }
+func (mongodb) Type() string    { return config.JobMongoDB }
 func (mongodb) Tools() []string { return []string{"mongodump"} }
 
-func (mongodb) Database(job *config.Backup) string {
+func (mongodb) Database(job *config.Job) string {
 	if job.MongoDB == nil {
 		return ""
 	}
@@ -24,7 +24,7 @@ func (mongodb) Database(job *config.Backup) string {
 
 // Dump streams a gzip-compressed mongodump archive of one database. The
 // password goes in a temporary --config file, never on argv.
-func (mongodb) Dump(job *config.Backup) (Dump, error) {
+func (mongodb) Dump(job *config.Job) (Dump, error) {
 	mongo := job.MongoDB
 	if mongo == nil {
 		return Dump{}, errors.New("mongodb settings are missing")
@@ -49,7 +49,7 @@ func (mongodb) Dump(job *config.Backup) (Dump, error) {
 	return dump, nil
 }
 
-func (mongodb) RestoreHint(job *config.Backup, dir string) string {
+func (mongodb) RestoreHint(job *config.Job, dir string) string {
 	return fmt.Sprintf("mongorestore --host %s --port %d --drop --gzip --archive=%s --nsInclude %s",
 		shellQuote(job.MongoDB.Host), job.MongoDB.Port,
 		shellQuote(filepath.Join(dir, job.MongoDB.Database+".archive.gz")), shellQuote(job.MongoDB.Database+".*"))

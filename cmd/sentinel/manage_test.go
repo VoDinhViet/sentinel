@@ -9,6 +9,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"sentinel/internal/status"
 )
 
 var escapeCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -16,23 +18,23 @@ var escapeCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
 // plain drops the colour codes so tests read the text a user sees.
 func plain(view string) string { return escapeCodes.ReplaceAllString(view, "") }
 
-func sampleReport() statusReport {
+func sampleReport() status.Report {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
-	return statusReport{
+	return status.Report{
 		Server: "web-01", GeneratedAt: now,
-		Alerts: []alertEntry{{Key: "backup:appdb:s3", Message: "appdb has not backed up for 3 days", Since: now.Add(-time.Hour)}},
-		Backups: []backupEntry{
+		Alerts: []status.Alert{{Key: "backup:appdb:s3", Message: "appdb has not backed up for 3 days", Since: now.Add(-time.Hour)}},
+		Jobs: []status.Job{
 			{Job: "appdb", Repository: "s3", FinishedAt: now.Add(-time.Hour), Success: true, SnapshotID: "0123456789abcdef", BytesAdded: 2048, Result: "ok", Recent: []string{"ok", "ok", "failed", "ok"}},
 			{Job: "files", Repository: "local", FinishedAt: now.Add(-2 * time.Hour), Success: false, Error: "restic exited 1", Result: "FAILED: restic exited 1", Recent: []string{"ok", "failed", "failed"}},
 			{Job: "mongo", Repository: "s3", FinishedAt: now.Add(-3 * time.Hour), Success: true, SnapshotID: "fedcba9876543210", Warning: "forget failed", Result: "ok (warning: forget failed)"},
 		},
-		Checks: []checkEntry{{Name: "site", OK: true, LatencyMs: 42, At: now}, {Name: "api", OK: false, At: now, Error: "connection refused"}},
+		Checks: []status.Check{{Name: "site", OK: true, LatencyMs: 42, At: now}, {Name: "api", OK: false, At: now, Error: "connection refused"}},
 	}
 }
 
 func loadedModel(t *testing.T) manageModel {
 	t.Helper()
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
 	return model.(manageModel)
 }
 
@@ -67,8 +69,8 @@ func TestManageSummaryAndHistoryGlyphs(t *testing.T) {
 }
 
 func TestManageSummaryAllGoodAndNarrow(t *testing.T) {
-	healthy := statusReport{Server: "s", GeneratedAt: time.Now(), Backups: []backupEntry{{Job: "a", Repository: "r", Success: true, Result: "ok"}}}
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return healthy, nil }, manageActions{}, nil).Update(reportMsg{report: healthy})
+	healthy := status.Report{Server: "s", GeneratedAt: time.Now(), Jobs: []status.Job{{Job: "a", Repository: "r", Success: true, Result: "ok"}}}
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return healthy, nil }, manageActions{}, nil).Update(reportMsg{report: healthy})
 	if got := plain(model.(manageModel).summary()); got != "1 healthy" {
 		t.Errorf("summary = %q", got)
 	}
@@ -77,7 +79,7 @@ func TestManageSummaryAllGoodAndNarrow(t *testing.T) {
 	if got := plain(narrow.summary()); len([]rune(got)) > 20 || !strings.HasPrefix(got, "1 failed") {
 		t.Errorf("narrow summary = %q (the most important parts stay)", got)
 	}
-	empty, _ := newManageModel(context.Background(), func() (statusReport, error) { return statusReport{}, nil }, manageActions{}, nil).Update(reportMsg{})
+	empty, _ := newManageModel(context.Background(), func() (status.Report, error) { return status.Report{}, nil }, manageActions{}, nil).Update(reportMsg{})
 	if got := plain(empty.(manageModel).summary()); got != "nothing configured yet" {
 		t.Errorf("empty summary = %q", got)
 	}
@@ -131,7 +133,7 @@ func TestManageShowsStoreErrorAndKeepsLastReport(t *testing.T) {
 }
 
 func TestManageEmptyAndNarrow(t *testing.T) {
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return statusReport{}, nil }, manageActions{}, nil).Update(reportMsg{})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return status.Report{}, nil }, manageActions{}, nil).Update(reportMsg{})
 	if view := plain(model.(manageModel).render()); !strings.Contains(view, "No backups recorded yet") {
 		t.Errorf("empty view:\n%s", view)
 	}

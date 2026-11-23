@@ -6,26 +6,8 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
-
-func TestInitPathPicksWhereToWrite(t *testing.T) {
-	locations := configLocations{system: "/etc/sentinel/config.yaml", user: "/home/me/.config/sentinel/config.yaml"}
-	for name, tc := range map[string]struct {
-		locations configLocations
-		root      bool
-		want      string
-	}{
-		"user":              {locations, false, "/home/me/.config/sentinel/config.yaml"},
-		"root":              {locations, true, "/etc/sentinel/config.yaml"},
-		"no user directory": {configLocations{system: "/etc/sentinel/config.yaml"}, false, "/etc/sentinel/config.yaml"},
-		"flag wins":         {configLocations{flagPath: "/x/c.yaml", envPath: "/y.yaml", system: "/s", user: "/u"}, true, "/x/c.yaml"},
-		"env beats default": {configLocations{envPath: "/y.yaml", system: "/s", user: "/u"}, false, "/y.yaml"},
-	} {
-		if got := initPath(tc.locations, tc.root); got != tc.want {
-			t.Errorf("%s: %s, want %s", name, got, tc.want)
-		}
-	}
-}
 
 // initScreen is the init form hosted the way `sentinel init` hosts it, with a fake writer.
 func initScreen(t *testing.T, root bool) (initProgram, *[]configedit.Initial) {
@@ -35,7 +17,7 @@ func initScreen(t *testing.T, root bool) (initProgram, *[]configedit.Initial) {
 		written = append(written, initial)
 		return nil
 	}}
-	model := newManageModel(t.Context(), func() (statusReport, error) { return statusReport{Server: "web-01"}, nil }, actions, nil)
+	model := newManageModel(t.Context(), func() (status.Report, error) { return status.Report{Server: "web-01"}, nil }, actions, nil)
 	model.loaded = true
 	return initProgram{manageModel: model.openEntryForm(newInitForm("/home/me/.config/sentinel/config.yaml", root, "web-01"))}, &written
 }
@@ -66,7 +48,7 @@ func TestInitFormStartsValidAndWritesTheDefaults(t *testing.T) {
 		t.Errorf("a user's state database lives under their home, not in /var/lib: %q", got.Store)
 	}
 	if got.ServerName != "web-01" || got.Repository.Name != "local" || got.Repository.URL != "${HOME}/.local/share/sentinel/repo" || got.Repository.PasswordEnv != "RESTIC_PASSWORD" ||
-		got.Job.Name != "documents" || got.Job.Type != config.BackupFiles || strings.Join(got.Job.Paths, "|") != "${HOME}/Documents" ||
+		got.Job.Name != "documents" || got.Job.Type != config.JobFiles || strings.Join(got.Job.Paths, "|") != "${HOME}/Documents" ||
 		got.Schedule != "daily 02:00" || got.Retention != (config.Retention{Daily: 7, Weekly: 4, Monthly: 6}) {
 		t.Errorf("initial = %+v", got)
 	}
@@ -87,7 +69,7 @@ func TestInitFormAsksForADatabaseWhenTheJobIsOne(t *testing.T) {
 	if strings.Contains(plain(program.render()), "Database") {
 		t.Error("a files job has no database field")
 	}
-	program.form.field("job_type").value = config.BackupPostgres
+	program.form.field("job_type").value = config.JobPostgres
 	view := plain(program.render())
 	if !strings.Contains(view, "DB password var") || strings.Contains(view, "Paths") {
 		t.Errorf("postgres fields:\n%s", view)

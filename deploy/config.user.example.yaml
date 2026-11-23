@@ -26,7 +26,7 @@ defaults:
   schedule: daily 02:00                  # used by `sentinel run`
   retention: { daily: 7, weekly: 4, monthly: 6 }
 
-backups:
+jobs:
   - name: documents
     type: files
     paths: ["${HOME}/Documents"]

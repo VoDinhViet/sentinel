@@ -71,10 +71,10 @@ func FromConfig(settings config.Notifiers) []Notifier {
 		notifiers = append(notifiers, &SMTP{Config: *settings.SMTP})
 	}
 	if settings.Discord != nil {
-		notifiers = append(notifiers, &Discord{URL: settings.Discord.Webhook})
+		notifiers = append(notifiers, &Discord{URL: settings.Discord.URL})
 	}
 	if settings.Slack != nil {
-		notifiers = append(notifiers, &Slack{URL: settings.Slack.Webhook})
+		notifiers = append(notifiers, &Slack{URL: settings.Slack.URL})
 	}
 	return notifiers
 }

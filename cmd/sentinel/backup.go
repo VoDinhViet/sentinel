@@ -10,7 +10,6 @@ import (
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
-	"sentinel/internal/engine"
 	"sentinel/internal/restic"
 )
 
@@ -18,21 +17,17 @@ func (a *app) backupCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "backup", Short: "Run and manage backups"}
 	var repoFlag string
 
-	// pick returns the job and the repositories a command should act on.
-	pick := func(cfg *config.Config, jobName string) (*config.Backup, []string, error) {
-		job, err := cfg.FindBackup(jobName)
+	// pick returns the job a command should act on: all of its repositories, or only
+	// --repository when given.
+	pick := func(cfg *config.Config, jobName string) (*config.Job, error) {
+		job, err := cfg.FindJob(jobName)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if repoFlag == "" {
-			return job, job.Repositories, nil
+			return job, nil
 		}
-		for _, r := range job.Repositories {
-			if r == repoFlag {
-				return job, []string{r}, nil
-			}
-		}
-		return nil, nil, fmt.Errorf("job %q does not use repository %q", jobName, repoFlag)
+		return job.OnlyRepo(repoFlag)
 	}
 
 	initCmd := &cobra.Command{
@@ -44,13 +39,13 @@ func (a *app) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, repos, err := pick(cfg, args[0])
+			job, err := pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
 			runner := &backup.Runner{Config: cfg}
 			var errs []error
-			for _, name := range repos {
+			for _, name := range job.Repositories {
 				rc, _ := runner.Restic(name)
 				existed, err := rc.Init(cmd.Context())
 				switch {
@@ -76,7 +71,7 @@ func (a *app) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, repos, err := pick(cfg, args[0])
+			job, err := pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
@@ -85,15 +80,13 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			jobCopy := *job
-			jobCopy.Repositories = repos
-			runs := (&backup.Runner{Config: cfg, Store: st}).Run(cmd.Context(), &jobCopy)
+			runs := (&backup.Runner{Config: cfg, Store: st}).Run(cmd.Context(), job)
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 			failed := 0
 			for _, r := range runs {
-				result := runResult(r)
+				result := r.Summary()
 				if !r.Success {
 					failed++
 				}
@@ -117,7 +110,7 @@ func (a *app) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, repos, err := pick(cfg, args[0])
+			job, err := pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
@@ -125,7 +118,7 @@ func (a *app) backupCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "REPOSITORY\tSNAPSHOT\tTIME\tSIZE")
 			var errs []error
-			for _, name := range repos {
+			for _, name := range job.Repositories {
 				rc, _ := runner.Restic(name)
 				snaps, err := rc.Snapshots(cmd.Context(), backup.JobTags(job))
 				if err != nil {
@@ -157,40 +150,21 @@ func (a *app) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, repos, err := pick(cfg, args[0])
+			job, err := pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
-			if repoFlag == "" && len(repos) > 1 {
-				repos = repos[:1]
+			repoName := job.Repositories[0] // a restore reads one repository: the first unless --repository
+			snapID, loadHint, err := (&backup.Runner{Config: cfg}).Restore(cmd.Context(), job, repoName, args[1], target)
+			if errors.Is(err, restic.ErrForeignSnapshot) {
+				return fmt.Errorf("snapshot %s is not a snapshot of job %q in %s (see `sentinel backup list %s`)", args[1], job.Name, repoName, job.Name)
 			}
-			rc, _ := (&backup.Runner{Config: cfg}).Restic(repos[0])
-			snapshot := args[1]
-			if snapshot == "latest" {
-				snaps, err := rc.Snapshots(cmd.Context(), backup.JobTags(job))
-				if err != nil {
-					return err
-				}
-				if len(snaps) == 0 {
-					return fmt.Errorf("no snapshots for job %q in %s", job.Name, repos[0])
-				}
-				snapshot = snaps[len(snaps)-1].ID
-			} else {
-				jobSnapshot, err := rc.JobSnapshot(cmd.Context(), backup.JobTags(job), snapshot)
-				if errors.Is(err, restic.ErrForeignSnapshot) {
-					return fmt.Errorf("snapshot %s is not a snapshot of job %q in %s (see `sentinel backup list %s`)", snapshot, job.Name, repos[0], job.Name)
-				}
-				if err != nil {
-					return err
-				}
-				snapshot = jobSnapshot.ID
-			}
-			if err := rc.Restore(cmd.Context(), snapshot, target); err != nil {
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "restored %.8s from %s into %s\n", snapshot, repos[0], target)
-			if dbEngine, ok := engine.For(job.Type); ok {
-				fmt.Fprintf(cmd.OutOrStdout(), "load it with: %s\n", dbEngine.RestoreHint(job, target))
+			fmt.Fprintf(cmd.OutOrStdout(), "restored %.8s from %s into %s\n", snapID, repoName, target)
+			if loadHint != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "load it with: %s\n", loadHint)
 				fmt.Fprintln(cmd.OutOrStdout(), "this replaces existing data: try it on a scratch database or server first")
 			}
 			return nil

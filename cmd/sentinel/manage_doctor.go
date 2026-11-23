@@ -4,19 +4,21 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"sentinel/internal/doctor"
 )
 
 // doctorTab is the index of the Doctor tab.
 const doctorTab = 3
 
 // doctorMsg carries the result of the checks started by startDoctor.
-type doctorMsg struct{ findings []finding }
+type doctorMsg struct{ findings []doctor.Finding }
 
 // doctorState is what the Doctor tab shows: nothing yet, a run in progress, or the findings.
 type doctorState struct {
 	started  bool // the checks were started at least once; they run when the tab is first opened
 	running  bool
-	findings []finding
+	findings []doctor.Finding
 }
 
 // startDoctorIfNeeded starts the checks when the Doctor tab is on screen and has not run
@@ -40,11 +42,11 @@ func (m manageModel) startDoctor() (manageModel, tea.Cmd) {
 }
 
 // doctorSeverity maps a finding to the colour of its line.
-func doctorSeverity(f finding) severity {
+func doctorSeverity(f doctor.Finding) severity {
 	switch {
-	case f.err == nil:
+	case f.Err == nil:
 		return sevOK
-	case f.warn:
+	case f.Warn:
 		return sevWarn
 	}
 	return sevBad
@@ -65,19 +67,19 @@ func (m manageModel) buildDoctorTab() manageTab {
 	tab := manageTab{title: "Doctor", headers: []string{"CHECK", "STATUS", "DETAIL"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0}
 	for _, f := range m.doctor.findings {
 		level := doctorSeverity(f)
-		status, message := "ok", f.info
+		status, message := "ok", f.Info
 		switch level {
 		case sevBad:
-			status, message = "FAIL", f.err.Error()
+			status, message = "FAIL", f.Err.Error()
 		case sevWarn:
-			status, message = "warn", f.err.Error()
+			status, message = "warn", f.Err.Error()
 		}
-		detail := f.name + ": " + message
-		if f.hint != "" && level != sevOK {
-			detail += "  → " + f.hint
+		detail := f.Name + ": " + message
+		if f.Hint != "" && level != sevOK {
+			detail += "  → " + f.Hint
 		}
 		tab.lines = append(tab.lines, manageLine{
-			cells:    []string{f.name, status, strings.TrimSpace(message)},
+			cells:    []string{f.Name, status, strings.TrimSpace(message)},
 			severity: level,
 			detail:   detail,
 		})

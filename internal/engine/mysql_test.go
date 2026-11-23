@@ -10,9 +10,9 @@ import (
 	"sentinel/internal/config"
 )
 
-func mysqlJob() *config.Backup {
-	return &config.Backup{
-		Name: "shop", Type: config.BackupMySQL,
+func mysqlJob() *config.Job {
+	return &config.Job{
+		Name: "shop", Type: config.JobMySQL,
 		MySQL: &config.MySQL{Host: "db.local", Port: 3307, User: "app", Password: `p"w\d`, Database: "shop"},
 	}
 }
@@ -34,7 +34,7 @@ func fakeTools(t *testing.T, version string, installed ...string) {
 
 func TestMySQLDumpKeepsPasswordOutOfArgv(t *testing.T) {
 	fakeTools(t, "mysqldump  Ver 5.7.44", "mysqldump")
-	mysqlEngine, _ := For(config.BackupMySQL)
+	mysqlEngine, _ := For(config.JobMySQL)
 	dump, err := mysqlEngine.Dump(mysqlJob())
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestMySQLDumpKeepsPasswordOutOfArgv(t *testing.T) {
 }
 
 func TestMySQLColumnStatisticsOnlyForMySQL8Client(t *testing.T) {
-	mysqlEngine, _ := For(config.BackupMySQL)
+	mysqlEngine, _ := For(config.JobMySQL)
 
 	fakeTools(t, "mysqldump  Ver 8.0.36 for Linux on x86_64", "mysqldump")
 	dump, _ := mysqlEngine.Dump(mysqlJob())
@@ -96,7 +96,7 @@ func TestMySQLColumnStatisticsOnlyForMySQL8Client(t *testing.T) {
 }
 
 func TestMySQLToolsFollowInstalledClient(t *testing.T) {
-	mysqlEngine, _ := For(config.BackupMySQL)
+	mysqlEngine, _ := For(config.JobMySQL)
 	fakeTools(t, "", "mariadb-dump")
 	if got := mysqlEngine.Tools(); !slices.Equal(got, []string{"mariadb-dump"}) {
 		t.Errorf("tools = %v", got)
@@ -108,15 +108,15 @@ func TestMySQLToolsFollowInstalledClient(t *testing.T) {
 }
 
 func TestMySQLDumpRequiresSettings(t *testing.T) {
-	mysqlEngine, _ := For(config.BackupMySQL)
-	if _, err := mysqlEngine.Dump(&config.Backup{Type: config.BackupMySQL}); err == nil {
+	mysqlEngine, _ := For(config.JobMySQL)
+	if _, err := mysqlEngine.Dump(&config.Job{Type: config.JobMySQL}); err == nil {
 		t.Fatal("want error when mysql settings are missing")
 	}
 }
 
 func TestMySQLTLSOption(t *testing.T) {
 	fakeTools(t, "", "mariadb-dump")
-	mysqlEngine, _ := For(config.BackupMySQL)
+	mysqlEngine, _ := For(config.JobMySQL)
 	for tls, want := range map[string]string{"disabled": "loose-skip-ssl", "required": "loose-ssl\n", "": ""} {
 		job := mysqlJob()
 		job.MySQL.TLS = tls

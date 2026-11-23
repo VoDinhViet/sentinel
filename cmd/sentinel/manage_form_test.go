@@ -8,6 +8,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
 
 type fakeConfig struct {
@@ -64,8 +65,8 @@ func formModel(t *testing.T) (manageModel, *fakeConfig) {
 	configFile := &fakeConfig{listing: configedit.Listing{
 		Repositories: []string{"local", "s3"},
 		Jobs: []configedit.Job{
-			{Name: "appdb", Type: config.BackupPostgres, Database: "app", Host: "db", Port: 5433, PasswordLiteral: true, Repositories: []string{"s3"}, Retention: config.Retention{Daily: 7}},
-			{Name: "files", Type: config.BackupFiles, Repositories: []string{"local"}},
+			{Name: "appdb", Type: config.JobPostgres, Database: "app", Host: "db", Port: 5433, PasswordLiteral: true, Repositories: []string{"s3"}, Retention: config.Retention{Daily: 7}},
+			{Name: "files", Type: config.JobFiles, Repositories: []string{"local"}},
 		},
 	}, overview: configedit.Overview{
 		Repositories: []configedit.Repository{
@@ -78,7 +79,7 @@ func formModel(t *testing.T) (manageModel, *fakeConfig) {
 	}}
 	actions := (&fakeActions{}).actions()
 	configFile.attach(&actions)
-	screen := newManageModel(t.Context(), func() (statusReport, error) { return sampleReport(), nil }, actions, jobRepositoriesOf(configFile.listing))
+	screen := newManageModel(t.Context(), func() (status.Report, error) { return sampleReport(), nil }, actions, jobRepositoriesOf(configFile.listing))
 	model, _ := screen.Update(reportMsg{report: sampleReport()})
 	return model.(manageModel), configFile
 }
@@ -105,7 +106,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen = keys(t, screen, "right") // type: postgres -> mysql
-	if screen.form.field("type").value != config.BackupMySQL || !strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
+	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
 		t.Fatalf("type-specific fields wrong:\n%s", plain(screen.render()))
 	}
 	screen = keys(t, screen, "tab")
@@ -132,7 +133,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 		t.Fatalf("not saved (mode %d): %+v\n%s", screen.mode, screen.form.problems(), plain(screen.render()))
 	}
 	got := configFile.saved[0]
-	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.BackupMySQL || got.Database != "shopdb" || got.User != "dump" ||
+	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.JobMySQL || got.Database != "shopdb" || got.User != "dump" ||
 		got.PasswordEnv != "MYSQL_PW" || got.Schedule != "daily 02:30" || strings.Join(got.Repositories, ",") != "local,s3" ||
 		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" {
 		t.Errorf("job saved = %+v", got)
@@ -151,7 +152,7 @@ func TestEditFormIsPrefilledKeepsTheTypeFixedAndExplainsLiteralPasswords(t *test
 			t.Errorf("form lacks %q:\n%s", want, view)
 		}
 	}
-	if screen = keys(t, screen, "right"); screen.form.field("type").value != config.BackupPostgres {
+	if screen = keys(t, screen, "right"); screen.form.field("type").value != config.JobPostgres {
 		t.Error("the type of an existing job cannot be cycled")
 	}
 	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab") // to the password env field
@@ -280,7 +281,7 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	screen = openAddForm(t, screen)
 
 	screen, _ = clickOn(t, screen, "step:0:1") // the › of the type
-	if screen.form.field("type").value != config.BackupMySQL {
+	if screen.form.field("type").value != config.JobMySQL {
 		t.Errorf("clicking › chooses the next type: %q", screen.form.field("type").value)
 	}
 	screen, _ = clickOn(t, screen, fmt.Sprintf("toggle:%d:1", fieldIndex(screen, "repositories"))) // tick s3
@@ -334,7 +335,7 @@ func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 		t.Errorf("a missing path is called out:\n%s", view)
 	}
 	screen = keys(t, screen, "ctrl+s")
-	if len(configFile.saved) != 1 || strings.Join(configFile.saved[0].Paths, "|") != "/tmp|/nonexistent-sentinel-dir" || configFile.saved[0].Type != config.BackupFiles {
+	if len(configFile.saved) != 1 || strings.Join(configFile.saved[0].Paths, "|") != "/tmp|/nonexistent-sentinel-dir" || configFile.saved[0].Type != config.JobFiles {
 		t.Errorf("saved = %+v", configFile.saved)
 	}
 }
@@ -342,7 +343,7 @@ func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 func TestNewFilesJobNeedsAPath(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
-	screen.form.field("type").value = config.BackupFiles
+	screen.form.field("type").value = config.JobFiles
 	screen.form.field("name").value = "docs"
 	screen.form.field("repositories").ticked[0] = true
 	screen = keys(t, screen, "ctrl+s")

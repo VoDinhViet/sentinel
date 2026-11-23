@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"sentinel/internal/store"
 )
 
-func TestStatusReportCarriesTheRecentOutcomesOfEachJob(t *testing.T) {
+func TestReportCarriesTheRecentOutcomesOfEachJob(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -35,37 +35,15 @@ func TestStatusReportCarriesTheRecentOutcomesOfEachJob(t *testing.T) {
 	record("appdb", false, "")
 	record("files", true, "")
 
-	report, err := buildStatusReport(ctx, &config.Config{ServerName: "web-01"}, st, time.Now())
+	report, err := Build(ctx, &config.Config{ServerName: "web-01"}, st, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := map[string][]string{}
-	for _, backup := range report.Backups {
-		got[backup.Job] = backup.Recent
+	for _, job := range report.Jobs {
+		got[job.Job] = job.Recent
 	}
 	if !slices.Equal(got["appdb"], []string{"ok", "warning", "failed"}) || !slices.Equal(got["files"], []string{"ok"}) {
 		t.Errorf("recent = %v", got)
-	}
-}
-
-func TestRelativeAgo(t *testing.T) {
-	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
-	for _, tc := range []struct {
-		ago  time.Duration
-		want string
-	}{
-		{10 * time.Second, "just now"},
-		{5 * time.Minute, "5m ago"},
-		{59 * time.Minute, "59m ago"},
-		{3 * time.Hour, "3h ago"},
-		{47 * time.Hour, "47h ago"},
-		{72 * time.Hour, "3d ago"},
-	} {
-		if got := relativeAgo(now.Add(-tc.ago), now); got != tc.want {
-			t.Errorf("relativeAgo(%v ago) = %q, want %q", tc.ago, got, tc.want)
-		}
-	}
-	if got := relativeAgo(time.Time{}, now); got != "never" {
-		t.Errorf("zero time = %q, want never", got)
 	}
 }

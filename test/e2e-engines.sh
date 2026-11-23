@@ -46,7 +46,7 @@ server_name: e2e
 store: /work/state.db
 repositories:
   local: { url: /work/repo, password: e2e-restic-pass }
-backups:
+jobs:
   - name: maria
     type: mysql
     mysql: { host: mariadb, user: root, password: "\${MARIA_PASS}", database: shop, tls: disabled }

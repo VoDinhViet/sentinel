@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"sentinel/internal/restic"
+	"sentinel/internal/status"
 	"sentinel/internal/store"
 )
 
@@ -40,7 +41,7 @@ func (a *app) manageCmd() *cobra.Command {
 			}
 			defer st.Close()
 			ctx := cmd.Context()
-			load := func() (statusReport, error) { return buildStatusReport(ctx, cfg, st, time.Now()) }
+			load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
 			model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))
 			_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
 			return err
@@ -98,10 +99,10 @@ const (
 
 type manageModel struct {
 	ctx             context.Context
-	load            func() (statusReport, error)
+	load            func() (status.Report, error)
 	actions         manageActions
 	jobRepositories []jobRepository
-	report          statusReport
+	report          status.Report
 	loadErr         error
 	loaded          bool
 
@@ -149,7 +150,7 @@ type manageModel struct {
 
 type (
 	reportMsg struct {
-		report statusReport
+		report status.Report
 		err    error
 	}
 	refreshMsg    struct{}
@@ -170,7 +171,7 @@ type (
 	}
 )
 
-func newManageModel(ctx context.Context, load func() (statusReport, error), actions manageActions, jobRepositories []jobRepository) manageModel {
+func newManageModel(ctx context.Context, load func() (status.Report, error), actions manageActions, jobRepositories []jobRepository) manageModel {
 	return manageModel{ctx: ctx, load: load, actions: actions, jobRepositories: jobRepositories, width: 100, height: 30, hits: &hitMap{}}
 }
 
@@ -386,7 +387,7 @@ func (m manageModel) afterBackup(msg backupDoneMsg) (tea.Model, tea.Cmd) {
 		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: no run was reported", msg.job, msg.repository), true
 	default:
 		run := msg.runs[0]
-		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, runResult(run)), !run.Success
+		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, run.Summary()), !run.Success
 		if run.Success {
 			m.notice += "  " + shortID(run.SnapshotID)
 		}
@@ -495,7 +496,7 @@ func (m manageModel) tabs() []manageTab {
 	now := m.report.GeneratedAt
 	// Columns are ordered by importance: a narrow screen drops the last ones.
 	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LAST RUN", "RESULT", "HISTORY", "SNAPSHOT", "ADDED"}, statusCol: 3, historyCol: 4}
-	for _, backup := range m.report.Backups {
+	for _, backup := range m.report.Jobs {
 		line := manageLine{
 			cells:   []string{backup.Job, backup.Repository, relativeAgo(backup.FinishedAt, now), "ok", "", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded)},
 			detail:  backup.Job + " → " + backup.Repository + ": " + backup.Result,
@@ -609,7 +610,7 @@ func plural(count int, one, many string) string {
 }
 
 func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {
-	for _, backup := range m.report.Backups {
+	for _, backup := range m.report.Jobs {
 		if backup.Job == jobRepo.job && backup.Repository == jobRepo.repository {
 			return true
 		}

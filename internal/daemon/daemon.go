@@ -32,11 +32,11 @@ type Task struct {
 }
 
 type Daemon struct {
-	Config  *config.Config
-	Store   *store.Store
-	Alerts  *alert.Manager
-	Backups *backup.Runner
-	Tasks   []Task
+	Config *config.Config
+	Store  *store.Store
+	Alerts *alert.Manager
+	Runner *backup.Runner
+	Tasks  []Task
 	// ShutdownTimeout bounds how long Run waits for jobs after cancelling them.
 	ShutdownTimeout time.Duration
 	// HistoryMaxAge is how long check results are kept.
@@ -61,8 +61,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	logger := cronLogger{}
 	cronRunner := cron.New(cron.WithChain(cron.Recover(logger), cron.SkipIfStillRunning(logger)))
 
-	for i := range d.Config.Backups {
-		job := &d.Config.Backups[i]
+	for i := range d.Config.Jobs {
+		job := &d.Config.Jobs[i]
 		if schedule.IsManual(job.Schedule) {
 			continue
 		}
@@ -73,8 +73,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		cronRunner.Schedule(cronSchedule, cron.FuncJob(func() { d.RunBackup(jobCtx, job) }))
 		slog.Info("scheduled backup", "job", job.Name, "schedule", job.Schedule)
 	}
-	if !schedule.IsManual(d.Config.RepoCheckSchedule) {
-		cronSchedule, err := schedule.Parse(d.Config.RepoCheckSchedule)
+	if !schedule.IsManual(d.Config.VerifySchedule) {
+		cronSchedule, err := schedule.Parse(d.Config.VerifySchedule)
 		if err != nil {
 			return fmt.Errorf("schedule repo check: %w", err)
 		}
@@ -91,7 +91,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	cronRunner.Start()
-	slog.Info("sentinel started", "server", d.Config.ServerName, "backups", len(d.Config.Backups), "tasks", len(tasks))
+	slog.Info("sentinel started", "server", d.Config.ServerName, "backups", len(d.Config.Jobs), "tasks", len(tasks))
 	<-ctx.Done()
 
 	slog.Info("shutting down, waiting for running jobs")
@@ -116,7 +116,7 @@ func backupKey(job, repo string) string { return "backup:" + job + ":" + repo }
 //
 // If the job is already running it does nothing and returns one unrecorded run
 // whose Error is backup.AlreadyRunning; no alert is raised for it.
-func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.BackupRun {
+func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupRun {
 	jobLock, _ := d.running.LoadOrStore(job.Name, new(sync.Mutex))
 	if !jobLock.(*sync.Mutex).TryLock() {
 		slog.Warn("backup skipped, already running", "job", job.Name)
@@ -124,7 +124,7 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.Back
 	}
 	defer jobLock.(*sync.Mutex).Unlock()
 
-	runs := d.Backups.Run(ctx, job)
+	runs := d.Runner.Run(ctx, job)
 	if len(runs) == 1 && runs[0].Error == backup.AlreadyRunning {
 		return runs // another sentinel process holds the job: nothing ran, nothing to alert
 	}
@@ -160,13 +160,13 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.Back
 // CheckRepositories runs `restic check` on every repository used by a job.
 func (d *Daemon) CheckRepositories(ctx context.Context) {
 	usedRepos := map[string]bool{}
-	for _, job := range d.Config.Backups {
+	for _, job := range d.Config.Jobs {
 		for _, repoName := range job.Repositories {
 			usedRepos[repoName] = true
 		}
 	}
 	for _, repoName := range slices.Sorted(maps.Keys(usedRepos)) {
-		resticClient, err := d.Backups.Restic(repoName)
+		resticClient, err := d.Runner.Restic(repoName)
 		if err == nil {
 			err = resticClient.Verify(ctx)
 		}
@@ -185,8 +185,8 @@ func (d *Daemon) CheckRepositories(ctx context.Context) {
 // CheckStale alerts on jobs that have not succeeded for too long.
 func (d *Daemon) CheckStale(ctx context.Context) {
 	now := time.Now()
-	for i := range d.Config.Backups {
-		job := &d.Config.Backups[i]
+	for i := range d.Config.Jobs {
+		job := &d.Config.Jobs[i]
 		lastSuccess, everSucceeded, err := d.Store.LastSuccessfulBackup(ctx, job.Name)
 		if err != nil {
 			slog.Error("stale check", "job", job.Name, "error", err)
@@ -215,7 +215,7 @@ func (d *Daemon) CheckStale(ctx context.Context) {
 // twice the longest gap in its schedule plus its timeout. Jobs that never ran
 // are measured from daemon start so a fresh install is not instantly stale.
 // Unscheduled jobs are never stale (limit 0).
-func isStale(job *config.Backup, lastSuccess, started, now time.Time) (stale bool, limit time.Duration) {
+func isStale(job *config.Job, lastSuccess, started, now time.Time) (stale bool, limit time.Duration) {
 	if schedule.IsManual(job.Schedule) {
 		return false, 0
 	}
@@ -253,7 +253,7 @@ func (cronLogger) Error(err error, msg string, kv ...any) {
 // a dump running in another sentinel process, so it is kept.
 func (d *Daemon) sweepStaleSecretFiles() {
 	longestTimeout := time.Hour
-	for _, job := range d.Config.Backups {
+	for _, job := range d.Config.Jobs {
 		longestTimeout = max(longestTimeout, job.Timeout)
 	}
 	if removed := engine.SweepStaleSecretFiles(longestTimeout + time.Hour); removed > 0 {

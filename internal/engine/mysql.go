@@ -35,10 +35,10 @@ func dumpBinary() string {
 	return "mysqldump"
 }
 
-func (mysql) Type() string    { return config.BackupMySQL }
+func (mysql) Type() string    { return config.JobMySQL }
 func (mysql) Tools() []string { return []string{dumpBinary()} }
 
-func (mysql) Database(job *config.Backup) string {
+func (mysql) Database(job *config.Job) string {
 	if job.MySQL == nil {
 		return ""
 	}
@@ -55,7 +55,7 @@ func optionFileValue(value string) string {
 // Dump writes a consistent SQL dump (single transaction, so InnoDB tables need
 // no lock) including routines, triggers and events. Credentials go in a
 // temporary option file, never on argv.
-func (mysql) Dump(job *config.Backup) (Dump, error) {
+func (mysql) Dump(job *config.Job) (Dump, error) {
 	settings := job.MySQL
 	if settings == nil {
 		return Dump{}, errors.New("mysql settings are missing")
@@ -90,7 +90,7 @@ func (mysql) Dump(job *config.Backup) (Dump, error) {
 	return Dump{Command: command, Filename: settings.Database + ".sql", Cleanup: cleanup}, nil
 }
 
-func (mysql) RestoreHint(job *config.Backup, dir string) string {
+func (mysql) RestoreHint(job *config.Job, dir string) string {
 	return fmt.Sprintf("mysql -h %s -P %s -u %s -p %s < %s",
 		shellQuote(job.MySQL.Host), strconv.Itoa(job.MySQL.Port), shellQuote(job.MySQL.User), shellQuote(job.MySQL.Database),
 		shellQuote(filepath.Join(dir, job.MySQL.Database+".sql")))

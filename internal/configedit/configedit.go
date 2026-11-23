@@ -5,16 +5,13 @@
 package configedit
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -45,8 +42,8 @@ func invalid(format string, args ...any) error {
 
 // DatabaseTypes are the database job types; JobTypes are all the types this package edits.
 var (
-	DatabaseTypes = []string{config.BackupPostgres, config.BackupMySQL, config.BackupMongoDB}
-	JobTypes      = append(slices.Clone(DatabaseTypes), config.BackupFiles)
+	DatabaseTypes = []string{config.JobPostgres, config.JobMySQL, config.JobMongoDB}
+	JobTypes      = append(slices.Clone(DatabaseTypes), config.JobFiles)
 )
 
 // Job is one backup job as the editor sees it. A files job fills Paths and Exclude and none
@@ -97,18 +94,18 @@ type Known struct {
 }
 
 var (
-	envRef     = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
-	envName    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
-	jobName    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
-	hostName   = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,255}$`)
-	identifier = regexp.MustCompile(`^[^\x00-\x1f\x7f]{1,128}$`)
+	envRef    = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+	envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+	nameRe    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
+	hostRe    = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,255}$`)
+	identRe   = regexp.MustCompile(`^[^\x00-\x1f\x7f]{1,128}$`)
 )
 
 func defaultPort(jobType string) int {
 	switch jobType {
-	case config.BackupMySQL:
+	case config.JobMySQL:
 		return 3306
-	case config.BackupMongoDB:
+	case config.JobMongoDB:
 		return 27017
 	}
 	return 5432
@@ -130,8 +127,8 @@ func List(path string) (Listing, error) {
 	}
 	sort.Strings(listing.Repositories)
 	listing.InheritedRepositories = inheritedRepositories(cfg)
-	for _, backup := range cfg.Backups {
-		listing.Jobs = append(listing.Jobs, jobFromConfig(backup))
+	for _, cfgJob := range cfg.Jobs {
+		listing.Jobs = append(listing.Jobs, jobFromConfig(cfgJob))
 	}
 	return listing, nil
 }
@@ -147,29 +144,29 @@ func inheritedRepositories(cfg *config.Config) []string {
 	return nil
 }
 
-func jobFromConfig(backup config.Backup) Job {
-	job := Job{Name: backup.Name, Type: backup.Type, Schedule: backup.Schedule, Repositories: backup.Repositories, Retention: backup.Retention, Inherited: backup.Inherited,
-		Paths: backup.Paths, Exclude: backup.Exclude}
-	if backup.Inherited.Schedule {
+func jobFromConfig(cfgJob config.Job) Job {
+	job := Job{Name: cfgJob.Name, Type: cfgJob.Type, Schedule: cfgJob.Schedule, Repositories: cfgJob.Repositories, Retention: cfgJob.Retention, Inherited: cfgJob.Inherited,
+		Paths: cfgJob.Paths, Exclude: cfgJob.Excludes}
+	if cfgJob.Inherited.Schedule {
 		job.Schedule = ""
 	}
-	if backup.Inherited.Repositories {
+	if cfgJob.Inherited.Repositories {
 		job.Repositories = nil
 	}
-	if backup.Inherited.Retention {
+	if cfgJob.Inherited.Retention {
 		job.Retention = config.Retention{}
 	}
 	var password string
 	switch {
-	case backup.Postgres != nil:
-		p := backup.Postgres
-		job.Database, job.Host, job.Port, job.User, password = p.Database, p.Host, p.Port, p.User, p.Password
-	case backup.MySQL != nil:
-		m := backup.MySQL
-		job.Database, job.Host, job.Port, job.User, password, job.TLS = m.Database, m.Host, m.Port, m.User, m.Password, m.TLS
-	case backup.MongoDB != nil:
-		m := backup.MongoDB
-		job.Database, job.Host, job.Port, job.User, password, job.AuthDatabase = m.Database, m.Host, m.Port, m.User, m.Password, m.AuthDatabase
+	case cfgJob.Postgres != nil:
+		pg := cfgJob.Postgres
+		job.Database, job.Host, job.Port, job.User, password = pg.Database, pg.Host, pg.Port, pg.User, pg.Password
+	case cfgJob.MySQL != nil:
+		my := cfgJob.MySQL
+		job.Database, job.Host, job.Port, job.User, password, job.TLS = my.Database, my.Host, my.Port, my.User, my.Password, my.TLS
+	case cfgJob.MongoDB != nil:
+		mongo := cfgJob.MongoDB
+		job.Database, job.Host, job.Port, job.User, password, job.AuthDatabase = mongo.Database, mongo.Host, mongo.Port, mongo.User, mongo.Password, mongo.AuthDatabase
 	}
 	if match := envRef.FindStringSubmatch(password); match != nil {
 		job.PasswordEnv = match[1]
@@ -197,22 +194,22 @@ func Problems(job *Job, known Known) []*InvalidError {
 	if !slices.Contains(JobTypes, job.Type) {
 		add("type", "type must be one of %v", JobTypes)
 	}
-	if !jobName.MatchString(job.Name) {
+	if !nameRe.MatchString(job.Name) {
 		add("name", "invalid job name %q: use letters, digits, '.', '_' or '-'", job.Name)
 	}
-	if job.Type == config.BackupFiles {
+	if job.Type == config.JobFiles {
 		return append(problems, append(filesProblems(job), commonProblems(job, known)...)...)
 	}
-	if !identifier.MatchString(job.Database) {
+	if !identRe.MatchString(job.Database) {
 		add("database", "database name is required")
 	}
-	if job.User != "" && !identifier.MatchString(job.User) {
+	if job.User != "" && !identRe.MatchString(job.User) {
 		add("user", "invalid user")
 	}
 	if job.Host == "" {
 		job.Host = "localhost"
 	}
-	if !hostName.MatchString(job.Host) {
+	if !hostRe.MatchString(job.Host) {
 		add("host", "invalid host %q", job.Host)
 	}
 	if job.Port == 0 {
@@ -221,16 +218,16 @@ func Problems(job *Job, known Known) []*InvalidError {
 	if job.Port < 1 || job.Port > 65535 {
 		add("port", "port must be between 1 and 65535")
 	}
-	if job.PasswordEnv != "" && !envName.MatchString(job.PasswordEnv) {
+	if job.PasswordEnv != "" && !envNameRe.MatchString(job.PasswordEnv) {
 		add("password_env", "invalid environment variable name %q (the password itself is never entered here)", job.PasswordEnv)
 	}
-	if job.Type == config.BackupMySQL && job.TLS != "" && job.TLS != "disabled" && job.TLS != "required" {
+	if job.Type == config.JobMySQL && job.TLS != "" && job.TLS != "disabled" && job.TLS != "required" {
 		add("tls", "tls must be empty, disabled or required")
 	}
-	if job.Type != config.BackupMySQL {
+	if job.Type != config.JobMySQL {
 		job.TLS = ""
 	}
-	if job.Type != config.BackupMongoDB {
+	if job.Type != config.JobMongoDB {
 		job.AuthDatabase = ""
 	}
 	return append(problems, commonProblems(job, known)...)
@@ -275,8 +272,8 @@ func commonProblems(job *Job, known Known) []*InvalidError {
 			break
 		}
 	}
-	for _, n := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
-		if n < 0 {
+	for _, count := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
+		if count < 0 {
 			add("retention", "retention values cannot be negative")
 			break
 		}
@@ -292,210 +289,80 @@ func Save(path, original string, job Job) error {
 		if err := Validate(&job, known); err != nil {
 			return err
 		}
-		return editBackup(root, original, job)
+		return editJob(root, original, job)
 	})
 }
 
 // Delete removes a database job from the file. Its snapshots stay in the repositories.
-func Delete(path, name string) error {
-	return editFile(path, func(root *yaml.Node, _ *config.Config) error { return removeBackup(root, name) })
+func Delete(path, jobName string) error {
+	return editFile(path, func(root *yaml.Node, _ *config.Config) error { return removeJob(root, jobName) })
 }
 
-// editFile applies edit to the file's YAML, checks that the result is still a
-// valid config, and replaces the file atomically with the same permissions.
-func editFile(path string, edit func(root *yaml.Node, current *config.Config) error) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	current, err := config.ParseWith(raw, config.ParseOptions{ExpandEnv: false})
-	if err != nil {
-		return fmt.Errorf("config does not parse, not editing it: %w", err)
-	}
-	doc, root, err := parseDoc(raw)
-	if err != nil {
-		return err
-	}
-	if err := edit(root, current); err != nil {
-		return err
-	}
-	edited, err := encodeDoc(doc)
-	if err != nil {
-		return err
-	}
-	if _, err := config.ParseWith(edited, config.ParseOptions{ExpandEnv: false}); err != nil {
-		return invalid("the change makes the config invalid: %v", err)
-	}
-	return replaceFile(path, raw, edited)
-}
-
-func replaceFile(path string, previous, next []byte) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	mode := info.Mode().Perm()
-	if err := os.WriteFile(path+".bak", previous, mode); err != nil {
-		return fmt.Errorf("write backup of the config: %w", err)
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".sentinel-config-*")
-	if err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-	defer os.Remove(temp.Name())
-	if _, err := temp.Write(next); err != nil {
-		temp.Close()
-		return fmt.Errorf("write config: %w", err)
-	}
-	if err := temp.Chmod(mode); err != nil {
-		temp.Close()
-		return fmt.Errorf("write config: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-	return os.Rename(temp.Name(), path)
-}
-
-// ---- YAML node editing
-
-func scalar(value string, style yaml.Style) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: style}
-}
-
-func intNode(n int) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(n)}
-}
-
-func mapGet(mapping *yaml.Node, key string) *yaml.Node {
-	if mapping == nil {
-		return nil
-	}
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// mapSet sets key, keeping the comments attached to the old value.
-func mapSet(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			old := mapping.Content[i+1]
-			value.HeadComment, value.LineComment, value.FootComment = old.HeadComment, old.LineComment, old.FootComment
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content, scalar(key, 0), value)
-}
-
-func mapDelete(mapping *yaml.Node, key string) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
-			return
-		}
-	}
-}
-
-func parseDoc(raw []byte) (*yaml.Node, *yaml.Node, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, nil, fmt.Errorf("parse config: %w", err)
-	}
-	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, nil, invalid("config must be a YAML mapping")
-	}
-	return &doc, doc.Content[0], nil
-}
-
-func encodeDoc(doc *yaml.Node) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(doc); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), encoder.Close()
-}
-
-func findBackup(sequence *yaml.Node, name string) int {
-	for i, item := range sequence.Content {
-		if item.Kind != yaml.MappingNode {
+func findJob(seq *yaml.Node, jobName string) int {
+	for i, node := range seq.Content {
+		if node.Kind != yaml.MappingNode {
 			continue
 		}
-		if nameNode := mapGet(item, "name"); nameNode != nil && nameNode.Value == name {
+		if nameNode := mapGet(node, "name"); nameNode != nil && nameNode.Value == jobName {
 			return i
 		}
 	}
 	return -1
 }
 
-func isEditableJob(item *yaml.Node) bool {
-	typeNode := mapGet(item, "type")
+func isEditableJob(node *yaml.Node) bool {
+	typeNode := mapGet(node, "type")
 	return typeNode != nil && slices.Contains(JobTypes, typeNode.Value)
 }
 
-// stringList is a flow-style YAML list of the strings.
-func stringList(values []string) *yaml.Node {
-	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
-	for _, value := range values {
-		list.Content = append(list.Content, scalar(value, 0))
+func editJob(root *yaml.Node, original string, job Job) error {
+	seq := mapGet(root, "jobs")
+	if seq == nil {
+		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		root.Content = append(root.Content, scalar("jobs", 0), seq)
 	}
-	return list
-}
-
-func editBackup(root *yaml.Node, original string, job Job) error {
-	sequence := mapGet(root, "backups")
-	if sequence == nil {
-		sequence = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		root.Content = append(root.Content, scalar("backups", 0), sequence)
+	if seq.Kind != yaml.SequenceNode {
+		return invalid("config: jobs must be a list")
 	}
-	if sequence.Kind != yaml.SequenceNode {
-		return invalid("config: backups must be a list")
-	}
-	var item *yaml.Node
+	var jobNode *yaml.Node
 	if original != "" {
-		i := findBackup(sequence, original)
+		i := findJob(seq, original)
 		if i < 0 {
 			return fmt.Errorf("job %q: %w", original, ErrNotFound)
 		}
-		item = sequence.Content[i]
-		if !isEditableJob(item) {
+		jobNode = seq.Content[i]
+		if !isEditableJob(jobNode) {
 			return invalid("job %q has a type this editor does not handle", original)
 		}
-		if typeNode := mapGet(item, "type"); typeNode.Value != job.Type {
+		if typeNode := mapGet(jobNode, "type"); typeNode.Value != job.Type {
 			return invalid("the type of an existing job cannot be changed (remove it and add a new one)")
 		}
 	}
-	if i := findBackup(sequence, job.Name); i >= 0 && (item == nil || sequence.Content[i] != item) {
+	if i := findJob(seq, job.Name); i >= 0 && (jobNode == nil || seq.Content[i] != jobNode) {
 		return fmt.Errorf("%q: %w", job.Name, ErrExists)
 	}
-	if item == nil {
-		item = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		sequence.Content = append(sequence.Content, item)
+	if jobNode == nil {
+		jobNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		seq.Content = append(seq.Content, jobNode)
 	}
 
-	mapSet(item, "name", scalar(job.Name, 0))
-	mapSet(item, "type", scalar(job.Type, 0))
+	mapSet(jobNode, "name", scalar(job.Name, 0))
+	mapSet(jobNode, "type", scalar(job.Type, 0))
 	if job.Schedule == "" {
-		mapDelete(item, "schedule")
+		mapDelete(jobNode, "schedule")
 	} else {
-		mapSet(item, "schedule", scalar(job.Schedule, yaml.DoubleQuotedStyle))
+		mapSet(jobNode, "schedule", scalar(job.Schedule, yaml.DoubleQuotedStyle))
 	}
 
-	if job.Type == config.BackupFiles {
-		mapSet(item, "paths", stringList(job.Paths))
+	if job.Type == config.JobFiles {
+		mapSet(jobNode, "paths", stringList(job.Paths))
 		if len(job.Exclude) == 0 {
-			mapDelete(item, "exclude")
+			mapDelete(jobNode, "exclude")
 		} else {
-			mapSet(item, "exclude", stringList(job.Exclude))
+			mapSet(jobNode, "exclude", stringList(job.Exclude))
 		}
 	} else {
-		editDatabaseBlock(item, job)
+		editDatabaseBlock(jobNode, job)
 	}
 
 	repositories := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
@@ -503,9 +370,9 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 		repositories.Content = append(repositories.Content, scalar(name, 0))
 	}
 	if len(job.Repositories) == 0 {
-		mapDelete(item, "repositories") // the config's defaults apply
+		mapDelete(jobNode, "repositories") // the config's defaults apply
 	} else {
-		mapSet(item, "repositories", repositories)
+		mapSet(jobNode, "repositories", repositories)
 	}
 
 	retention := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
@@ -518,65 +385,57 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 		}
 	}
 	if len(retention.Content) == 0 {
-		mapDelete(item, "retention")
+		mapDelete(jobNode, "retention")
 	} else {
-		mapSet(item, "retention", retention)
+		mapSet(jobNode, "retention", retention)
 	}
 	return nil
 }
 
 // editDatabaseBlock writes the job's <type>: { host, port, ... } mapping.
-func editDatabaseBlock(item *yaml.Node, job Job) {
-	block := mapGet(item, job.Type)
-	if block == nil || block.Kind != yaml.MappingNode {
-		block = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		block.Style = yaml.FlowStyle
+func editDatabaseBlock(jobNode *yaml.Node, job Job) {
+	dbNode := mapGet(jobNode, job.Type)
+	if dbNode == nil || dbNode.Kind != yaml.MappingNode {
+		dbNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		dbNode.Style = yaml.FlowStyle
 	}
-	mapSet(block, "host", scalar(job.Host, 0))
-	mapSet(block, "port", intNode(job.Port))
+	mapSet(dbNode, "host", scalar(job.Host, 0))
+	mapSet(dbNode, "port", intNode(job.Port))
 	if job.User == "" {
-		mapDelete(block, "user")
+		mapDelete(dbNode, "user")
 	} else {
-		mapSet(block, "user", scalar(job.User, 0))
+		mapSet(dbNode, "user", scalar(job.User, 0))
 	}
 	if job.PasswordEnv != "" {
-		mapSet(block, "password", scalar("${"+job.PasswordEnv+"}", yaml.DoubleQuotedStyle))
+		mapSet(dbNode, "password", scalar("${"+job.PasswordEnv+"}", yaml.DoubleQuotedStyle))
 	} else if !job.PasswordLiteral {
-		mapDelete(block, "password")
+		mapDelete(dbNode, "password")
 	}
-	mapSet(block, "database", scalar(job.Database, 0))
+	mapSet(dbNode, "database", scalar(job.Database, 0))
 	switch job.Type {
-	case config.BackupMySQL:
-		setOrDelete(block, "tls", job.TLS)
-	case config.BackupMongoDB:
-		setOrDelete(block, "auth_database", job.AuthDatabase)
+	case config.JobMySQL:
+		setOrDelete(dbNode, "tls", job.TLS)
+	case config.JobMongoDB:
+		setOrDelete(dbNode, "auth_database", job.AuthDatabase)
 	}
-	mapSet(item, job.Type, block)
+	mapSet(jobNode, job.Type, dbNode)
 }
 
-func setOrDelete(mapping *yaml.Node, key, value string) {
-	if value == "" {
-		mapDelete(mapping, key)
-		return
+func removeJob(root *yaml.Node, jobName string) error {
+	seq := mapGet(root, "jobs")
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return fmt.Errorf("job %q: %w", jobName, ErrNotFound)
 	}
-	mapSet(mapping, key, scalar(value, 0))
-}
-
-func removeBackup(root *yaml.Node, name string) error {
-	sequence := mapGet(root, "backups")
-	if sequence == nil || sequence.Kind != yaml.SequenceNode {
-		return fmt.Errorf("job %q: %w", name, ErrNotFound)
-	}
-	i := findBackup(sequence, name)
+	i := findJob(seq, jobName)
 	if i < 0 {
-		return fmt.Errorf("job %q: %w", name, ErrNotFound)
+		return fmt.Errorf("job %q: %w", jobName, ErrNotFound)
 	}
-	if !isEditableJob(sequence.Content[i]) {
-		return invalid("job %q has a type this editor does not handle", name)
+	if !isEditableJob(seq.Content[i]) {
+		return invalid("job %q has a type this editor does not handle", jobName)
 	}
-	sequence.Content = append(sequence.Content[:i], sequence.Content[i+1:]...)
-	if len(sequence.Content) == 0 {
-		mapDelete(root, "backups")
+	seq.Content = append(seq.Content[:i], seq.Content[i+1:]...)
+	if len(seq.Content) == 0 {
+		mapDelete(root, "jobs")
 	}
 	return nil
 }

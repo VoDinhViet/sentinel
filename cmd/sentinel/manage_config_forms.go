@@ -289,7 +289,7 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 		{key: "store", label: "State database", hint: "where run history and job locks are kept (a file path)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
 		{key: "cooldown", label: "Alert repeat", hint: "how long to wait before repeating an alert that is still open, e.g. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
 		{key: "notify_success", label: "Tell me successes", hint: "also send a message after every successful backup", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
-		{key: "repo_check_schedule", label: "Repo check", hint: "when to run `restic check` on every repository. " + scheduleHint, kind: fieldSchedule, value: settings.RepoCheckSchedule, placeholder: "never"},
+		{key: "verify_schedule", label: "Repo check", hint: "when to run `restic check` on every repository. " + scheduleHint, kind: fieldSchedule, value: settings.VerifySchedule, placeholder: "never"},
 		{key: "default_schedule", label: "Default schedule", hint: "for jobs that set none. " + scheduleHint, kind: fieldSchedule, value: settings.DefaultSchedule, placeholder: "none: jobs run by hand"},
 		{key: "default_repositories", label: "Default repos", hint: "space or click ticks; for jobs that list none. None ticked and a single repository = that repository", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
 		{key: "retention", label: "Default keep", hint: "snapshots kept by jobs that set none: last N, then one per day, week, month, year", kind: fieldRetention, counts: retention},
@@ -300,7 +300,7 @@ func (f form) settings() (configedit.Settings, error) {
 	settings := configedit.Settings{
 		ServerName: strings.TrimSpace(f.field("server_name").value), Store: strings.TrimSpace(f.field("store").value),
 		Cooldown: strings.TrimSpace(f.field("cooldown").value), NotifySuccess: f.field("notify_success").value == "yes",
-		RepoCheckSchedule: strings.TrimSpace(f.field("repo_check_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
+		VerifySchedule: strings.TrimSpace(f.field("verify_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
 	}
 	repositories := f.field("default_repositories")
 	for i, name := range repositories.choices {
