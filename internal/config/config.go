@@ -27,10 +27,22 @@ type Config struct {
 	Repositories      map[string]Repository `yaml:"repositories"`
 	Backups           []Backup              `yaml:"backups"`
 	RepoCheckSchedule string                `yaml:"repo_check_schedule"`
+	Defaults          Defaults              `yaml:"defaults"`
 	// Monitor is accepted for old config files and ignored: Sentinel no longer
 	// monitors server resources.
 	Monitor any           `yaml:"monitor"`
 	Uptime  []UptimeCheck `yaml:"uptime"`
+}
+
+// Defaults are the values a backup job takes when it does not set its own, so a file with
+// several similar jobs does not repeat them. A job's own value always wins.
+//
+// A job that sets none of its retention counts takes the default retention, so "keep
+// everything" cannot be asked for by a job once defaults.retention is set.
+type Defaults struct {
+	Schedule     string    `yaml:"schedule"`
+	Repositories []string  `yaml:"repositories"`
+	Retention    Retention `yaml:"retention"`
 }
 
 type Notifiers struct {
@@ -90,6 +102,15 @@ type Backup struct {
 	Exclude      []string      `yaml:"exclude"`
 	Repositories []string      `yaml:"repositories"`
 	Retention    Retention     `yaml:"retention"`
+
+	// Inherited says which values came from Defaults (or from the only repository) rather
+	// than from the job's own entry; the config editor leaves those out of the file.
+	Inherited Inherited `yaml:"-"`
+}
+
+// Inherited marks the values of a Backup that were filled in from Defaults.
+type Inherited struct {
+	Schedule, Repositories, Retention bool
 }
 
 type Postgres struct {
@@ -280,6 +301,7 @@ func (c *Config) applyDefaults() {
 		if b.Timeout == 0 {
 			b.Timeout = 6 * time.Hour
 		}
+		c.inheritDefaults(b)
 		if b.Postgres != nil {
 			if b.Postgres.Host == "" {
 				b.Postgres.Host = "localhost"
@@ -339,6 +361,25 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// inheritDefaults fills what a job leaves out from the defaults block; a job without
+// repositories uses the only repository when the config has just one.
+func (c *Config) inheritDefaults(b *Backup) {
+	if b.Schedule == "" && c.Defaults.Schedule != "" {
+		b.Schedule, b.Inherited.Schedule = c.Defaults.Schedule, true
+	}
+	if len(b.Repositories) == 0 {
+		switch {
+		case len(c.Defaults.Repositories) > 0:
+			b.Repositories, b.Inherited.Repositories = slices.Clone(c.Defaults.Repositories), true
+		case len(c.Repositories) == 1:
+			b.Repositories, b.Inherited.Repositories = slices.Collect(maps.Keys(c.Repositories)), true
+		}
+	}
+	if b.Retention.Empty() && !c.Defaults.Retention.Empty() {
+		b.Retention, b.Inherited.Retention = c.Defaults.Retention, true
+	}
+}
+
 func (c *Config) validate() error {
 	var errs []error
 	add := func(format string, a ...any) { errs = append(errs, fmt.Errorf(format, a...)) }
@@ -395,12 +436,23 @@ func (c *Config) validate() error {
 			add("%s: type must be %q, %q, %q or %q", where, BackupPostgres, BackupMySQL, BackupMongoDB, BackupFiles)
 		}
 		if len(b.Repositories) == 0 {
-			add("%s: at least one repository is required", where)
+			add("%s: at least one repository is required: list repositories: on the job or set defaults.repositories (known: %s)",
+				where, strings.Join(slices.Sorted(maps.Keys(c.Repositories)), ", "))
 		}
 		for _, r := range b.Repositories {
 			if _, ok := c.Repositories[r]; !ok {
 				add("%s: unknown repository %q", where, r)
 			}
+		}
+	}
+	if !schedule.IsManual(c.Defaults.Schedule) {
+		if _, err := schedule.Parse(c.Defaults.Schedule); err != nil {
+			add("defaults.schedule: %v", err)
+		}
+	}
+	for _, name := range c.Defaults.Repositories {
+		if _, ok := c.Repositories[name]; !ok {
+			add("defaults.repositories: unknown repository %q", name)
 		}
 	}
 	if !schedule.IsManual(c.RepoCheckSchedule) {

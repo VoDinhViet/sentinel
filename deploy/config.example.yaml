@@ -36,10 +36,17 @@ repositories:
     url: "rclone:gdrive:backups/web-01"           # "gdrive" is a remote created with `rclone config`
     password: "${RESTIC_PASSWORD}"
 
+# A job that leaves out schedule, repositories or retention takes them from here.
+# Schedules: "daily 02:00", "weekly sun 03:00", "monthly 1 04:00", "hourly :15", "every 6h",
+# "manual" (only run by hand), or a cron expression such as "0 2 * * *" (server time).
+defaults:
+  schedule: daily 02:00
+  repositories: [s3main, gdrive]
+  retention: { daily: 7, weekly: 4, monthly: 6 }
+
 backups:
   - name: appdb
     type: postgres
-    schedule: "0 2 * * *"                # cron: minute hour day month weekday (server time)
     timeout: 6h
     postgres:
       host: localhost
@@ -47,35 +54,29 @@ backups:
       user: postgres
       password: "${PGPASSWORD}"
       database: app
-    repositories: [s3main, gdrive]
-    retention: { daily: 7, weekly: 4, monthly: 6 }
 
   # MySQL / MariaDB: needs mariadb-dump or mysqldump. The password never goes on
   # the command line (a 0600 temp file is used). Set tls: disabled if the server has no TLS.
   # - name: shopdb
   #   type: mysql
-  #   schedule: "15 2 * * *"
+  #   schedule: daily 02:15
   #   mysql: { host: localhost, port: 3306, user: root, password: "${MYSQL_PWD}", database: shop }
-  #   repositories: [s3main]
-  #   retention: { daily: 7, weekly: 4 }
 
   # MongoDB: needs mongodump (mongodb-database-tools); dumps one database as a gzip archive.
   # - name: crm
   #   type: mongodb
-  #   schedule: "30 2 * * *"
+  #   schedule: daily 02:30
   #   mongodb: { host: localhost, port: 27017, user: backup, password: "${MONGO_PWD}", auth_database: admin, database: crm }
-  #   repositories: [s3main]
-  #   retention: { daily: 7, weekly: 4 }
 
   - name: uploads
     type: files
-    schedule: "30 2 * * *"
+    schedule: daily 02:30                # its own schedule and repository: these win over defaults
     paths: [/var/www/app/uploads, /etc/nginx]
     exclude: ["*.tmp", "cache/"]
     repositories: [s3main]
     retention: { daily: 7, weekly: 4 }
 
-repo_check_schedule: "0 4 * * 0"         # weekly `restic check` of every repository
+repo_check_schedule: weekly sun 04:00    # `restic check` of every repository
 
 uptime:
   - name: website

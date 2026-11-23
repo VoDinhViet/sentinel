@@ -247,3 +247,75 @@ repo_check_schedule: "%s"
 		t.Errorf("repo_check_schedule: %v", err)
 	}
 }
+
+func TestDefaultsFillWhatAJobLeavesOut(t *testing.T) {
+	c, err := Parse([]byte(`
+repositories:
+  local: { url: /tmp/r, password: p }
+  offsite: { url: /tmp/o, password: p }
+defaults:
+  schedule: daily 02:00
+  repositories: [local, offsite]
+  retention: { daily: 7, weekly: 4 }
+backups:
+  - { name: plain, type: files, paths: [/a] }
+  - { name: own, type: files, paths: [/b], schedule: weekly sun 03:00, repositories: [offsite], retention: { last: 3 } }
+  - { name: byhand, type: files, paths: [/c], schedule: manual }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, own, byHand := c.Backups[0], c.Backups[1], c.Backups[2]
+	if plain.Schedule != "daily 02:00" || strings.Join(plain.Repositories, ",") != "local,offsite" || plain.Retention.Daily != 7 || plain.Retention.Weekly != 4 {
+		t.Errorf("plain job did not inherit: %+v", plain)
+	}
+	if want := (Inherited{Schedule: true, Repositories: true, Retention: true}); plain.Inherited != want {
+		t.Errorf("plain.Inherited = %+v", plain.Inherited)
+	}
+	if own.Schedule != "weekly sun 03:00" || strings.Join(own.Repositories, ",") != "offsite" || own.Retention.Last != 3 || own.Retention.Daily != 0 {
+		t.Errorf("a job's own values must win: %+v", own)
+	}
+	if own.Inherited != (Inherited{}) {
+		t.Errorf("own.Inherited = %+v", own.Inherited)
+	}
+	if byHand.Schedule != "manual" {
+		t.Errorf("an explicit manual schedule is kept: %q", byHand.Schedule)
+	}
+}
+
+func TestOnlyRepositoryIsTheDefaultOne(t *testing.T) {
+	c, err := Parse([]byte(`
+repositories: { only: { url: /tmp/r, password: p } }
+backups:
+  - { name: a, type: files, paths: [/a] }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Backups[0].Repositories; len(got) != 1 || got[0] != "only" || !c.Backups[0].Inherited.Repositories {
+		t.Errorf("repositories = %v, inherited %v", got, c.Backups[0].Inherited)
+	}
+
+	_, err = Parse([]byte(`
+repositories:
+  one: { url: /tmp/r, password: p }
+  two: { url: /tmp/s, password: p }
+backups:
+  - { name: a, type: files, paths: [/a] }
+`))
+	if err == nil || !strings.Contains(err.Error(), "known: one, two") {
+		t.Errorf("two repositories and no default must name them: %v", err)
+	}
+}
+
+func TestDefaultsAreValidated(t *testing.T) {
+	_, err := Parse([]byte(`
+repositories: { r: { url: /tmp/r, password: p } }
+defaults: { schedule: "daily 99:00", repositories: [nope] }
+`))
+	for _, want := range []string{"defaults.schedule", `defaults.repositories: unknown repository "nope"`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+}

@@ -23,6 +23,13 @@ func TestExampleConfigParses(t *testing.T) {
 	if len(c.Backups) != 2 || len(c.Uptime) != 3 {
 		t.Errorf("example not fully parsed: %+v", c)
 	}
+	appdb, uploads := c.Backups[0], c.Backups[1]
+	if appdb.Schedule != "daily 02:00" || len(appdb.Repositories) != 2 || appdb.Retention.Monthly != 6 {
+		t.Errorf("appdb must take the defaults: %+v", appdb)
+	}
+	if uploads.Schedule != "daily 02:30" || len(uploads.Repositories) != 1 || uploads.Retention.Monthly != 0 {
+		t.Errorf("uploads keeps its own values: %+v", uploads)
+	}
 }
 
 // The per-user example must parse too, and must not need any secret in the file.
@@ -39,6 +46,9 @@ func TestUserExampleConfigParses(t *testing.T) {
 	}
 	if c.Store != "/home/someone/.local/state/sentinel/state.db" || len(c.Backups) != 1 || c.Backups[0].Paths[0] != "/home/someone/Documents" {
 		t.Errorf("example not fully parsed: %+v", c)
+	}
+	if documents := c.Backups[0]; documents.Schedule != "daily 02:00" || len(documents.Repositories) != 1 || documents.Retention.Daily != 7 {
+		t.Errorf("documents must take the defaults and the only repository: %+v", documents)
 	}
 	if c.Repositories["local"].Password != "x" || !strings.Contains(string(raw), "${RESTIC_PASSWORD}") {
 		t.Error("the repository password must come from RESTIC_PASSWORD, not from the file")

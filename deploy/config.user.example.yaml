@@ -19,11 +19,15 @@ repositories:
     url: ${HOME}/.local/share/sentinel/repo
     password: "${RESTIC_PASSWORD}"
 
+# What a job takes when it does not set its own. With a single repository, a job needs no
+# `repositories:` line. Schedules: "daily 02:00", "weekly sun 03:00", "monthly 1 04:00",
+# "hourly :15", "every 6h", "manual" (only run by hand) or a cron expression.
+defaults:
+  schedule: daily 02:00                  # used by `sentinel run`
+  retention: { daily: 7, weekly: 4, monthly: 6 }
+
 backups:
   - name: documents
     type: files
-    schedule: "0 2 * * *"                # cron: minute hour day month weekday (used by `sentinel run`)
     paths: ["${HOME}/Documents"]
     exclude: ["*.tmp", ".cache"]
-    repositories: [local]
-    retention: { daily: 7, weekly: 4, monthly: 6 }
