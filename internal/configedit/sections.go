@@ -271,7 +271,7 @@ func readConfig(path string, read func(root *yaml.Node, current *config.Config) 
 	}
 	current, err := config.ParseWith(raw, config.ParseOptions{ExpandEnv: false})
 	if err != nil {
-		return fmt.Errorf("config does not parse: %w", err)
+		return fmt.Errorf("config không đọc được: %w", err)
 	}
 	_, root, err := parseDoc(raw)
 	if err != nil {
@@ -282,7 +282,7 @@ func readConfig(path string, read func(root *yaml.Node, current *config.Config) 
 
 func checkEnvName(field, name string) error {
 	if name != "" && !envNameRe.MatchString(name) {
-		return &InvalidError{Message: fmt.Sprintf("%q is not an environment variable name (the secret itself is never entered here)", name), Field: field}
+		return &InvalidError{Message: fmt.Sprintf("%q không phải tên biến môi trường (secret không bao giờ nhập ở đây)", name), Field: field}
 	}
 	return nil
 }
@@ -300,22 +300,22 @@ func RepositoryProblems(repository Repository) []*InvalidError {
 		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
 	}
 	if !nameRe.MatchString(repository.Name) {
-		add("name", "invalid repository name %q: use letters, digits, '.', '_' or '-'", repository.Name)
+		add("name", "tên repository %q không hợp lệ: dùng chữ cái, chữ số, '.', '_' hoặc '-'", repository.Name)
 	}
 	if strings.TrimSpace(repository.URL) == "" || strings.ContainsAny(repository.URL, "\x00\n\r") {
-		add("url", "the repository location is required")
+		add("url", "cần nhập vị trí repository")
 	}
 	switch {
 	case repository.PasswordEnv == "" && !repository.PasswordLiteral:
-		add("password_env", "name the environment variable that holds the repository password")
+		add("password_env", "nhập tên biến môi trường chứa mật khẩu repository")
 	case repository.PasswordEnv != "" && !envNameRe.MatchString(repository.PasswordEnv):
-		add("password_env", "%q is not an environment variable name (the password itself is never entered here)", repository.PasswordEnv)
+		add("password_env", "%q không phải tên biến môi trường (mật khẩu không bao giờ nhập ở đây)", repository.PasswordEnv)
 	}
 	for _, key := range slices.Sorted(maps.Keys(repository.Env)) {
 		if !envNameRe.MatchString(key) {
-			add("env", "%q is not a variable name", key)
+			add("env", "%q không phải tên biến", key)
 		} else if name := repository.Env[key]; name != "" && !envNameRe.MatchString(name) {
-			add("env", "%q is not an environment variable name (the secret itself is never entered here)", name)
+			add("env", "%q không phải tên biến môi trường (secret không bao giờ nhập ở đây)", name)
 		}
 	}
 	return problems
@@ -337,7 +337,7 @@ func SaveRepository(path, original string, repository Repository) error {
 			return err
 		}
 		if original != "" && original != repository.Name {
-			return invalid("a repository cannot be renamed: jobs refer to it by name (add a new one and move the jobs)")
+			return invalid("không đổi tên được repository vì job gọi repository theo tên (hãy thêm repository mới rồi chuyển các job sang)")
 		}
 		repositories := ensureMapping(root, "repositories", 0)
 		repoNode := mapGet(repositories, repository.Name)
@@ -382,7 +382,7 @@ func SaveRepository(path, original string, repository Repository) error {
 func DeleteRepository(path, name string) error {
 	return editFile(path, func(root *yaml.Node, current *config.Config) error {
 		if users := repositoryUsers(current)[name]; len(users) > 0 {
-			return invalid("repository %q is used by %s; change them first", name, strings.Join(users, ", "))
+			return invalid("repository %q đang được dùng bởi %s; hãy sửa các job đó trước", name, strings.Join(users, ", "))
 		}
 		repositories := mapGet(root, "repositories")
 		if repositories == nil || mapGet(repositories, name) == nil {
@@ -398,38 +398,38 @@ func DeleteRepository(path, name string) error {
 // ValidateUptime checks an uptime check and clears the fields its type does not use.
 func ValidateUptime(check *Uptime) error {
 	if !nameRe.MatchString(check.Name) {
-		return fieldError("name", "invalid check name %q: use letters, digits, '.', '_' or '-'", check.Name)
+		return fieldError("name", "tên uptime check %q không hợp lệ: dùng chữ cái, chữ số, '.', '_' hoặc '-'", check.Name)
 	}
 	switch check.Type {
 	case config.CheckHTTP:
 		if !strings.HasPrefix(check.URL, "http://") && !strings.HasPrefix(check.URL, "https://") {
-			return fieldError("url", "the url must start with http:// or https://")
+			return fieldError("url", "url phải bắt đầu bằng http:// hoặc https://")
 		}
 		check.Address, check.Host = "", ""
 	case config.CheckTCP:
 		if !strings.Contains(check.Address, ":") || strings.ContainsAny(check.Address, " \n") {
-			return fieldError("address", "use host:port, e.g. 10.0.0.5:5432")
+			return fieldError("address", "dùng dạng host:port, ví dụ 10.0.0.5:5432")
 		}
 		check.URL, check.Host, check.ExpectStatus, check.Keyword, check.CertExpiryDays = "", "", "", "", ""
 	case config.CheckPing:
 		if !hostRe.MatchString(check.Host) {
-			return fieldError("host", "give a host name or address to ping")
+			return fieldError("host", "nhập tên host hoặc địa chỉ cần ping")
 		}
 		check.URL, check.Address, check.ExpectStatus, check.Keyword, check.CertExpiryDays = "", "", "", "", ""
 	default:
-		return fieldError("type", "type must be http, tcp or ping")
+		return fieldError("type", "type phải là http, tcp hoặc ping")
 	}
 	for field, value := range map[string]string{"interval": check.Interval, "timeout": check.Timeout} {
 		if value == "" {
 			continue
 		}
 		if duration, err := time.ParseDuration(value); err != nil || duration <= 0 {
-			return fieldError(field, "%s: %q is not a duration like 60s or 5m", field, value)
+			return fieldError(field, "%s: %q không phải khoảng thời gian như 60s hoặc 5m", field, value)
 		}
 	}
 	for field, value := range map[string]string{"expect_status": check.ExpectStatus, "cert_expiry_days": check.CertExpiryDays, "fail_after": check.FailAfter} {
 		if num, err := strconv.Atoi(value); value != "" && (err != nil || num < 0) {
-			return fieldError(field, "%s: %q is not a number", field, value)
+			return fieldError(field, "%s: %q không phải là số", field, value)
 		}
 	}
 	return nil
@@ -503,20 +503,20 @@ func DeleteUptime(path, name string) error {
 func ValidateNotifier(notifier Notifier) error {
 	fields := NotifierFields(notifier.Kind)
 	if fields == nil {
-		return fieldError("kind", "notifier must be one of %s", strings.Join(NotifierKinds, ", "))
+		return fieldError("kind", "notifier phải là một trong %s", strings.Join(NotifierKinds, ", "))
 	}
 	for _, field := range fields {
 		value := strings.TrimSpace(notifier.Values[field.Key])
 		switch {
 		case field.Required && value == "" && !notifier.Literal[field.Key]:
-			return fieldError(field.Key, "%s is required", strings.ToLower(field.Label))
+			return fieldError(field.Key, "%s là bắt buộc", field.Label)
 		case field.Secret:
 			if err := checkEnvName(field.Key, value); err != nil {
 				return err
 			}
 		case field.Number:
 			if num, err := strconv.Atoi(value); value != "" && (err != nil || num < 1 || num > 65535) {
-				return fieldError(field.Key, "%s must be a port number", strings.ToLower(field.Label))
+				return fieldError(field.Key, "%s phải là số port từ 1 đến 65535", field.Label)
 			}
 		}
 	}
@@ -590,7 +590,7 @@ func DeleteNotifier(path, kind string) error {
 func ValidateSettings(settings Settings) error {
 	if settings.Cooldown != "" {
 		if duration, err := time.ParseDuration(settings.Cooldown); err != nil || duration <= 0 {
-			return fieldError("cooldown", "cooldown: %q is not a duration like 1h or 30m", settings.Cooldown)
+			return fieldError("cooldown", "cooldown: %q không phải khoảng thời gian như 1h hoặc 30m", settings.Cooldown)
 		}
 	}
 	if !schedule.IsManual(settings.VerifySchedule) {
@@ -605,7 +605,7 @@ func ValidateSettings(settings Settings) error {
 	}
 	for _, count := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
 		if count < 0 {
-			return fieldError("retention", "retention values cannot be negative")
+			return fieldError("retention", "giá trị retention không được âm")
 		}
 	}
 	return nil

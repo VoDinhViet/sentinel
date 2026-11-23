@@ -20,10 +20,10 @@ var plainEnvValue = regexp.MustCompile(`^[A-Za-z0-9._+/=@-]+$`)
 // replaced in one step, so a crash cannot leave half of it.
 func SaveSecret(envFile, name, value string) error {
 	if !envNameRe.MatchString(name) {
-		return fmt.Errorf("%q is not an environment variable name", name)
+		return fmt.Errorf("%q không phải tên biến môi trường", name)
 	}
 	if strings.ContainsAny(value, "\r\n") {
-		return errors.New("a secret cannot contain a line break")
+		return errors.New("secret không được chứa ký tự xuống dòng")
 	}
 	if target, err := filepath.EvalSymlinks(envFile); err == nil {
 		envFile = target // update what a symlink points to instead of replacing the link

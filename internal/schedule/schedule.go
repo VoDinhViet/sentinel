@@ -25,10 +25,10 @@ import (
 )
 
 // ErrManual is returned by Parse for a schedule that never fires on its own.
-var ErrManual = errors.New("manual schedule: only run by hand")
+var ErrManual = errors.New("schedule thủ công: chỉ chạy tay")
 
 var weekdayAbbrevs = [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
-var weekdayNames = [...]string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+var weekdayNames = [...]string{"Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"}
 
 // IsManual reports whether spec never fires on its own: empty or "manual".
 func IsManual(spec string) bool {
@@ -52,11 +52,11 @@ func Parse(spec string) (cron.Schedule, error) {
 	return cronSchedule, nil
 }
 
-// Describe says in words when a spec runs, e.g. "every day at 02:00". A spec that does not
-// parse is returned as it is.
+// Describe says in words (Vietnamese, for the screens) when a spec runs, e.g. "mỗi ngày lúc 02:00".
+// A spec that does not parse is returned as it is.
 func Describe(spec string) string {
 	if IsManual(spec) {
-		return "only by hand"
+		return "chỉ chạy tay"
 	}
 	if _, description, err := translate(spec); err == nil {
 		return description
@@ -75,28 +75,28 @@ func translate(spec string) (expression, description string, err error) {
 	case "hourly":
 		minute := 0
 		if len(fields) > 2 {
-			return invalid("use `hourly` or `hourly :15`")
+			return invalid("dùng `hourly` hoặc `hourly :15`")
 		}
 		if len(fields) == 2 {
 			parsedMinute, err := strconv.Atoi(strings.TrimPrefix(fields[1], ":"))
 			if err != nil || parsedMinute < 0 || parsedMinute > 59 {
-				return invalid("the minute must be 0 to 59, e.g. `hourly :15`")
+				return invalid("phút phải từ 0 đến 59, ví dụ `hourly :15`")
 			}
 			minute = parsedMinute
 		}
-		return fmt.Sprintf("%d * * * *", minute), fmt.Sprintf("every hour at minute %02d", minute), nil
+		return fmt.Sprintf("%d * * * *", minute), fmt.Sprintf("mỗi giờ vào phút %02d", minute), nil
 	case "daily":
 		if len(fields) != 2 {
-			return invalid("use `daily 02:00`")
+			return invalid("dùng `daily 02:00`")
 		}
 		hour, minute, err := clock(fields[1])
 		if err != nil {
 			return invalid("%v", err)
 		}
-		return fmt.Sprintf("%d %d * * *", minute, hour), fmt.Sprintf("every day at %02d:%02d", hour, minute), nil
+		return fmt.Sprintf("%d %d * * *", minute, hour), fmt.Sprintf("mỗi ngày lúc %02d:%02d", hour, minute), nil
 	case "weekly":
 		if len(fields) != 3 {
-			return invalid("use `weekly sun 03:00`")
+			return invalid("dùng `weekly sun 03:00`")
 		}
 		day := -1
 		for i, name := range weekdayAbbrevs {
@@ -105,33 +105,33 @@ func translate(spec string) (expression, description string, err error) {
 			}
 		}
 		if day < 0 {
-			return invalid("%q is not a weekday (sun mon tue wed thu fri sat)", fields[1])
+			return invalid("%q không phải thứ trong tuần (sun mon tue wed thu fri sat)", fields[1])
 		}
 		hour, minute, err := clock(fields[2])
 		if err != nil {
 			return invalid("%v", err)
 		}
-		return fmt.Sprintf("%d %d * * %d", minute, hour, day), fmt.Sprintf("every %s at %02d:%02d", weekdayNames[day], hour, minute), nil
+		return fmt.Sprintf("%d %d * * %d", minute, hour, day), fmt.Sprintf("mỗi %s lúc %02d:%02d", weekdayNames[day], hour, minute), nil
 	case "monthly":
 		if len(fields) != 3 {
-			return invalid("use `monthly 1 04:00`")
+			return invalid("dùng `monthly 1 04:00`")
 		}
 		day, err := strconv.Atoi(fields[1])
 		if err != nil || day < 1 || day > 28 {
-			return invalid("the day of the month must be 1 to 28")
+			return invalid("ngày trong tháng phải từ 1 đến 28")
 		}
 		hour, minute, err := clock(fields[2])
 		if err != nil {
 			return invalid("%v", err)
 		}
-		return fmt.Sprintf("%d %d %d * *", minute, hour, day), fmt.Sprintf("on day %d of every month at %02d:%02d", day, hour, minute), nil
+		return fmt.Sprintf("%d %d %d * *", minute, hour, day), fmt.Sprintf("ngày %d hằng tháng lúc %02d:%02d", day, hour, minute), nil
 	case "every":
 		if len(fields) != 2 {
-			return invalid("use `every 6h`")
+			return invalid("dùng `every 6h`")
 		}
 		interval, err := time.ParseDuration(fields[1])
 		if err != nil || interval < time.Minute {
-			return invalid("the interval must be a duration of at least 1m, e.g. `every 6h`")
+			return invalid("khoảng cách phải là một khoảng thời gian tối thiểu 1m, ví dụ `every 6h`")
 		}
 		return "@every " + interval.String(), "every " + interval.String(), nil
 	}
@@ -144,7 +144,7 @@ func clock(text string) (hour, minute int, err error) {
 	hour, hourErr := strconv.Atoi(hourText)
 	minute, minuteErr := strconv.Atoi(minuteText)
 	if !found || hourErr != nil || minuteErr != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
-		return 0, 0, fmt.Errorf("%q is not a time like 02:00", text)
+		return 0, 0, fmt.Errorf("%q không phải giờ dạng 02:00", text)
 	}
 	return hour, minute, nil
 }

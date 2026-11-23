@@ -45,13 +45,13 @@ func TestPlainFormsMeanTheSameAsCron(t *testing.T) {
 	tests := []struct {
 		spec, cron, description string
 	}{
-		{"daily 02:00", "0 2 * * *", "every day at 02:00"},
-		{"  Daily   2:05 ", "5 2 * * *", "every day at 02:05"},
-		{"hourly", "0 * * * *", "every hour at minute 00"},
-		{"hourly :15", "15 * * * *", "every hour at minute 15"},
-		{"weekly sun 03:00", "0 3 * * 0", "every Sunday at 03:00"},
-		{"weekly Monday 23:30", "30 23 * * 1", "every Monday at 23:30"},
-		{"monthly 1 04:00", "0 4 1 * *", "on day 1 of every month at 04:00"},
+		{"daily 02:00", "0 2 * * *", "mỗi ngày lúc 02:00"},
+		{"  Daily   2:05 ", "5 2 * * *", "mỗi ngày lúc 02:05"},
+		{"hourly", "0 * * * *", "mỗi giờ vào phút 00"},
+		{"hourly :15", "15 * * * *", "mỗi giờ vào phút 15"},
+		{"weekly sun 03:00", "0 3 * * 0", "mỗi Chủ nhật lúc 03:00"},
+		{"weekly Monday 23:30", "30 23 * * 1", "mỗi Thứ Hai lúc 23:30"},
+		{"monthly 1 04:00", "0 4 1 * *", "ngày 1 hằng tháng lúc 04:00"},
 		{"0 3 * * 1", "0 3 * * 1", "cron 0 3 * * 1"},
 	}
 	for _, tc := range tests {
@@ -84,7 +84,7 @@ func TestManualAndBadSpecs(t *testing.T) {
 			t.Errorf("Next(%q) accepted a manual schedule", spec)
 		}
 	}
-	if got := Describe(""); got != "only by hand" {
+	if got := Describe(""); got != "chỉ chạy tay" {
 		t.Errorf("Describe(\"\") = %q", got)
 	}
 	for _, bad := range []string{
@@ -134,7 +134,7 @@ func TestFriendlySpecsMeanTheCanonicalOnes(t *testing.T) {
 	if next, ok := Next("daily at 2:30pm", now); !ok || next.Hour() != 14 || next.Minute() != 30 {
 		t.Errorf("next = %v %v", next, ok)
 	}
-	if got := Describe("weekly monday 3am"); got != "every Monday at 03:00" {
+	if got := Describe("weekly monday 3am"); got != "mỗi Thứ Hai lúc 03:00" {
 		t.Errorf("describe = %q", got)
 	}
 }

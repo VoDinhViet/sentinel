@@ -58,7 +58,7 @@ func parseDoc(raw []byte) (*yaml.Node, *yaml.Node, error) {
 		return nil, nil, fmt.Errorf("parse config: %w", err)
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, nil, invalid("config must be a YAML mapping")
+		return nil, nil, invalid("config phải là một YAML mapping")
 	}
 	return &doc, doc.Content[0], nil
 }

@@ -22,9 +22,9 @@ import (
 
 var (
 	// ErrNotFound means the named job is not in the config.
-	ErrNotFound = errors.New("job not found")
+	ErrNotFound = errors.New("không tìm thấy job")
 	// ErrExists means a job with that name is already in the config.
-	ErrExists = errors.New("a backup job with that name already exists")
+	ErrExists = errors.New("đã có một backup job trùng tên")
 )
 
 // InvalidError is a problem with what the user entered; its message is meant to be shown.
@@ -192,37 +192,37 @@ func Problems(job *Job, known Known) []*InvalidError {
 		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
 	}
 	if !slices.Contains(JobTypes, job.Type) {
-		add("type", "type must be one of %v", JobTypes)
+		add("type", "loại job phải là một trong %v", JobTypes)
 	}
 	if !nameRe.MatchString(job.Name) {
-		add("name", "invalid job name %q: use letters, digits, '.', '_' or '-'", job.Name)
+		add("name", "tên job %q không hợp lệ: dùng chữ cái, chữ số, '.', '_' hoặc '-'", job.Name)
 	}
 	if job.Type == config.JobFiles {
 		return append(problems, append(filesProblems(job), commonProblems(job, known)...)...)
 	}
 	if !identRe.MatchString(job.Database) {
-		add("database", "database name is required")
+		add("database", "cần nhập tên database")
 	}
 	if job.User != "" && !identRe.MatchString(job.User) {
-		add("user", "invalid user")
+		add("user", "user không hợp lệ")
 	}
 	if job.Host == "" {
 		job.Host = "localhost"
 	}
 	if !hostRe.MatchString(job.Host) {
-		add("host", "invalid host %q", job.Host)
+		add("host", "host %q không hợp lệ", job.Host)
 	}
 	if job.Port == 0 {
 		job.Port = defaultPort(job.Type)
 	}
 	if job.Port < 1 || job.Port > 65535 {
-		add("port", "port must be between 1 and 65535")
+		add("port", "port phải từ 1 đến 65535")
 	}
 	if job.PasswordEnv != "" && !envNameRe.MatchString(job.PasswordEnv) {
-		add("password_env", "invalid environment variable name %q (the password itself is never entered here)", job.PasswordEnv)
+		add("password_env", "tên biến môi trường %q không hợp lệ (mật khẩu không bao giờ nhập ở đây)", job.PasswordEnv)
 	}
 	if job.Type == config.JobMySQL && job.TLS != "" && job.TLS != "disabled" && job.TLS != "required" {
-		add("tls", "tls must be empty, disabled or required")
+		add("tls", "tls phải để trống, disabled hoặc required")
 	}
 	if job.Type != config.JobMySQL {
 		job.TLS = ""
@@ -238,11 +238,11 @@ func filesProblems(job *Job) []*InvalidError {
 	var problems []*InvalidError
 	paths := slices.DeleteFunc(slices.Clone(job.Paths), func(path string) bool { return path == "" })
 	if len(paths) == 0 {
-		problems = append(problems, &InvalidError{Message: "give at least one path to back up", Field: "paths"})
+		problems = append(problems, &InvalidError{Message: "nhập ít nhất một đường dẫn cần backup", Field: "paths"})
 	}
 	for _, path := range append(slices.Clone(paths), job.Exclude...) {
 		if strings.ContainsAny(path, "\x00\n\r") {
-			problems = append(problems, &InvalidError{Message: "a path cannot contain line breaks", Field: "paths"})
+			problems = append(problems, &InvalidError{Message: "đường dẫn không được chứa ký tự xuống dòng", Field: "paths"})
 			break
 		}
 	}
@@ -258,23 +258,23 @@ func commonProblems(job *Job, known Known) []*InvalidError {
 	}
 	if !schedule.IsManual(job.Schedule) {
 		if _, err := schedule.Parse(job.Schedule); err != nil {
-			add("schedule", "invalid schedule: %v (try \"daily 02:00\", \"weekly monday 3am\", \"every 6 hours\" or a cron expression)", err)
+			add("schedule", "schedule không hợp lệ: %v (thử \"daily 02:00\", \"weekly monday 3am\", \"every 6 hours\" hoặc biểu thức cron)", err)
 		}
 	}
 	if len(job.Repositories) == 0 && !known.InheritsRepositories {
-		add("repositories", "choose at least one repository")
+		add("repositories", "chọn ít nhất một repository")
 	}
 	slices.Sort(job.Repositories)
 	job.Repositories = slices.Compact(job.Repositories)
 	for _, name := range job.Repositories {
 		if !slices.Contains(known.Repositories, name) {
-			add("repositories", "unknown repository %q (defined: %v)", name, known.Repositories)
+			add("repositories", "repository %q không tồn tại (đã khai báo: %v)", name, known.Repositories)
 			break
 		}
 	}
 	for _, count := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
 		if count < 0 {
-			add("retention", "retention values cannot be negative")
+			add("retention", "giá trị retention không được âm")
 			break
 		}
 	}
@@ -322,7 +322,7 @@ func editJob(root *yaml.Node, original string, job Job) error {
 		root.Content = append(root.Content, scalar("jobs", 0), seq)
 	}
 	if seq.Kind != yaml.SequenceNode {
-		return invalid("config: jobs must be a list")
+		return invalid("config: jobs phải là một danh sách")
 	}
 	var jobNode *yaml.Node
 	if original != "" {
@@ -332,10 +332,10 @@ func editJob(root *yaml.Node, original string, job Job) error {
 		}
 		jobNode = seq.Content[i]
 		if !isEditableJob(jobNode) {
-			return invalid("job %q has a type this editor does not handle", original)
+			return invalid("job %q có loại mà trình sửa này không xử lý được", original)
 		}
 		if typeNode := mapGet(jobNode, "type"); typeNode.Value != job.Type {
-			return invalid("the type of an existing job cannot be changed (remove it and add a new one)")
+			return invalid("không đổi được loại của job đã có (hãy xóa job rồi thêm job mới)")
 		}
 	}
 	if i := findJob(seq, job.Name); i >= 0 && (jobNode == nil || seq.Content[i] != jobNode) {
@@ -431,7 +431,7 @@ func removeJob(root *yaml.Node, jobName string) error {
 		return fmt.Errorf("job %q: %w", jobName, ErrNotFound)
 	}
 	if !isEditableJob(seq.Content[i]) {
-		return invalid("job %q has a type this editor does not handle", jobName)
+		return invalid("job %q có loại mà trình sửa này không xử lý được", jobName)
 	}
 	seq.Content = append(seq.Content[:i], seq.Content[i+1:]...)
 	if len(seq.Content) == 0 {

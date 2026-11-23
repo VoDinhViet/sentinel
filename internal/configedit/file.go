@@ -19,7 +19,7 @@ func editFile(path string, edit func(root *yaml.Node, current *config.Config) er
 	}
 	current, err := config.ParseWith(raw, config.ParseOptions{ExpandEnv: false})
 	if err != nil {
-		return fmt.Errorf("config does not parse, not editing it: %w", err)
+		return fmt.Errorf("config không đọc được nên không sửa: %w", err)
 	}
 	doc, root, err := parseDoc(raw)
 	if err != nil {
@@ -33,7 +33,7 @@ func editFile(path string, edit func(root *yaml.Node, current *config.Config) er
 		return err
 	}
 	if _, err := config.ParseWith(edited, config.ParseOptions{ExpandEnv: false}); err != nil {
-		return invalid("the change makes the config invalid: %v", err)
+		return invalid("thay đổi này làm config không hợp lệ: %v", err)
 	}
 	return replaceFile(path, raw, edited)
 }
