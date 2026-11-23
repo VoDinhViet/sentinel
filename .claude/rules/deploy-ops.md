@@ -14,7 +14,7 @@ paths:
   existing `/etc/sentinel/config.yaml` and `sentinel.env`.
 - **Secrets** live only in `/etc/sentinel/sentinel.env` (mode 0600, loaded by `EnvironmentFile=`). Never put a real secret in
   a unit file, compose file, example config, Dockerfile or test fixture; examples use `${VAR}` placeholders.
-- **systemd units** keep their hardening (`ProtectSystem`, `PrivateTmp`, `NoNewPrivileges`, `StateDirectory`); the agent
+- **systemd units** keep their hardening (`ProtectSystem`, `PrivateTmp`, `NoNewPrivileges`, `StateDirectory`); the daemon
   needs `CAP_NET_RAW` for ping. Do not loosen these without saying why.
 - **Docker**: the image packages the prebuilt `bin/sentinel` on Alpine with restic, rclone and the dump tools; it runs as root unless
   compose sets uid 10001. Keep dump tool versions compatible with the engines the e2e tests cover.

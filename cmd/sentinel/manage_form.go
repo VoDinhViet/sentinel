@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -579,6 +581,10 @@ func (m manageModel) renderForm() []string {
 		screenLines = append(screenLines, marker+label+" "+value)
 		if message, bad := problems[field.key]; bad {
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+severityStyle(sevBad).Render("✗ "+truncate(message, max(m.width-formLabelWidth-6, 10))))
+		} else if field.key == "path" && m.form.field("kind").value == "local" {
+			if note := folderNote(field.value); note != "" {
+				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
+			}
 		} else if field.key == "paths" {
 			if note := pathsNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
@@ -604,6 +610,59 @@ func (m manageModel) renderForm() []string {
 	m.hits.add(buttonRow, lipgloss.Width(saveButton)+2, lipgloss.Width("[ Cancel ]"), "esc")
 	screenLines = append(screenLines, "", buttons)
 	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "next", "space", "tick", "ctrl+s", "save", "esc", "cancel"))
+}
+
+// folderNote says whether the folder chosen for the backups exists, whether it can be written to
+// and how much room the disk it is on has; a folder that does not exist yet is judged by the
+// nearest folder above it that does.
+func folderNote(folder string) string {
+	folder = strings.TrimSpace(os.ExpandEnv(folder))
+	if folder == "" {
+		return ""
+	}
+	existing, created := folder, false
+	var info os.FileInfo
+	for {
+		stat, err := os.Stat(existing)
+		if err == nil && stat.IsDir() {
+			info = stat
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return severityStyle(sevWarn).Render("▲ no such place")
+		}
+		existing, created = parent, true
+	}
+	var disk syscall.Statfs_t
+	free := ""
+	if syscall.Statfs(existing, &disk) == nil {
+		free = " · " + humanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " free on this disk"
+	}
+	writable := canWrite(info)
+	switch {
+	case !writable:
+		return severityStyle(sevBad).Render("✗ " + existing + " is not writable by you" + free)
+	case created:
+		return severityStyle(sevOK).Render("✓ will be created (" + existing + " exists)" + free)
+	}
+	return severityStyle(sevOK).Render("✓ exists, writable" + free)
+}
+
+// canWrite guesses from the owner, group and mode whether the current user can create files in a folder.
+func canWrite(info os.FileInfo) bool {
+	mode := info.Mode().Perm()
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	switch {
+	case os.Geteuid() == 0 || !ok:
+		return true
+	case int(stat.Uid) == os.Geteuid():
+		return mode&0o200 != 0
+	}
+	if groups, err := os.Getgroups(); err == nil && slices.Contains(groups, int(stat.Gid)) {
+		return mode&0o020 != 0
+	}
+	return mode&0o002 != 0
 }
 
 // pathsNote says whether the listed paths exist on this machine.

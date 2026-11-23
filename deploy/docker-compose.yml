@@ -1,11 +1,11 @@
-# Sentinel agent (backups, uptime checks, alerts) in Docker.
+# Sentinel (backups, uptime checks, alerts) in Docker.
 #
 #   1. Build the image on a machine with Go:   make docker
 #      then ship it:  docker save sentinel | ssh vps docker load
 #      (or push it to your registry and set SENTINEL_IMAGE).
 #   2. Put the secrets your config references in sentinel.env,
 #      and the config (see config.example.yaml) in ./config.yaml.
-#   3. docker compose -f docker-compose.agent.yml up -d
+#   3. docker compose -f docker-compose.yml up -d
 services:
   sentinel:
     image: ${SENTINEL_IMAGE:-sentinel:latest}

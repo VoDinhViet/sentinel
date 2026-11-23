@@ -156,7 +156,7 @@ Sửa bằng form giữ nguyên comment, thứ tự và các khóa không quản
 
 ## Chạy bằng Docker
 
-Không muốn cài trực tiếp thì dùng image Docker (đã gồm restic, rclone, pg_dump): `make docker` build image `sentinel:latest` từ binary vừa build, rồi `docker save sentinel | ssh vps docker load` (hoặc push lên registry của bạn và đặt `SENTINEL_IMAGE`). Compose mẫu: [docker-compose.agent.yml](deploy/docker-compose.agent.yml) cho agent (backup, uptime check, cảnh báo). Mount các đường dẫn cần backup (chỉ đọc) vào đúng đường dẫn trong config; `network_mode: host` để uptime check và `pg_dump` tới được dịch vụ trên VPS.
+Không muốn cài trực tiếp thì dùng image Docker (đã gồm restic, rclone, pg_dump): `make docker` build image `sentinel:latest` từ binary vừa build, rồi `docker save sentinel | ssh vps docker load` (hoặc push lên registry của bạn và đặt `SENTINEL_IMAGE`). Compose mẫu: [docker-compose.yml](deploy/docker-compose.yml) (backup, uptime check, cảnh báo). Mount các đường dẫn cần backup (chỉ đọc) vào đúng đường dẫn trong config; `network_mode: host` để uptime check và `pg_dump` tới được dịch vụ trên VPS.
 
 ### Lưu ý
 

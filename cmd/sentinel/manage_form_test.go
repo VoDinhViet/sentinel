@@ -387,3 +387,35 @@ func TestFormKeysOnOtherTabsDoNothing(t *testing.T) {
 		t.Error("a on the Uptime tab must not open the form")
 	}
 }
+
+func TestFolderNoteTellsWhetherTheBackupFolderIsUsable(t *testing.T) {
+	existing := t.TempDir()
+	t.Setenv("SENTINEL_TEST_DIR", existing)
+	for name, tc := range map[string]struct{ folder, want string }{
+		"existing folder":        {existing, "✓ exists, writable"},
+		"free space is shown":    {existing, "free on this disk"},
+		"folder to be created":   {existing + "/backups/web-01", "✓ will be created"},
+		"variables are expanded": {"${SENTINEL_TEST_DIR}/new", "✓ will be created"},
+	} {
+		if got := plain(folderNote(tc.folder)); !strings.Contains(got, tc.want) {
+			t.Errorf("%s: %q lacks %q", name, got, tc.want)
+		}
+	}
+	if got := folderNote("  "); got != "" {
+		t.Errorf("an empty folder has no note: %q", got)
+	}
+}
+
+func TestRepositoryFormShowsTheFolderNoteForLocalRepositoriesOnly(t *testing.T) {
+	screen, _ := configScreen(t)
+	screen = keys(t, screen, "a")
+	screen.form.field("path").value = t.TempDir()
+	if view := plain(screen.render()); !strings.Contains(view, "✓ exists, writable") {
+		t.Errorf("a local folder gets a note:\n%s", view)
+	}
+	screen.form.field("kind").value = "rclone"
+	screen.form.field("path").value = t.TempDir()
+	if view := plain(screen.render()); strings.Contains(view, "exists, writable") {
+		t.Errorf("a remote path is not checked on this disk:\n%s", view)
+	}
+}

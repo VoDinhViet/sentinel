@@ -173,7 +173,7 @@ func TestParseEmpty(t *testing.T) {
 }
 
 func TestParseWithoutEnv(t *testing.T) {
-	// The server validates agent configs whose secrets it never sees.
+	// The config editor reads files whose secrets it never sees.
 	raw := []byte(`
 repositories:
   r:

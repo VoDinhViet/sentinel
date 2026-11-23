@@ -1,4 +1,4 @@
-// Command sentinel is a small server maintenance agent: backups via restic,
+// Command sentinel is a small server maintenance tool: backups via restic,
 // uptime checks and alerting.
 package main
 
@@ -39,7 +39,7 @@ func newRootCmd() *cobra.Command {
 	a := &app{}
 	root := &cobra.Command{
 		Use:           "sentinel",
-		Short:         "Server maintenance agent: backups, uptime checks, alerts",
+		Short:         "Server maintenance: backups, uptime checks, alerts",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

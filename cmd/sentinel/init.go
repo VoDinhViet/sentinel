@@ -32,11 +32,11 @@ func initPath(locations configLocations, root bool) string {
 
 // initOutcome is what a finished init tells the user.
 type initOutcome struct {
-	path, envFile  string
-	passwordEnv    string
-	secretWritten  bool
-	jobName        string
-	repoName       string
+	path, envFile string
+	passwordEnv   string
+	secretWritten bool
+	jobName       string
+	repoName      string
 }
 
 func (a *app) initCmd() *cobra.Command {

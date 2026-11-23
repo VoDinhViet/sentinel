@@ -232,8 +232,8 @@ func Parse(raw []byte) (*Config, error) {
 }
 
 type ParseOptions struct {
-	// ExpandEnv replaces ${VAR} references. The server validates agent configs
-	// with it off, since secrets only exist in each agent's environment.
+	// ExpandEnv replaces ${VAR} references. The config editor reads files with it
+	// off, since secrets only exist in the environment of the running service.
 	ExpandEnv bool
 }
 

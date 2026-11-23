@@ -1,5 +1,5 @@
 [Unit]
-Description=Sentinel server maintenance agent (backups, uptime checks)
+Description=Sentinel server maintenance (backups, uptime checks)
 Documentation=https://github.com/OWNER/sentinel
 Wants=network-online.target
 After=network-online.target
