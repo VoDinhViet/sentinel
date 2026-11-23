@@ -19,8 +19,8 @@ type mysql struct{}
 var (
 	lookPath      = exec.LookPath
 	clientVersion = func(bin string) string {
-		out, _ := exec.Command(bin, "--version").Output()
-		return string(out)
+		versionOutput, _ := exec.Command(bin, "--version").Output()
+		return string(versionOutput)
 	}
 )
 
@@ -48,25 +48,25 @@ func (mysql) Database(job *config.Backup) string {
 var mysql8Client = regexp.MustCompile(`Ver 8\.`)
 
 // optionFileValue quotes a value for a MySQL option file.
-func optionFileValue(v string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(v) + `"`
+func optionFileValue(value string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(value) + `"`
 }
 
 // Dump writes a consistent SQL dump (single transaction, so InnoDB tables need
 // no lock) including routines, triggers and events. Credentials go in a
 // temporary option file, never on argv.
 func (mysql) Dump(job *config.Backup) (Dump, error) {
-	my := job.MySQL
-	if my == nil {
+	settings := job.MySQL
+	if settings == nil {
 		return Dump{}, errors.New("mysql settings are missing")
 	}
-	optionFile := fmt.Sprintf("[client]\nhost=%s\nport=%d\nuser=%s\n", optionFileValue(my.Host), my.Port, optionFileValue(my.User))
-	if my.Password != "" {
-		optionFile += "password=" + optionFileValue(my.Password) + "\n"
+	optionFile := fmt.Sprintf("[client]\nhost=%s\nport=%d\nuser=%s\n", optionFileValue(settings.Host), settings.Port, optionFileValue(settings.User))
+	if settings.Password != "" {
+		optionFile += "password=" + optionFileValue(settings.Password) + "\n"
 	}
 	// MariaDB and MySQL clients spell this differently; "loose-" makes each
 	// ignore the option it doesn't know.
-	switch my.TLS {
+	switch settings.TLS {
 	case "disabled":
 		optionFile += "loose-skip-ssl\nloose-ssl-mode=DISABLED\n"
 	case "required":
@@ -86,8 +86,8 @@ func (mysql) Dump(job *config.Backup) (Dump, error) {
 	if bin == "mysqldump" && mysql8Client.MatchString(clientVersion(bin)) {
 		command = append(command, "--column-statistics=0")
 	}
-	command = append(command, "--", my.Database)
-	return Dump{Command: command, Filename: my.Database + ".sql", Cleanup: cleanup}, nil
+	command = append(command, "--", settings.Database)
+	return Dump{Command: command, Filename: settings.Database + ".sql", Cleanup: cleanup}, nil
 }
 
 func (mysql) RestoreHint(job *config.Backup, dir string) string {

@@ -128,48 +128,48 @@ type BackupRun struct {
 	Error string
 }
 
-func (s *Store) RecordBackup(ctx context.Context, r BackupRun) error {
+func (s *Store) RecordBackup(ctx context.Context, run BackupRun) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO backup_runs
 		(job, repository, started_at, finished_at, success, snapshot_id, files_new, files_changed, bytes_added, total_bytes, error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Job, r.Repository, r.StartedAt.Unix(), r.FinishedAt.Unix(), r.Success, r.SnapshotID,
-		r.FilesNew, r.FilesChanged, r.BytesAdded, r.TotalBytes, r.Error)
+		run.Job, run.Repository, run.StartedAt.Unix(), run.FinishedAt.Unix(), run.Success, run.SnapshotID,
+		run.FilesNew, run.FilesChanged, run.BytesAdded, run.TotalBytes, run.Error)
 	return err
 }
 
 // LastSuccessfulBackup returns when job last finished successfully on any
 // repository. ok is false if it never has.
-func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (t time.Time, ok bool, err error) {
-	var unix sql.NullInt64
+func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (finishedAt time.Time, ok bool, err error) {
+	var finishedUnix sql.NullInt64
 	err = s.db.QueryRowContext(ctx,
-		`SELECT MAX(finished_at) FROM backup_runs WHERE job = ? AND success = 1`, job).Scan(&unix)
-	if err != nil || !unix.Valid {
+		`SELECT MAX(finished_at) FROM backup_runs WHERE job = ? AND success = 1`, job).Scan(&finishedUnix)
+	if err != nil || !finishedUnix.Valid {
 		return time.Time{}, false, err
 	}
-	return time.Unix(unix.Int64, 0), true, nil
+	return time.Unix(finishedUnix.Int64, 0), true, nil
 }
 
 const backupCols = `id, job, repository, started_at, finished_at, success,
 	snapshot_id, files_new, files_changed, bytes_added, total_bytes, error`
 
 func (s *Store) queryBackups(ctx context.Context, query string, args ...any) ([]BackupRun, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	runRows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []BackupRun
-	for rows.Next() {
-		var r BackupRun
-		var started, finished int64
-		if err := rows.Scan(&r.ID, &r.Job, &r.Repository, &started, &finished, &r.Success, &r.SnapshotID,
-			&r.FilesNew, &r.FilesChanged, &r.BytesAdded, &r.TotalBytes, &r.Error); err != nil {
+	defer runRows.Close()
+	var runs []BackupRun
+	for runRows.Next() {
+		var run BackupRun
+		var startedUnix, finishedUnix int64
+		if err := runRows.Scan(&run.ID, &run.Job, &run.Repository, &startedUnix, &finishedUnix, &run.Success, &run.SnapshotID,
+			&run.FilesNew, &run.FilesChanged, &run.BytesAdded, &run.TotalBytes, &run.Error); err != nil {
 			return nil, err
 		}
-		r.StartedAt, r.FinishedAt = time.Unix(started, 0), time.Unix(finished, 0)
-		out = append(out, r)
+		run.StartedAt, run.FinishedAt = time.Unix(startedUnix, 0), time.Unix(finishedUnix, 0)
+		runs = append(runs, run)
 	}
-	return out, rows.Err()
+	return runs, runRows.Err()
 }
 
 // LatestBackups returns the most recent run for each (job, repository) pair.
@@ -201,30 +201,30 @@ type CheckResult struct {
 	Error   string
 }
 
-func (s *Store) RecordCheck(ctx context.Context, r CheckResult) error {
+func (s *Store) RecordCheck(ctx context.Context, result CheckResult) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO check_results (name, at, ok, latency_ms, error) VALUES (?, ?, ?, ?, ?)`,
-		r.Name, r.At.Unix(), r.OK, r.Latency.Milliseconds(), r.Error)
+		result.Name, result.At.Unix(), result.OK, result.Latency.Milliseconds(), result.Error)
 	return err
 }
 
 func (s *Store) queryChecks(ctx context.Context, query string, args ...any) ([]CheckResult, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	checkRows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []CheckResult
-	for rows.Next() {
-		var r CheckResult
-		var at, ms int64
-		if err := rows.Scan(&r.ID, &r.Name, &at, &r.OK, &ms, &r.Error); err != nil {
+	defer checkRows.Close()
+	var results []CheckResult
+	for checkRows.Next() {
+		var result CheckResult
+		var atUnix, latencyMS int64
+		if err := checkRows.Scan(&result.ID, &result.Name, &atUnix, &result.OK, &latencyMS, &result.Error); err != nil {
 			return nil, err
 		}
-		r.At, r.Latency = time.Unix(at, 0), time.Duration(ms)*time.Millisecond
-		out = append(out, r)
+		result.At, result.Latency = time.Unix(atUnix, 0), time.Duration(latencyMS)*time.Millisecond
+		results = append(results, result)
 	}
-	return out, rows.Err()
+	return results, checkRows.Err()
 }
 
 // LatestChecks returns the most recent result for each check name.
@@ -247,37 +247,37 @@ type Alert struct {
 	Message      string
 }
 
-func (s *Store) SaveAlert(ctx context.Context, a Alert) error {
+func (s *Store) SaveAlert(ctx context.Context, alert Alert) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO alerts (key, firing, since, last_notified, message)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET firing = excluded.firing, since = excluded.since,
 			last_notified = excluded.last_notified, message = excluded.message`,
-		a.Key, a.Firing, a.Since.Unix(), a.LastNotified.Unix(), a.Message)
+		alert.Key, alert.Firing, alert.Since.Unix(), alert.LastNotified.Unix(), alert.Message)
 	return err
 }
 
 // Alerts returns every stored alert; firingOnly limits it to open alerts.
 func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
-	q := `SELECT key, firing, since, last_notified, message FROM alerts`
+	query := `SELECT key, firing, since, last_notified, message FROM alerts`
 	if firingOnly {
-		q += ` WHERE firing = 1`
+		query += ` WHERE firing = 1`
 	}
-	rows, err := s.db.QueryContext(ctx, q+` ORDER BY key`)
+	alertRows, err := s.db.QueryContext(ctx, query+` ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []Alert
-	for rows.Next() {
-		var a Alert
-		var since, last int64
-		if err := rows.Scan(&a.Key, &a.Firing, &since, &last, &a.Message); err != nil {
+	defer alertRows.Close()
+	var alerts []Alert
+	for alertRows.Next() {
+		var alert Alert
+		var sinceUnix, lastNotifiedUnix int64
+		if err := alertRows.Scan(&alert.Key, &alert.Firing, &sinceUnix, &lastNotifiedUnix, &alert.Message); err != nil {
 			return nil, err
 		}
-		a.Since, a.LastNotified = time.Unix(since, 0), time.Unix(last, 0)
-		out = append(out, a)
+		alert.Since, alert.LastNotified = time.Unix(sinceUnix, 0), time.Unix(lastNotifiedUnix, 0)
+		alerts = append(alerts, alert)
 	}
-	return out, rows.Err()
+	return alerts, alertRows.Err()
 }
 
 // Prune deletes check results older than before.

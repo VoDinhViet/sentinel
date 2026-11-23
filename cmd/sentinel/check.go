@@ -32,7 +32,7 @@ func (a *app) checkCmd() *cobra.Command {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					results[i] = uptime.Check(cmd.Context(), c)
+					results[i] = uptime.Probe(cmd.Context(), c)
 				}()
 			}
 			wg.Wait()
@@ -49,7 +49,7 @@ func (a *app) checkCmd() *cobra.Command {
 				if !r.CertExpiry.IsZero() {
 					detail = strings.TrimSpace(detail + " cert expires " + r.CertExpiry.Format("2006-01-02"))
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.Name, uptime.Target(c), status, r.Latency.Round(time.Millisecond), detail)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.Name, uptime.Endpoint(c), status, r.Latency.Round(time.Millisecond), detail)
 			}
 			w.Flush()
 			if failed > 0 {

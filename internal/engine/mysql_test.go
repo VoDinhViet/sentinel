@@ -63,9 +63,9 @@ func TestMySQLDumpKeepsPasswordOutOfArgv(t *testing.T) {
 	}
 
 	path := strings.TrimPrefix(dump.Command[1], "--defaults-extra-file=")
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("credentials file: %v, %v", info, err)
+	fileInfo, err := os.Stat(path)
+	if err != nil || fileInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("credentials file: %v, %v", fileInfo, err)
 	}
 	content, _ := os.ReadFile(path)
 	if !strings.Contains(string(content), `password="p\"w\\d"`) || !strings.Contains(string(content), "port=3307") {

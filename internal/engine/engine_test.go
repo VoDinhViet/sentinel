@@ -66,8 +66,8 @@ func TestPostgresDumpRequiresSettings(t *testing.T) {
 
 func TestPostgresRestoreHint(t *testing.T) {
 	pgEngine, _ := For(config.BackupPostgres)
-	got := pgEngine.RestoreHint(postgresJob(), "/tmp/r")
-	if want := "pg_restore --clean --if-exists -d shop /tmp/r/shop.dump"; got != want {
+	got := pgEngine.RestoreHint(postgresJob(), "/tmpDir/r")
+	if want := "pg_restore --clean --if-exists -d shop /tmpDir/r/shop.dump"; got != want {
 		t.Errorf("hint = %q, want %q", got, want)
 	}
 }
@@ -94,28 +94,28 @@ func TestCapabilitiesListEngines(t *testing.T) {
 
 func TestShellQuote(t *testing.T) {
 	for value, want := range map[string]string{
-		"/tmp/r/shop.dump": "/tmp/r/shop.dump",
-		"/tmp/my restore":  "'/tmp/my restore'",
-		"it's":             `'it'\''s'`,
-		"crm.*":            "'crm.*'",
-		"$(rm -rf /)":      "'$(rm -rf /)'",
+		"/tmpDir/r/shop.dump": "/tmpDir/r/shop.dump",
+		"/tmpDir/my restore":  "'/tmpDir/my restore'",
+		"it's":                `'it'\''s'`,
+		"crm.*":               "'crm.*'",
+		"$(rm -rf /)":         "'$(rm -rf /)'",
 	} {
 		if got := shellQuote(value); got != want {
 			t.Errorf("shellQuote(%q) = %q, want %q", value, got, want)
 		}
 	}
 	pgEngine, _ := For(config.BackupPostgres)
-	if got := pgEngine.RestoreHint(postgresJob(), "/tmp/my restore"); got != "pg_restore --clean --if-exists -d shop '/tmp/my restore/shop.dump'" {
+	if got := pgEngine.RestoreHint(postgresJob(), "/tmpDir/my restore"); got != "pg_restore --clean --if-exists -d shop '/tmpDir/my restore/shop.dump'" {
 		t.Errorf("hint = %q", got)
 	}
 }
 
 func TestSweepStaleSecretFiles(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
-	old := filepath.Join(tmp, "sentinel-mysql-111.cnf")
-	fresh := filepath.Join(tmp, "sentinel-mongo-222.yaml")
-	other := filepath.Join(tmp, "unrelated.cnf")
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+	old := filepath.Join(tmpDir, "sentinel-mysql-111.cnf")
+	fresh := filepath.Join(tmpDir, "sentinel-mongo-222.yaml")
+	other := filepath.Join(tmpDir, "unrelated.cnf")
 	for _, path := range []string{old, fresh, other} {
 		if err := os.WriteFile(path, []byte("password=x"), 0o600); err != nil {
 			t.Fatal(err)

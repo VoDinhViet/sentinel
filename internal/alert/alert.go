@@ -14,19 +14,19 @@ import (
 	"sentinel/internal/store"
 )
 
-type Sender interface {
-	Send(ctx context.Context, m notify.Message) error
+type Notifier interface {
+	Send(ctx context.Context, msg notify.Message) error
 }
 
 type Manager struct {
-	Sender   Sender
+	Notifier Notifier
 	Store    *store.Store // optional; persists state across restarts
 	Server   string
 	Cooldown time.Duration
 	Now      func() time.Time
 
-	mu     sync.Mutex
-	states map[string]store.Alert
+	mu         sync.Mutex
+	alertByKey map[string]store.Alert
 }
 
 func (m *Manager) now() time.Time {
@@ -40,35 +40,35 @@ func (m *Manager) now() time.Time {
 func (m *Manager) Load(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.states = map[string]store.Alert{}
+	m.alertByKey = map[string]store.Alert{}
 	if m.Store == nil {
 		return nil
 	}
-	alerts, err := m.Store.Alerts(ctx, false)
+	stored, err := m.Store.Alerts(ctx, false)
 	if err != nil {
 		return err
 	}
-	for _, a := range alerts {
-		m.states[a.Key] = a
+	for _, alert := range stored {
+		m.alertByKey[alert.Key] = alert
 	}
 	return nil
 }
 
-// update applies fn to the state for key under the lock, persists it, and
+// update applies change to the alert for key under the lock, persists it, and
 // returns the message to send (if any). Sending happens outside the lock.
-func (m *Manager) update(ctx context.Context, key string, fn func(a *store.Alert, exists bool) *notify.Message) {
+func (m *Manager) update(ctx context.Context, key string, change func(alert *store.Alert, exists bool) *notify.Message) {
 	m.mu.Lock()
-	if m.states == nil {
-		m.states = map[string]store.Alert{}
+	if m.alertByKey == nil {
+		m.alertByKey = map[string]store.Alert{}
 	}
-	a, exists := m.states[key]
-	a.Key = key
-	msg := fn(&a, exists)
-	m.states[key] = a
+	alert, exists := m.alertByKey[key]
+	alert.Key = key
+	msg := change(&alert, exists)
+	m.alertByKey[key] = alert
 	m.mu.Unlock()
 
 	if m.Store != nil {
-		if err := m.Store.SaveAlert(context.WithoutCancel(ctx), a); err != nil {
+		if err := m.Store.SaveAlert(context.WithoutCancel(ctx), alert); err != nil {
 			slog.Error("save alert", "key", key, "error", err)
 		}
 	}
@@ -80,27 +80,27 @@ func (m *Manager) update(ctx context.Context, key string, fn func(a *store.Alert
 func (m *Manager) send(ctx context.Context, msg notify.Message) {
 	msg.Server = m.Server
 	slog.Info("alert", "level", msg.Level, "title", msg.Title)
-	if m.Sender == nil {
+	if m.Notifier == nil {
 		return
 	}
-	// Notification failures are logged by the sender; they must not stop the caller.
-	_ = m.Sender.Send(context.WithoutCancel(ctx), msg)
+	// Notification failures are logged by the notifier; they must not stop the caller.
+	_ = m.Notifier.Send(context.WithoutCancel(ctx), msg)
 }
 
 // Fire marks key as failing. It notifies when the alert opens and again every
 // Cooldown while it stays open.
 func (m *Manager) Fire(ctx context.Context, key string, level notify.Level, title, body string) {
 	now := m.now()
-	m.update(ctx, key, func(a *store.Alert, _ bool) *notify.Message {
-		a.Message = title
-		if !a.Firing {
-			a.Firing, a.Since, a.LastNotified = true, now, now
+	m.update(ctx, key, func(alert *store.Alert, _ bool) *notify.Message {
+		alert.Message = title
+		if !alert.Firing {
+			alert.Firing, alert.Since, alert.LastNotified = true, now, now
 			return &notify.Message{Level: level, Title: title, Body: body}
 		}
-		if m.Cooldown > 0 && now.Sub(a.LastNotified) >= m.Cooldown {
-			a.LastNotified = now
+		if m.Cooldown > 0 && now.Sub(alert.LastNotified) >= m.Cooldown {
+			alert.LastNotified = now
 			return &notify.Message{Level: level, Title: title,
-				Body: joinBody(fmt.Sprintf("Still failing since %s (%s).", a.Since.Format("2006-01-02 15:04"), roundDur(now.Sub(a.Since))), body)}
+				Body: joinBody(fmt.Sprintf("Still failing since %s (%s).", alert.Since.Format("2006-01-02 15:04"), roundDur(now.Sub(alert.Since))), body)}
 		}
 		return nil
 	})
@@ -109,16 +109,16 @@ func (m *Manager) Fire(ctx context.Context, key string, level notify.Level, titl
 // Resolve marks key as healthy, notifying only if it was firing.
 func (m *Manager) Resolve(ctx context.Context, key, title, body string) {
 	now := m.now()
-	m.update(ctx, key, func(a *store.Alert, exists bool) *notify.Message {
-		if !a.Firing {
+	m.update(ctx, key, func(alert *store.Alert, exists bool) *notify.Message {
+		if !alert.Firing {
 			if !exists {
-				a.Since, a.LastNotified = now, now
+				alert.Since, alert.LastNotified = now, now
 			}
-			a.Message = title
+			alert.Message = title
 			return nil
 		}
-		down := now.Sub(a.Since)
-		a.Firing, a.Since, a.LastNotified, a.Message = false, now, now, title
+		down := now.Sub(alert.Since)
+		alert.Firing, alert.Since, alert.LastNotified, alert.Message = false, now, now, title
 		return &notify.Message{Level: notify.Resolved, Title: title,
 			Body: joinBody(fmt.Sprintf("Recovered after %s.", roundDur(down)), body)}
 	})
@@ -133,14 +133,14 @@ func (m *Manager) Info(ctx context.Context, title, body string) {
 func (m *Manager) Firing(key string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.states[key].Firing
+	return m.alertByKey[key].Firing
 }
 
-func joinBody(a, b string) string {
-	if b == "" {
-		return a
+func joinBody(headline, detail string) string {
+	if detail == "" {
+		return headline
 	}
-	return a + "\n" + b
+	return headline + "\n" + detail
 }
 
 func roundDur(d time.Duration) time.Duration {

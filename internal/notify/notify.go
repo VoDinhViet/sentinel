@@ -1,4 +1,4 @@
-// Package notify delivers alert messages to chat and email channels.
+// Package notify delivers alert messages to chat and email notifiers.
 package notify
 
 import (
@@ -10,7 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	neturl "net/url"
+	"net/url"
 	"sync"
 	"time"
 
@@ -58,32 +58,32 @@ func (m Message) Text() string {
 
 type Notifier interface {
 	Name() string
-	Send(ctx context.Context, m Message) error
+	Send(ctx context.Context, msg Message) error
 }
 
-// FromConfig builds one notifier per configured channel.
-func FromConfig(n config.Notifiers) []Notifier {
-	var out []Notifier
-	if n.Telegram != nil {
-		out = append(out, &Telegram{Token: n.Telegram.Token, ChatID: n.Telegram.ChatID})
+// FromConfig builds one notifier per configured notifier setting.
+func FromConfig(settings config.Notifiers) []Notifier {
+	var notifiers []Notifier
+	if settings.Telegram != nil {
+		notifiers = append(notifiers, &Telegram{Token: settings.Telegram.Token, ChatID: settings.Telegram.ChatID})
 	}
-	if n.SMTP != nil {
-		out = append(out, &SMTP{Config: *n.SMTP})
+	if settings.SMTP != nil {
+		notifiers = append(notifiers, &SMTP{Config: *settings.SMTP})
 	}
-	if n.Discord != nil {
-		out = append(out, &Discord{URL: n.Discord.Webhook})
+	if settings.Discord != nil {
+		notifiers = append(notifiers, &Discord{URL: settings.Discord.Webhook})
 	}
-	if n.Slack != nil {
-		out = append(out, &Slack{URL: n.Slack.Webhook})
+	if settings.Slack != nil {
+		notifiers = append(notifiers, &Slack{URL: settings.Slack.Webhook})
 	}
-	return out
+	return notifiers
 }
 
 // Multi fans a message out to every notifier concurrently with retries.
-// A failing channel never blocks or fails the others.
+// A failing notifier never blocks or fails the others.
 type Multi struct {
 	Notifiers []Notifier
-	Attempts  int           // total tries per channel, default 3
+	Attempts  int           // total tries per notifier, default 3
 	Backoff   time.Duration // wait before the 2nd try, doubled each time; default 2s
 	Timeout   time.Duration // per attempt, default 15s
 }
@@ -94,12 +94,12 @@ func (m *Multi) Send(ctx context.Context, msg Message) error {
 
 // SendEach is Send but returns one error per notifier, in order (nil = sent).
 func (m *Multi) SendEach(ctx context.Context, msg Message) []error {
-	attempts, initial, timeout := m.Attempts, m.Backoff, m.Timeout
+	attempts, initialBackoff, timeout := m.Attempts, m.Backoff, m.Timeout
 	if attempts <= 0 {
 		attempts = 3
 	}
-	if initial <= 0 {
-		initial = 2 * time.Second
+	if initialBackoff <= 0 {
+		initialBackoff = 2 * time.Second
 	}
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -107,28 +107,27 @@ func (m *Multi) SendEach(ctx context.Context, msg Message) []error {
 
 	var wg sync.WaitGroup
 	errs := make([]error, len(m.Notifiers))
-	for i, n := range m.Notifiers {
+	for i, notifier := range m.Notifiers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			exp := backoff.NewExponentialBackOff()
-			exp.InitialInterval, exp.Multiplier = initial, 2
+			expBackoff := backoff.NewExponentialBackOff()
+			expBackoff.InitialInterval, expBackoff.Multiplier = initialBackoff, 2
 			_, err := backoff.Retry(ctx, func() (struct{}, error) {
 				attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 				defer cancel()
-				err := n.Send(attemptCtx, msg)
+				err := notifier.Send(attemptCtx, msg)
 				if isPermanent(err) {
 					return struct{}{}, backoff.Permanent(err) // a rejected request will not succeed on retry
 				}
 				return struct{}{}, err
-			}, backoff.WithBackOff(exp), backoff.WithMaxTries(uint(attempts)))
+			}, backoff.WithBackOff(expBackoff), backoff.WithMaxTries(uint(attempts)))
 			if err == nil {
-				errs[i] = nil
 				return
 			}
-			errs[i] = fmt.Errorf("%s: %w", n.Name(), err)
+			errs[i] = fmt.Errorf("%s: %w", notifier.Name(), err)
 			if ctx.Err() == nil { // not just shutting down
-				slog.Warn("notification failed", "channel", n.Name(), "error", errs[i])
+				slog.Warn("notification failed", "notifier", notifier.Name(), "error", errs[i])
 			}
 		}()
 	}
@@ -147,18 +146,18 @@ func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Code,
 // isPermanent reports whether retrying cannot help: the service understood the
 // request and refused it (bad token, bad chat id). Timeouts, 429 and 5xx retry.
 func isPermanent(err error) bool {
-	var status *statusError
-	if !errors.As(err, &status) {
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) {
 		return false
 	}
-	return status.Code >= 400 && status.Code < 500 && status.Code != http.StatusTooManyRequests && status.Code != http.StatusRequestTimeout
+	return statusErr.Code >= 400 && statusErr.Code < 500 && statusErr.Code != http.StatusTooManyRequests && statusErr.Code != http.StatusRequestTimeout
 }
 
 // withoutURL drops the request URL from a failed HTTP call's error. The URL of a
 // Telegram bot or a Discord/Slack webhook contains the secret token, and the
 // error is logged and may be shown in alerts.
 func withoutURL(err error) error {
-	var urlErr *neturl.Error
+	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		return fmt.Errorf("%s request failed: %w", urlErr.Op, urlErr.Err)
 	}
@@ -167,12 +166,12 @@ func withoutURL(err error) error {
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-func postJSON(ctx context.Context, url string, payload any) error {
+func postJSON(ctx context.Context, endpoint string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return withoutURL(err)
 	}
@@ -189,11 +188,11 @@ func postJSON(ctx context.Context, url string, payload any) error {
 	return nil
 }
 
-// truncate cuts s to at most n runes, marking the cut.
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
+// truncate cuts text to at most maxRunes runes, marking the cut.
+func truncate(text string, maxRunes int) string {
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
 	}
-	return string(r[:n-1]) + "…"
+	return string(runes[:maxRunes-1]) + "…"
 }

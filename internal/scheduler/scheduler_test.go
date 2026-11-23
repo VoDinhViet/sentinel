@@ -103,7 +103,7 @@ func TestRunBackupAlerts(t *testing.T) {
 	rec := &recorder{}
 	d := &Daemon{
 		Config: cfg, Store: st,
-		Alerts:  &alert.Manager{Sender: rec, Store: st, Server: "h", Cooldown: time.Hour},
+		Alerts:  &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
 		Backups: &backup.Runner{Config: cfg, Store: st, Bin: bin},
 	}
 	job := &cfg.Backups[0]
@@ -203,7 +203,7 @@ func TestRunBackupSkipsWhenJobAlreadyRunning(t *testing.T) {
 	rec := &recorder{}
 	d := &Daemon{
 		Config: cfg, Store: st,
-		Alerts:  &alert.Manager{Sender: rec, Store: st, Server: "h", Cooldown: time.Hour},
+		Alerts:  &alert.Manager{Notifier: rec, Store: st, Server: "h", Cooldown: time.Hour},
 		Backups: &backup.Runner{Config: cfg, Store: st, Bin: slow},
 	}
 	job := &cfg.Backups[0]

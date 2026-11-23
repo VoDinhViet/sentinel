@@ -42,7 +42,7 @@ type Engine interface {
 
 var engines = map[string]Engine{}
 
-func register(e Engine) { engines[e.Type()] = e }
+func register(dbEngine Engine) { engines[dbEngine.Type()] = dbEngine }
 
 func init() {
 	register(postgres{})
@@ -53,8 +53,8 @@ func init() {
 // For returns the engine for a backup job type, if the type is a database one
 // (not "files").
 func For(jobType string) (Engine, bool) {
-	e, ok := engines[jobType]
-	return e, ok
+	dbEngine, ok := engines[jobType]
+	return dbEngine, ok
 }
 
 // IsDatabase reports whether a backup job type is a database engine.
@@ -64,18 +64,18 @@ func IsDatabase(jobType string) bool {
 }
 
 // ToolsFor returns the distinct binaries needed by the database jobs among
-// backups, in first-seen order.
-func ToolsFor(backups []config.Backup) []string {
+// jobs, in first-seen order.
+func ToolsFor(jobs []config.Backup) []string {
 	var tools []string
-	seen := map[string]bool{}
-	for i := range backups {
-		e, ok := For(backups[i].Type)
+	seenTools := map[string]bool{}
+	for i := range jobs {
+		dbEngine, ok := For(jobs[i].Type)
 		if !ok {
 			continue
 		}
-		for _, tool := range e.Tools() {
-			if !seen[tool] {
-				seen[tool] = true
+		for _, tool := range dbEngine.Tools() {
+			if !seenTools[tool] {
+				seenTools[tool] = true
 				tools = append(tools, tool)
 			}
 		}
@@ -83,8 +83,7 @@ func ToolsFor(backups []config.Backup) []string {
 	return tools
 }
 
-// Capabilities lists what this agent build supports ("engine:postgres"), so
-// the server can refuse a config the agent would reject.
+// Capabilities lists the engine job types this build supports ("engine:postgres").
 func Capabilities() []string {
 	var capabilities []string
 	for _, jobType := range slices.Sorted(maps.Keys(engines)) {
@@ -113,10 +112,10 @@ var secretFilePatterns = []string{"sentinel-mysql-*.cnf", "sentinel-mongo-*.yaml
 func SweepStaleSecretFiles(olderThan time.Duration) int {
 	removed := 0
 	for _, pattern := range secretFilePatterns {
-		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
-		for _, path := range matches {
-			info, err := os.Lstat(path)
-			if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < olderThan {
+		secretPaths, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
+		for _, path := range secretPaths {
+			fileInfo, err := os.Lstat(path)
+			if err != nil || !fileInfo.Mode().IsRegular() || time.Since(fileInfo.ModTime()) < olderThan {
 				continue
 			}
 			if os.Remove(path) == nil {
@@ -130,19 +129,19 @@ func SweepStaleSecretFiles(olderThan time.Duration) int {
 // writeSecretFile writes content to a new file readable only by the current
 // user, so a password never appears in a process's argv. The caller removes it.
 func writeSecretFile(pattern, content string) (path string, cleanup func(), err error) {
-	f, err := os.CreateTemp("", pattern) // created with mode 0600
+	file, err := os.CreateTemp("", pattern) // created with mode 0600
 	if err != nil {
 		return "", nil, err
 	}
-	cleanup = func() { os.Remove(f.Name()) }
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
+	cleanup = func() { os.Remove(file.Name()) }
+	if _, err := file.WriteString(content); err != nil {
+		file.Close()
 		cleanup()
 		return "", nil, err
 	}
-	if err := f.Close(); err != nil {
+	if err := file.Close(); err != nil {
 		cleanup()
 		return "", nil, err
 	}
-	return f.Name(), cleanup, nil
+	return file.Name(), cleanup, nil
 }

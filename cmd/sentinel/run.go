@@ -19,7 +19,7 @@ import (
 
 func newAlertManager(cfg *config.Config, st *store.Store) *alert.Manager {
 	return &alert.Manager{
-		Sender:   newNotifier(cfg),
+		Notifier: newNotifier(cfg),
 		Store:    st,
 		Server:   cfg.ServerName,
 		Cooldown: cfg.Alert.Cooldown,
@@ -88,7 +88,7 @@ func periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) [
 			Name:  "uptime:" + c.Name,
 			Every: c.Interval,
 			Run: func(ctx context.Context) {
-				tracker.Observe(ctx, c, uptime.Check(ctx, c))
+				tracker.Observe(ctx, c, uptime.Probe(ctx, c))
 			},
 		})
 	}

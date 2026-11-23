@@ -43,8 +43,8 @@ func TestBackupRuns(t *testing.T) {
 		{Job: "db", Repository: "s3", StartedAt: t2, FinishedAt: t2, Success: false, Error: "boom"},
 		{Job: "db", Repository: "gdrive", StartedAt: t1, FinishedAt: t1, Success: true, SnapshotID: "bbb"},
 	}
-	for _, r := range runs {
-		if err := s.RecordBackup(ctx, r); err != nil {
+	for _, run := range runs {
+		if err := s.RecordBackup(ctx, run); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -105,11 +105,11 @@ func TestChecksPrune(t *testing.T) {
 	old := time.Unix(1_600_000_000, 0)
 	recent := time.Unix(1_700_000_000, 0)
 
-	for _, r := range []CheckResult{
+	for _, result := range []CheckResult{
 		{Name: "web", At: old, OK: false, Error: "timeout"},
 		{Name: "web", At: recent, OK: true, Latency: 42 * time.Millisecond},
 	} {
-		if err := s.RecordCheck(ctx, r); err != nil {
+		if err := s.RecordCheck(ctx, result); err != nil {
 			t.Fatal(err)
 		}
 	}

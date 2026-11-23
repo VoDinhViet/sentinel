@@ -24,7 +24,7 @@ import (
 // ErrManual is returned by Parse for a schedule that never fires on its own.
 var ErrManual = errors.New("manual schedule: only run by hand")
 
-var weekdays = [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+var weekdayAbbrevs = [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 var weekdayNames = [...]string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 
 // IsManual reports whether spec never fires on its own: empty or "manual".
@@ -42,11 +42,11 @@ func Parse(spec string) (cron.Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := cron.ParseStandard(expression)
+	cronSchedule, err := cron.ParseStandard(expression)
 	if err != nil {
 		return nil, fmt.Errorf("schedule %q: %w", spec, err)
 	}
-	return parsed, nil
+	return cronSchedule, nil
 }
 
 // Describe says in words when a spec runs, e.g. "every day at 02:00". A spec that does not
@@ -64,75 +64,75 @@ func Describe(spec string) string {
 // translate returns the cron expression of a spec and a description of it.
 func translate(spec string) (expression, description string, err error) {
 	fields := strings.Fields(strings.ToLower(strings.TrimSpace(spec)))
-	bad := func(format string, args ...any) (string, string, error) {
+	invalid := func(format string, args ...any) (string, string, error) {
 		return "", "", fmt.Errorf("schedule %q: %s", spec, fmt.Sprintf(format, args...))
 	}
-	original := strings.TrimSpace(spec)
+	trimmedSpec := strings.TrimSpace(spec)
 	switch fields[0] {
 	case "hourly":
 		minute := 0
 		if len(fields) > 2 {
-			return bad("use `hourly` or `hourly :15`")
+			return invalid("use `hourly` or `hourly :15`")
 		}
 		if len(fields) == 2 {
-			parsed, err := strconv.Atoi(strings.TrimPrefix(fields[1], ":"))
-			if err != nil || parsed < 0 || parsed > 59 {
-				return bad("the minute must be 0 to 59, e.g. `hourly :15`")
+			parsedMinute, err := strconv.Atoi(strings.TrimPrefix(fields[1], ":"))
+			if err != nil || parsedMinute < 0 || parsedMinute > 59 {
+				return invalid("the minute must be 0 to 59, e.g. `hourly :15`")
 			}
-			minute = parsed
+			minute = parsedMinute
 		}
 		return fmt.Sprintf("%d * * * *", minute), fmt.Sprintf("every hour at minute %02d", minute), nil
 	case "daily":
 		if len(fields) != 2 {
-			return bad("use `daily 02:00`")
+			return invalid("use `daily 02:00`")
 		}
 		hour, minute, err := clock(fields[1])
 		if err != nil {
-			return bad("%v", err)
+			return invalid("%v", err)
 		}
 		return fmt.Sprintf("%d %d * * *", minute, hour), fmt.Sprintf("every day at %02d:%02d", hour, minute), nil
 	case "weekly":
 		if len(fields) != 3 {
-			return bad("use `weekly sun 03:00`")
+			return invalid("use `weekly sun 03:00`")
 		}
 		day := -1
-		for i, name := range weekdays {
+		for i, name := range weekdayAbbrevs {
 			if strings.HasPrefix(fields[1], name) {
 				day = i
 			}
 		}
 		if day < 0 {
-			return bad("%q is not a weekday (sun mon tue wed thu fri sat)", fields[1])
+			return invalid("%q is not a weekday (sun mon tue wed thu fri sat)", fields[1])
 		}
 		hour, minute, err := clock(fields[2])
 		if err != nil {
-			return bad("%v", err)
+			return invalid("%v", err)
 		}
 		return fmt.Sprintf("%d %d * * %d", minute, hour, day), fmt.Sprintf("every %s at %02d:%02d", weekdayNames[day], hour, minute), nil
 	case "monthly":
 		if len(fields) != 3 {
-			return bad("use `monthly 1 04:00`")
+			return invalid("use `monthly 1 04:00`")
 		}
 		day, err := strconv.Atoi(fields[1])
 		if err != nil || day < 1 || day > 28 {
-			return bad("the day of the month must be 1 to 28")
+			return invalid("the day of the month must be 1 to 28")
 		}
 		hour, minute, err := clock(fields[2])
 		if err != nil {
-			return bad("%v", err)
+			return invalid("%v", err)
 		}
 		return fmt.Sprintf("%d %d %d * *", minute, hour, day), fmt.Sprintf("on day %d of every month at %02d:%02d", day, hour, minute), nil
 	case "every":
 		if len(fields) != 2 {
-			return bad("use `every 6h`")
+			return invalid("use `every 6h`")
 		}
 		interval, err := time.ParseDuration(fields[1])
 		if err != nil || interval < time.Minute {
-			return bad("the interval must be a duration of at least 1m, e.g. `every 6h`")
+			return invalid("the interval must be a duration of at least 1m, e.g. `every 6h`")
 		}
 		return "@every " + interval.String(), "every " + interval.String(), nil
 	}
-	return original, "cron " + original, nil
+	return trimmedSpec, "cron " + trimmedSpec, nil
 }
 
 // clock parses "HH:MM" (24 hours).
@@ -148,26 +148,26 @@ func clock(text string) (hour, minute int, err error) {
 
 // Next returns the first run after now; ok is false for a manual or invalid spec.
 func Next(spec string, now time.Time) (time.Time, bool) {
-	parsed, err := Parse(spec)
+	cronSchedule, err := Parse(spec)
 	if err != nil {
 		return time.Time{}, false
 	}
-	return parsed.Next(now), true
+	return cronSchedule.Next(now), true
 }
 
 // MaxGap returns the longest gap between consecutive runs over the next two
 // weeks of runs, which covers weekly and weekday-only schedules.
 func MaxGap(spec string, now time.Time) (time.Duration, bool) {
-	parsed, err := Parse(spec)
+	cronSchedule, err := Parse(spec)
 	if err != nil {
 		return 0, false
 	}
 	var gap time.Duration
-	t := parsed.Next(now)
+	runAt := cronSchedule.Next(now)
 	for range 14 {
-		next := parsed.Next(t)
-		gap = max(gap, next.Sub(t))
-		t = next
+		next := cronSchedule.Next(runAt)
+		gap = max(gap, next.Sub(runAt))
+		runAt = next
 	}
 	return gap, true
 }

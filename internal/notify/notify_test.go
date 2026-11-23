@@ -183,14 +183,14 @@ func fakeSMTP(t *testing.T) (host string, port int, data chan string) {
 }
 
 func TestSMTP(t *testing.T) {
-	host, port, data := fakeSMTP(t)
+	host, port, mails := fakeSMTP(t)
 	n := &SMTP{Config: config.SMTP{Host: host, Port: port, From: "sentinel@x.com", To: []string{"ops@x.com"}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := n.Send(ctx, msg); err != nil {
 		t.Fatal(err)
 	}
-	got := <-data
+	got := <-mails
 	for _, want := range []string{"From: sentinel@x.com", "To: ops@x.com", "Subject: =?utf-8?q?", "HTTP 502"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("mail missing %q:\n%s", want, got)

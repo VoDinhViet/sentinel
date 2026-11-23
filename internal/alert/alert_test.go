@@ -27,9 +27,9 @@ func (r *recorder) Send(_ context.Context, m notify.Message) error {
 func (r *recorder) take() []notify.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := r.msgs
+	msgs := r.msgs
 	r.msgs = nil
-	return out
+	return msgs
 }
 
 type clock struct{ t time.Time }
@@ -40,7 +40,7 @@ func (c *clock) advance(d time.Duration) { c.t = c.t.Add(d) }
 func newManager(t *testing.T, st *store.Store) (*Manager, *recorder, *clock) {
 	rec := &recorder{}
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
-	m := &Manager{Sender: rec, Store: st, Server: "web-01", Cooldown: time.Hour, Now: clk.now}
+	m := &Manager{Notifier: rec, Store: st, Server: "web-01", Cooldown: time.Hour, Now: clk.now}
 	if err := m.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}

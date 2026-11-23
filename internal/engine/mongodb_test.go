@@ -38,9 +38,9 @@ func TestMongoDumpKeepsPasswordOutOfArgv(t *testing.T) {
 	}
 
 	path := strings.TrimPrefix(dump.Command[len(dump.Command)-1], "--config=")
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("config file: %v, %v", info, err)
+	fileInfo, err := os.Stat(path)
+	if err != nil || fileInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("config file: %v, %v", fileInfo, err)
 	}
 	if content, _ := os.ReadFile(path); string(content) != "password: \"s\\\"3cret\"\n" {
 		t.Errorf("config file = %q", content)
