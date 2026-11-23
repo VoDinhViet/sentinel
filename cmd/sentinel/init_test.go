@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
@@ -157,5 +159,31 @@ func TestInitFormAlertChannelIsOptional(t *testing.T) {
 	notifier := (*written)[0].Notifier
 	if notifier == nil || notifier.Kind != "telegram" || notifier.Values["token"] != "TG_TOKEN" || notifier.Values["chat_id"] != "-1001234" {
 		t.Errorf("notifier = %+v", notifier)
+	}
+}
+
+func TestInitFormConnectTestsTheFirstDatabaseJob(t *testing.T) {
+	program, _ := initScreen(t, false)
+	var tested []configedit.Job
+	program.actions.testConnection = func(_ context.Context, job configedit.Job, _ string) (time.Duration, error) {
+		tested = append(tested, job)
+		return time.Millisecond, nil
+	}
+	if view := plain(program.render()); strings.Contains(view, "Kết nối thử") {
+		t.Fatalf("a files job has nothing to connect to:\n%s", view)
+	}
+	program.form.field("job_type").value = config.JobPostgres
+	program.form.field("job_database").value = "app"
+	program.form.field("job_password_env").value = "APP_PW"
+	if view := plain(program.render()); !strings.Contains(view, "[ Kết nối thử ]") {
+		t.Fatalf("a database job offers it:\n%s", view)
+	}
+	model, cmd := program.onKey("ctrl+t", "")
+	program.manageModel = feed(t, model.(manageModel), messagesOf(cmd))
+	if len(tested) != 1 || tested[0].Type != config.JobPostgres || tested[0].Database != "app" || tested[0].PasswordEnv != "APP_PW" {
+		t.Errorf("tested %+v", tested)
+	}
+	if view := plain(program.render()); !strings.Contains(view, "✓ kết nối được") {
+		t.Errorf("the result shows:\n%s", view)
 	}
 }

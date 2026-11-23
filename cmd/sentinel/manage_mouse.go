@@ -127,7 +127,11 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	if m.mode == modeForm {
+		before := m.form.connectionKey()
 		if next, handled := m.formAction(action); handled {
+			if next.form.connectionKey() != before {
+				next.form.connect = connectState{}
+			}
 			return next, nil
 		}
 	}

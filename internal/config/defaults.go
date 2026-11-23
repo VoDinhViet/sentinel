@@ -23,39 +23,7 @@ func (c *Config) applyDefaults() {
 			job.Timeout = 6 * time.Hour
 		}
 		c.inheritDefaults(job)
-		if pg := job.Postgres; pg != nil {
-			if pg.Host == "" {
-				pg.Host = "localhost"
-			}
-			if pg.Port == 0 {
-				pg.Port = 5432
-			}
-			if pg.User == "" {
-				pg.User = "postgres"
-			}
-		}
-		if my := job.MySQL; my != nil {
-			if my.Host == "" {
-				my.Host = "localhost"
-			}
-			if my.Port == 0 {
-				my.Port = 3306
-			}
-			if my.User == "" {
-				my.User = "root"
-			}
-		}
-		if mongo := job.MongoDB; mongo != nil {
-			if mongo.Host == "" {
-				mongo.Host = "localhost"
-			}
-			if mongo.Port == 0 {
-				mongo.Port = 27017
-			}
-			if mongo.User != "" && mongo.AuthDatabase == "" {
-				mongo.AuthDatabase = "admin"
-			}
-		}
+		ApplyDatabaseDefaults(job)
 	}
 	for i := range c.UptimeChecks {
 		check := &c.UptimeChecks[i]
@@ -84,6 +52,44 @@ func (c *Config) applyDefaults() {
 
 // inheritDefaults fills what a job leaves out from the defaults block; a job without
 // repositories uses the only repository when the config has just one.
+// ApplyDatabaseDefaults fills in what a database job leaves out: the host, the port of its
+// engine and the user (postgres or root; a mongodb user authenticates against admin).
+func ApplyDatabaseDefaults(job *Job) {
+	if pg := job.Postgres; pg != nil {
+		if pg.Host == "" {
+			pg.Host = "localhost"
+		}
+		if pg.Port == 0 {
+			pg.Port = 5432
+		}
+		if pg.User == "" {
+			pg.User = "postgres"
+		}
+	}
+	if my := job.MySQL; my != nil {
+		if my.Host == "" {
+			my.Host = "localhost"
+		}
+		if my.Port == 0 {
+			my.Port = 3306
+		}
+		if my.User == "" {
+			my.User = "root"
+		}
+	}
+	if mongo := job.MongoDB; mongo != nil {
+		if mongo.Host == "" {
+			mongo.Host = "localhost"
+		}
+		if mongo.Port == 0 {
+			mongo.Port = 27017
+		}
+		if mongo.User != "" && mongo.AuthDatabase == "" {
+			mongo.AuthDatabase = "admin"
+		}
+	}
+}
+
 func (c *Config) inheritDefaults(job *Job) {
 	if job.Schedule == "" && c.Defaults.Schedule != "" {
 		job.Schedule, job.Inherited.Schedule = c.Defaults.Schedule, true

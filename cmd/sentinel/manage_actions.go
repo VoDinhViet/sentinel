@@ -4,17 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/engine"
 	"sentinel/internal/notify"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
 
 	"sentinel/internal/doctor"
 )
+
+// connectTimeout is how long a connection test waits for the database to answer.
+const connectTimeout = 10 * time.Second
 
 // jobRepository is one backup the manager can act on: a job and one of its repositories.
 type jobRepository struct {
@@ -53,6 +58,10 @@ type manageActions struct {
 	saveNotifier     func(notifier configedit.Notifier) error
 	deleteNotifier   func(kind string) error
 	saveSettings     func(settings configedit.Settings) error
+	// testConnection tries to reach the database of a database job as the form holds it. original
+	// is the name the job has in the config file ("" for a new job): a password written in the file
+	// is taken from there.
+	testConnection func(ctx context.Context, job configedit.Job, original string) (time.Duration, error)
 	// testNotifier sends a test message through the notifier of that kind, as the config file
 	// has it now (a notifier added a minute ago works without restarting the manager).
 	testNotifier func(ctx context.Context, kind string) error
@@ -86,7 +95,24 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
 		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
 		testNotifier: func(ctx context.Context, kind string) error {
+			refreshEnv(configPath)
 			return testNotifier(ctx, configPath, cfg.ServerName, kind)
+		},
+		testConnection: func(ctx context.Context, job configedit.Job, original string) (time.Duration, error) {
+			refreshEnv(configPath)
+			saved := ""
+			if job.PasswordLiteral && original != "" {
+				saved = configedit.SavedPassword(configPath, original)
+			}
+			probeJob, err := configedit.ConnectionJob(job, saved, os.LookupEnv)
+			if err != nil {
+				return 0, err
+			}
+			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+			defer cancel()
+			start := time.Now()
+			err = engine.Probe(ctx, probeJob)
+			return time.Since(start), err
 		},
 		doctor: func(ctx context.Context) []doctor.Finding {
 			return doctor.Run(ctx, cfg, configPath, func(cfg *config.Config) (*store.Store, error) { return store.Open(cfg.StorePath) })

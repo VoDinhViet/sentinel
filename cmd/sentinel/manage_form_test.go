@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -34,6 +35,9 @@ type fakeConfig struct {
 	removed      []string // "repository s3", "uptime web", "notifier telegram"
 	tested       []string // the notifier kinds a test message was sent to
 	testErr      error
+	connected    []configedit.Job // the jobs a connection test was run for
+	connectedAs  []string         // the original name of each
+	connectErr   error
 }
 
 func (f *fakeConfig) attach(actions *manageActions) {
@@ -63,6 +67,11 @@ func (f *fakeConfig) attach(actions *manageActions) {
 	actions.saveSettings = func(settings configedit.Settings) error {
 		f.settings = append(f.settings, settings)
 		return f.saveErr
+	}
+	actions.testConnection = func(_ context.Context, job configedit.Job, original string) (time.Duration, error) {
+		f.connected = append(f.connected, job)
+		f.connectedAs = append(f.connectedAs, original)
+		return 42 * time.Millisecond, f.connectErr
 	}
 	actions.testNotifier = func(_ context.Context, kind string) error {
 		f.tested = append(f.tested, kind)
@@ -644,5 +653,106 @@ func TestTimeAndDayRowsFollowTheSchedule(t *testing.T) {
 	}
 	if view := plain(screen.render()); !strings.Contains(view, "[ Weekly ▾ ]") || !strings.Contains(view, "[ 10:15") || !strings.Contains(view, "[ Thứ Ba ▾ ]") {
 		t.Errorf("the schedule is drawn as boxes:\n%s", view)
+	}
+}
+
+// connectForm is the add form for a postgres job with the connection fields filled in.
+func connectForm(t *testing.T) (manageModel, *fakeConfig) {
+	t.Helper()
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "shop", "shopdb"
+	screen.form.field("host").value, screen.form.field("user").value, screen.form.field("password_env").value = "db.local", "dump", "SHOP_PW"
+	return screen, configFile
+}
+
+func TestConnectButtonTestsTheDatabaseOfTheForm(t *testing.T) {
+	screen, configFile := connectForm(t)
+	if view := plain(screen.render()); !strings.Contains(view, "[ Kết nối thử ]") || !strings.Contains(view, "ctrl+t") {
+		t.Fatalf("a database job form offers the connection test:\n%s", view)
+	}
+	model, cmd := screen.onKey("ctrl+t", "")
+	screen = model.(manageModel)
+	if view := plain(screen.render()); !strings.Contains(view, "đang thử") {
+		t.Errorf("the form says it is trying:\n%s", view)
+	}
+	screen = feed(t, screen, messagesOf(cmd))
+	if len(configFile.connected) != 1 || configFile.connected[0].Database != "shopdb" || configFile.connected[0].Host != "db.local" ||
+		configFile.connected[0].User != "dump" || configFile.connected[0].PasswordEnv != "SHOP_PW" || configFile.connectedAs[0] != "" {
+		t.Fatalf("tested %+v as %q", configFile.connected, configFile.connectedAs)
+	}
+	if view := plain(screen.render()); !strings.Contains(view, "✓ kết nối được (42ms)") {
+		t.Errorf("the result is shown beside the button:\n%s", view)
+	}
+
+	// Clicking the button does the same.
+	screen, cmd = clickOn(t, screen, "ctrl+t")
+	feed(t, screen, messagesOf(cmd))
+	if len(configFile.connected) != 2 {
+		t.Errorf("clicking the button runs a test: %d", len(configFile.connected))
+	}
+}
+
+func TestConnectFailureIsShownAndDoesNotBlockSaving(t *testing.T) {
+	screen, configFile := connectForm(t)
+	configFile.connectErr = errors.New(`FATAL: password authentication failed for user "dump"`)
+	model, cmd := screen.onKey("ctrl+t", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if view := plain(screen.render()); !strings.Contains(view, "✗ FATAL: password authentication failed") {
+		t.Errorf("the reason is shown:\n%s", view)
+	}
+	screen.form.field("storage").value = storageFolder
+	screen.form.field("store_at").value = t.TempDir() + "/dumps"
+	screen = keys(t, screen, "ctrl+s")
+	if len(configFile.saved) != 1 {
+		t.Errorf("a failed test does not stop the save (mode %d): %v", screen.mode, screen.form.problems())
+	}
+}
+
+func TestConnectResultIsDroppedWhenTheConnectionFieldsChange(t *testing.T) {
+	screen, _ := connectForm(t)
+	model, cmd := screen.onKey("ctrl+t", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if screen.form.connect.text == "" {
+		t.Fatal("no result to drop")
+	}
+	screen.form.focus = fieldIndex(screen, "host")
+	screen = typeText(t, screen, "x")
+	if screen.form.connect.text != "" {
+		t.Errorf("a result about another host is gone: %+v", screen.form.connect)
+	}
+
+	// An answer that arrives after the fields changed is not shown.
+	model, cmd = screen.onKey("ctrl+t", "")
+	screen = model.(manageModel)
+	late := messagesOf(cmd)
+	screen = typeText(t, screen, "y")
+	screen = feed(t, screen, late)
+	if screen.form.connect.text != "" || screen.form.connect.running {
+		t.Errorf("a late answer for old values is ignored: %+v", screen.form.connect)
+	}
+}
+
+func TestConnectNeedsADatabaseJob(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+	screen.form.field("type").value = config.JobFiles
+	model, cmd := screen.onKey("ctrl+t", "")
+	screen = model.(manageModel)
+	if cmd != nil || len(configFile.connected) != 0 {
+		t.Error("a files job has no database to connect to")
+	}
+	if view := plain(screen.render()); strings.Contains(view, "Kết nối thử") {
+		t.Errorf("no button for a files job:\n%s", view)
+	}
+}
+
+func TestConnectUsesTheSavedJobsNameWhenEditing(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = keys(t, screen, "e") // the appdb job, which keeps a literal password
+	model, cmd := screen.onKey("ctrl+t", "")
+	feed(t, model.(manageModel), messagesOf(cmd))
+	if len(configFile.connected) != 1 || configFile.connectedAs[0] != "appdb" || !configFile.connected[0].PasswordLiteral {
+		t.Errorf("tested %+v as %q", configFile.connected, configFile.connectedAs)
 	}
 }

@@ -72,6 +72,8 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterRestore(msg), m.reload()
 	case notifierTestedMsg:
 		return m.afterNotifierTest(msg), nil
+	case connectTestedMsg:
+		return m.afterConnect(msg), nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg.String(), msg.Text)
 	case tea.MouseClickMsg:

@@ -134,6 +134,7 @@ Job `files` thì file nằm ngay trong `--target`.
 | `s` | xem snapshot của job và restore |
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
 | `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
+| `ctrl+t` | (trong form job database) thử kết nối: chạy đúng công cụ dump với host, cổng, user, mật khẩu của form rồi dừng ngay khi nó bắt đầu ghi (chỉ đọc), hiện `✓ kết nối được` hoặc lý do lỗi của công cụ; cũng là nút `[ Kết nối thử ]` dưới ô mật khẩu |
 | `r` | làm mới / chạy lại Doctor |
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)

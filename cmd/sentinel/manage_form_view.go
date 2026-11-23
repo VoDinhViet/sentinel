@@ -32,6 +32,26 @@ const railWidth = 2
 // of the sections and the advanced toggle.
 const headerMark = "\x00"
 
+// connectRow is the line under the password field of a database job: the [ Kết nối thử ] button
+// and what the last test found. row is the line's row within the form's lines.
+func (m manageModel) connectRow(row, valueColumn int) string {
+	const button = "[ Kết nối thử ]"
+	m.hits.add(row, valueColumn, lipgloss.Width(button), "ctrl+t")
+	line := "  " + strings.Repeat(" ", formLabelWidth+1) + keyStyle.Render(button)
+	state := m.form.connect
+	if state.text == "" {
+		return line
+	}
+	room := max(m.width-valueColumn-lipgloss.Width(button)-6, 10)
+	switch {
+	case state.running:
+		return line + "  " + dimStyle.Render(state.text)
+	case state.bad:
+		return line + "  " + severityStyle(sevBad).Render("✗ "+truncate(state.text, room))
+	}
+	return line + "  " + severityStyle(sevOK).Render("✓ "+truncate(state.text, room))
+}
+
 // boxed draws a value as an input: [ value ].
 func boxed(text string, focused bool) string {
 	edge := borderStyle
@@ -223,6 +243,9 @@ func (m manageModel) renderForm() []string {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
 			}
 		}
+		if (field.key == "password_env" || field.key == "job_password_env") && m.form.databaseType() != "" {
+			screenLines = append(screenLines, m.connectRow(len(screenLines), valueColumn))
+		}
 		if focused && len(field.options) > 0 {
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(truncate(strings.Join(field.options, "  "), max(m.width-formLabelWidth-5, 10))))
 		}
@@ -267,7 +290,11 @@ func (m manageModel) renderForm() []string {
 	if m.form.fields[m.form.focus].completes() {
 		tabHint = "hoàn thành"
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", tabHint, "space", "đánh dấu", "ctrl+s", "lưu", "esc", "huỷ"))
+	pairs := []string{"tab", tabHint, "space", "đánh dấu", "ctrl+s", "lưu", "esc", "huỷ"}
+	if m.form.databaseType() != "" {
+		pairs = append([]string{"ctrl+t", "thử kết nối"}, pairs...)
+	}
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, pairs...))
 }
 
 // folderNote says whether the folder chosen for the backups exists, whether it can be written to

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -29,6 +30,48 @@ func (f *form) focusOn(index int) {
 }
 
 func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
+	before := m.form.connectionKey()
+	next, cmd := m.formKey(key, text)
+	if after, ok := next.(manageModel); ok && after.mode == modeForm && after.form.connectionKey() != before {
+		after.form.connect = connectState{} // what the test found is about other values
+		return after, cmd
+	}
+	return next, cmd
+}
+
+// startConnect tests the connection of the database job in the form, in the background.
+func (m manageModel) startConnect() (tea.Model, tea.Cmd) {
+	if m.form.databaseType() == "" || m.actions.testConnection == nil || m.form.connect.running {
+		return m, nil
+	}
+	job, err := m.form.connectionJob()
+	if err != nil {
+		m.form.connect = connectState{text: err.Error(), bad: true}
+		return m, nil
+	}
+	m.connectSeq++
+	seq, original, actions, ctx := m.connectSeq, m.form.original, m.actions, m.ctx
+	m.form.connect = connectState{seq: seq, running: true, text: "đang thử kết nối…"}
+	return m, func() tea.Msg {
+		took, err := actions.testConnection(ctx, job, original)
+		return connectTestedMsg{seq: seq, took: took, err: err}
+	}
+}
+
+// afterConnect shows what the connection test found, unless the form has moved on.
+func (m manageModel) afterConnect(msg connectTestedMsg) manageModel {
+	if m.mode != modeForm || m.form.connect.seq != msg.seq {
+		return m
+	}
+	if msg.err != nil {
+		m.form.connect = connectState{text: msg.err.Error(), bad: true}
+		return m
+	}
+	m.form.connect = connectState{text: fmt.Sprintf("kết nối được (%s)", msg.took.Round(time.Millisecond))}
+	return m
+}
+
+func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 	shown := m.form.visible()
 	position := 0
 	for i, index := range shown {
@@ -55,6 +98,8 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 		move(-1)
 	case "ctrl+s":
 		return m.saveForm()
+	case "ctrl+t":
+		return m.startConnect()
 	case "ctrl+o":
 		if focused.kind == fieldPaths {
 			next, cmd := m.openBrowse()

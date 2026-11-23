@@ -110,6 +110,54 @@ type form struct {
 
 	// kept is what a repository form does not edit and must write back as it was.
 	kept map[string]string
+
+	connect connectState // the last connection test of a database job
+}
+
+// connectState is where the connection test of a database job form stands.
+type connectState struct {
+	seq     int // the test this state belongs to (0 = none)
+	running bool
+	text    string // what the test found, shown beside the button
+	bad     bool
+}
+
+// connectionKeys are the fields whose value decides whether the database can be reached: a
+// result for other values is stale and is dropped.
+var connectionKeys = []string{"type", "database", "host", "port", "user", "password_env", "tls", "auth_database",
+	"job_type", "job_database", "job_password_env"}
+
+// connectionKey is the connection fields' values joined, to tell when a test no longer applies.
+func (f form) connectionKey() string {
+	var parts []string
+	for _, key := range connectionKeys {
+		parts = append(parts, f.field(key).value)
+	}
+	return strings.Join(parts, "\x00")
+}
+
+// databaseJob is the type of the job being edited when it is a database job, "" otherwise.
+func (f form) databaseType() string {
+	key := "type"
+	if f.kind == formInit {
+		key = "job_type"
+	}
+	if f.kind != formJob && f.kind != formInit {
+		return ""
+	}
+	if jobType := f.field(key).value; slices.Contains(configedit.DatabaseTypes, jobType) {
+		return jobType
+	}
+	return ""
+}
+
+// connectionJob is the job whose database the test connects to, as the form holds it.
+func (f form) connectionJob() (configedit.Job, error) {
+	if f.kind == formInit {
+		initial, err := f.initial()
+		return initial.Job, err
+	}
+	return f.job()
 }
 
 func newJobForm(job configedit.Job, original string, listing configedit.Listing) form {

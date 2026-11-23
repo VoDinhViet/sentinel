@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -94,4 +95,17 @@ func (mysql) RestoreHint(job *config.Job, dir string) string {
 	return fmt.Sprintf("mysql -h %s -P %s -u %s -p %s < %s",
 		shellQuote(job.MySQL.Host), strconv.Itoa(job.MySQL.Port), shellQuote(job.MySQL.User), shellQuote(job.MySQL.Database),
 		shellQuote(filepath.Join(dir, job.MySQL.Database+".sql")))
+}
+
+// LightDump turns the dump into one that writes no table, routine, trigger or event, so a probe
+// can run it to the end: it still logs in and selects the database, which is what can fail.
+func (mysql) LightDump(dump Dump) Dump {
+	separator := slices.Index(dump.Command, "--")
+	if separator < 0 {
+		return dump
+	}
+	light := slices.Clone(dump.Command)
+	extra := []string{"--no-data", "--no-create-info", "--skip-routines", "--skip-triggers", "--skip-events"}
+	dump.Command = slices.Concat(light[:separator], extra, light[separator:])
+	return dump
 }

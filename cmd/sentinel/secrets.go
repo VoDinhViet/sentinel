@@ -235,18 +235,9 @@ func (a *app) offerSave(envFile string, asked map[string]string) {
 // refuses a file other users can write (or that belongs to someone else), and warns about one
 // they can read. A file this user cannot read is skipped: the variables may already be set.
 func loadEnvFile(envFile string, referenced []string) error {
-	info, err := os.Stat(envFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read %s: %w", envFile, err)
-	}
-	if info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("%s can be written by other users: run chmod 600 %s", envFile, envFile)
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != 0 && int(stat.Uid) != os.Geteuid() {
-		return fmt.Errorf("%s belongs to another user", envFile)
+	info, err := checkEnvFile(envFile)
+	if err != nil || info == nil {
+		return err
 	}
 	if info.Mode().Perm()&0o004 != 0 {
 		slog.Warn("the env file can be read by every user", "file", envFile, "fix", "chmod 600 "+envFile)
@@ -259,4 +250,42 @@ func loadEnvFile(envFile string, referenced []string) error {
 		return fmt.Errorf("read %s: %w", envFile, err)
 	}
 	return nil
+}
+
+// checkEnvFile refuses an env file other users could have written or that belongs to someone
+// else. It returns nil, nil for a file that does not exist.
+func checkEnvFile(envFile string) (os.FileInfo, error) {
+	info, err := os.Stat(envFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", envFile, err)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("%s can be written by other users: run chmod 600 %s", envFile, envFile)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != 0 && int(stat.Uid) != os.Geteuid() {
+		return nil, fmt.Errorf("%s belongs to another user", envFile)
+	}
+	return info, nil
+}
+
+// refreshEnv loads from the env file beside the config the variables it refers to that are
+// still unset, so a variable added while the manager is open (and a value put in the file since)
+// is found by a test. It logs nothing, since a screen is open, and does nothing if the file is
+// not safe to read: the test then reports the variable as unset.
+func refreshEnv(configPath string) {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	referenced, err := config.RefVars(raw)
+	if err != nil {
+		return
+	}
+	envFile := filepath.Join(filepath.Dir(configPath), config.EnvFileName)
+	if info, err := checkEnvFile(envFile); err == nil && info != nil {
+		_, _ = config.LoadEnvFile(envFile, referenced)
+	}
 }

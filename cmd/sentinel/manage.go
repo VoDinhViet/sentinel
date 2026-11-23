@@ -134,6 +134,7 @@ type manageModel struct {
 	busyText   string
 	busyStart  time.Time
 	busyFrame  int
+	connectSeq int // the number of connection tests started, so a late answer to an old one is ignored
 	cancelBusy context.CancelFunc
 
 	resultText string
@@ -178,6 +179,11 @@ type (
 	}
 	notifierTestedMsg struct {
 		kind string
+		err  error
+	}
+	connectTestedMsg struct {
+		seq  int
+		took time.Duration
 		err  error
 	}
 )
