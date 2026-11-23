@@ -50,7 +50,7 @@ func TestDoctorTabRunsTheChecksOnFirstVisitOnly(t *testing.T) {
 	if cmd == nil || !screen.doctor.running {
 		t.Fatal("opening the tab must start the checks")
 	}
-	if view := plain(screen.render()); !strings.Contains(view, "Checking") {
+	if view := plain(screen.render()); !strings.Contains(view, "Đang kiểm tra") {
 		t.Errorf("no progress text while the checks run:\n%s", view)
 	}
 	done := cmd().(doctorMsg)

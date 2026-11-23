@@ -24,7 +24,7 @@ const (
 	secSettings
 )
 
-var sectionNames = [...]string{"Repository", "Job", "Uptime", "Notifier", "Settings"}
+var sectionNames = [...]string{"Repository", "Job", "Uptime", "Notifier", "Cài đặt"}
 
 // configEntry says which entry of the config a line of the Config tab is.
 type configEntry struct {
@@ -44,7 +44,7 @@ type configData struct {
 func (m manageModel) refreshConfig() manageModel {
 	m.config = configData{loaded: true}
 	if m.actions.overview == nil || m.actions.listJobs == nil {
-		m.config.err = errors.New("the config file is not available here")
+		m.config.err = errors.New("file config không dùng được ở đây")
 		return m
 	}
 	if m.config.overview, m.config.err = m.actions.overview(); m.config.err != nil {
@@ -60,9 +60,9 @@ func envOrNone(name string, literal bool) string {
 	case name != "":
 		return "${" + name + "}"
 	case literal:
-		return "written in the file"
+		return "ghi thẳng trong file"
 	}
-	return "none"
+	return "chưa có"
 }
 
 func orDefault(value, fallback string) string {
@@ -76,14 +76,14 @@ func orDefault(value, fallback string) string {
 func (m manageModel) whenText(spec string) string {
 	if spec == "" {
 		if defaultSpec := m.config.overview.Settings.DefaultSchedule; defaultSpec != "" {
-			return schedule.Describe(defaultSpec) + " (default)"
+			return schedule.Describe(defaultSpec) + " (mặc định)"
 		}
 	}
 	return schedule.Describe(spec)
 }
 
 func (m manageModel) buildConfigTab() manageTab {
-	tab := manageTab{title: "Config", headers: []string{"SECTION", "NAME", "WHAT", "DETAILS"}, statusCol: -1, historyCol: -1}
+	tab := manageTab{title: "Config", headers: []string{"MỤC", "TÊN", "LÀ GÌ", "CHI TIẾT"}, statusCol: -1, historyCol: -1}
 	add := func(entry configEntry, level severity, what, details, detail string) {
 		tab.lines = append(tab.lines, manageLine{
 			cells:    []string{sectionNames[entry.section], entry.name, what, details},
@@ -92,39 +92,39 @@ func (m manageModel) buildConfigTab() manageTab {
 	}
 	overview, listing := m.config.overview, m.config.listing
 	for _, repository := range overview.Repositories {
-		level, password := sevOK, "password "+envOrNone(repository.PasswordEnv, repository.PasswordLiteral)
+		level, password := sevOK, "mật khẩu "+envOrNone(repository.PasswordEnv, repository.PasswordLiteral)
 		if repository.PasswordLiteral {
 			level = sevWarn
 		}
-		users := "not used by any job"
+		users := "chưa job nào dùng"
 		if len(repository.UsedBy) > 0 {
-			users = "used by " + strings.Join(repository.UsedBy, ", ")
+			users = "dùng bởi " + strings.Join(repository.UsedBy, ", ")
 		}
 		detail := fmt.Sprintf("Repository %s: %s · %s · %s", repository.Name, repository.URL, password, users)
 		if repository.PasswordLiteral {
-			detail += ". The password is written in the file: edit and name an environment variable to replace it."
+			detail += ". Mật khẩu đang ghi thẳng trong file: bấm sửa và nhập tên env var để thay."
 		}
 		add(configEntry{secRepository, repository.Name}, level, repository.URL, password+" · "+users, detail)
 	}
 	for _, job := range listing.Jobs {
 		repositories, keep := strings.Join(job.Repositories, ", "), job.Retention.String()
 		if job.Inherited.Repositories {
-			repositories = strings.Join(listing.InheritedRepositories, ", ") + " (default)"
+			repositories = strings.Join(listing.InheritedRepositories, ", ") + " (mặc định)"
 		}
 		if job.Inherited.Retention {
-			keep = overview.Settings.DefaultRetention.String() + " (default)"
+			keep = overview.Settings.DefaultRetention.String() + " (mặc định)"
 		}
 		when := m.whenText(job.Schedule)
-		add(configEntry{secJob, job.Name}, sevOK, job.Type+" · "+when, "→ "+repositories+" · keep "+keep,
-			fmt.Sprintf("Job %s: %s, %s, stored in %s, keeping %s.", job.Name, job.Type, when, repositories, keep))
+		add(configEntry{secJob, job.Name}, sevOK, job.Type+" · "+when, "→ "+repositories+" · giữ "+keep,
+			fmt.Sprintf("Job %s: %s, %s, lưu vào %s, giữ %s.", job.Name, job.Type, when, repositories, keep))
 	}
 	for _, check := range overview.Uptime {
 		target := orDefault(check.URL, orDefault(check.Address, check.Host))
-		every := orDefault(check.Interval, "1m") + " (default)"
+		every := orDefault(check.Interval, "1m") + " (mặc định)"
 		if check.Interval != "" {
 			every = check.Interval
 		}
-		add(configEntry{secUptime, check.Name}, sevOK, check.Type+" "+target, "every "+every, fmt.Sprintf("Uptime check %s: %s %s, every %s.", check.Name, check.Type, target, every))
+		add(configEntry{secUptime, check.Name}, sevOK, check.Type+" "+target, "mỗi "+every, fmt.Sprintf("Uptime check %s: %s %s, mỗi %s.", check.Name, check.Type, target, every))
 	}
 	for _, notifier := range overview.Notifiers {
 		var parts []string
@@ -142,15 +142,15 @@ func (m manageModel) buildConfigTab() manageTab {
 				level = sevWarn // a secret written in the file
 			}
 		}
-		add(configEntry{secNotifier, notifier.Kind}, level, "alerts go here", strings.Join(parts, " · "), "Notifier "+notifier.Kind+": "+strings.Join(parts, " · "))
+		add(configEntry{secNotifier, notifier.Kind}, level, "cảnh báo gửi vào đây", strings.Join(parts, " · "), "Notifier "+notifier.Kind+": "+strings.Join(parts, " · "))
 	}
 	settings := overview.Settings
-	defaults := "no defaults"
+	defaults := "chưa có mặc định"
 	if settings.DefaultSchedule != "" || len(settings.DefaultRepositories) > 0 || !settings.DefaultRetention.Empty() {
-		defaults = "defaults: " + strings.Join(nonEmpty(settings.DefaultSchedule, strings.Join(settings.DefaultRepositories, ", "), settings.DefaultRetention.String()), " · ")
+		defaults = "mặc định: " + strings.Join(nonEmpty(settings.DefaultSchedule, strings.Join(settings.DefaultRepositories, ", "), settings.DefaultRetention.String()), " · ")
 	}
-	add(configEntry{secSettings, "general"}, sevOK, "server "+orDefault(settings.ServerName, "(host name)"), defaults,
-		fmt.Sprintf("Settings: server %s, alerts repeat every %s, repository check %s. %s", orDefault(settings.ServerName, "(host name)"), orDefault(settings.Cooldown, "1h (default)"), schedule.Describe(settings.VerifySchedule), defaults))
+	add(configEntry{secSettings, "general"}, sevOK, "server "+orDefault(settings.ServerName, "(tên máy)"), defaults,
+		fmt.Sprintf("Cài đặt: server %s, cảnh báo lặp lại mỗi %s, kiểm tra repository %s. %s", orDefault(settings.ServerName, "(tên máy)"), orDefault(settings.Cooldown, "1h (mặc định)"), schedule.Describe(settings.VerifySchedule), defaults))
 	if m.config.err != nil {
 		return manageTab{title: "Config", headers: tab.headers, statusCol: -1, historyCol: -1}
 	}
@@ -194,12 +194,12 @@ func (m manageModel) configAdd() manageModel {
 			}
 		}
 		if next.Kind == "" {
-			m.notice, m.noticeBad = "Every notifier is configured already: edit one instead.", true
+			m.notice, m.noticeBad = "Đã cấu hình đủ mọi notifier: hãy sửa một cái có sẵn.", true
 			return m
 		}
 		return m.openEntryForm(newNotifierForm(next, ""))
 	}
-	m.notice, m.noticeBad = "Settings is a single entry: press e to edit it.", false
+	m.notice, m.noticeBad = "Cài đặt chỉ có một mục: bấm e để sửa.", false
 	return m
 }
 
@@ -234,7 +234,7 @@ func (m manageModel) configEdit() manageModel {
 	case secSettings:
 		return m.openEntryForm(newSettingsForm(overview.Settings, listing))
 	}
-	m.notice, m.noticeBad = entry.name+" is not in the config file any more.", true
+	m.notice, m.noticeBad = entry.name+" không còn trong file config nữa.", true
 	return m
 }
 
@@ -251,16 +251,16 @@ func (m manageModel) configRemove() manageModel {
 	case secRepository:
 		for _, repository := range m.config.overview.Repositories {
 			if repository.Name == entry.name && len(repository.UsedBy) > 0 {
-				m.notice, m.noticeBad = fmt.Sprintf("Repository %s is used by %s: change them first.", entry.name, strings.Join(repository.UsedBy, ", ")), true
+				m.notice, m.noticeBad = fmt.Sprintf("Repository %s đang được dùng bởi %s: hãy đổi các job đó trước.", entry.name, strings.Join(repository.UsedBy, ", ")), true
 				return m
 			}
 		}
-		return m.confirmRemoval("repository", entry.name, "The backups already stored there stay where they are.", func() error { return actions.deleteRepository(entry.name) })
+		return m.confirmRemoval("repository", entry.name, "Các backup đã lưu ở đó vẫn giữ nguyên.", func() error { return actions.deleteRepository(entry.name) })
 	case secUptime:
-		return m.confirmRemoval("uptime check", entry.name, "Its recorded history ages out of the store by itself.", func() error { return actions.deleteUptime(entry.name) })
+		return m.confirmRemoval("uptime check", entry.name, "Lịch sử đã ghi sẽ tự hết hạn khỏi file trạng thái.", func() error { return actions.deleteUptime(entry.name) })
 	case secNotifier:
-		return m.confirmRemoval("notifier", entry.name, "Alerts stop going there.", func() error { return actions.deleteNotifier(entry.name) })
+		return m.confirmRemoval("notifier", entry.name, "Cảnh báo sẽ không gửi vào đó nữa.", func() error { return actions.deleteNotifier(entry.name) })
 	}
-	m.notice, m.noticeBad = "The settings cannot be removed: press e to change them.", false
+	m.notice, m.noticeBad = "Không xoá được cài đặt: bấm e để đổi.", false
 	return m
 }

@@ -11,7 +11,7 @@ import (
 	"sentinel/internal/configedit"
 )
 
-// The forms of the Config tab: repository, uptime check, notifier notifier and settings. They use
+// The forms of the Config tab: repository, uptime check, notifier and settings. They use
 // the same form engine as the job form; what differs is how the fields turn into an entry.
 
 var repositoryKinds = []string{"local", "s3", "rclone", "sftp", "custom"}
@@ -94,9 +94,9 @@ func newRepositoryForm(repository configedit.Repository, original string, listin
 	if original == "" {
 		kind = "local"
 	}
-	passwordHint := "name of the environment variable holding the restic password (never the password itself)"
+	passwordHint := "tên env var chứa mật khẩu restic (không bao giờ nhập chính mật khẩu)"
 	if repository.PasswordLiteral {
-		passwordHint = "the file has a literal password; enter a variable name to replace it, or leave empty to keep it"
+		passwordHint = "file đang ghi thẳng mật khẩu; nhập tên env var để thay, hoặc để trống để giữ nguyên"
 	}
 	kept := map[string]string{}
 	for key, name := range repository.Env {
@@ -104,33 +104,33 @@ func newRepositoryForm(repository configedit.Repository, original string, listin
 			kept[key] = name
 		}
 	}
-	title := "Add a repository"
+	title := "Thêm repository"
 	if original != "" {
-		title = "Edit repository " + original
+		title = "Sửa repository " + original
 	}
 	fields := []formField{
-		{key: "name", label: "Name", hint: "letters, digits, . _ - ; jobs refer to the repository by this name", value: repository.Name, fixed: original != ""},
-		{key: "kind", label: "Kind", hint: "← → to choose where the backups are stored", kind: fieldChoice, value: kind, choices: repositoryKinds},
+		{key: "name", label: "Tên", hint: "chữ, số, . _ - ; job gọi repository bằng tên này", value: repository.Name, fixed: original != ""},
+		{key: "kind", label: "Loại", hint: "← → chọn nơi lưu backup", kind: fieldChoice, value: kind, choices: repositoryKinds},
 	}
 	add := func(onKind, key, label, hint, placeholder string) {
 		fields = append(fields, formField{key: key, label: label, hint: hint, value: parts[key], placeholder: placeholder, onField: "kind", only: []string{onKind}})
 	}
-	add("local", "path", "Folder", "a folder on this machine or a mounted disk; ${HOME} works", "")
-	add("s3", "endpoint", "Endpoint", "empty = Amazon S3; for MinIO, R2 or Wasabi: https://host", "Amazon S3")
-	add("s3", "bucket", "Bucket", "the bucket name", "")
-	add("s3", "prefix", "Folder in bucket", "optional path inside the bucket, e.g. web-01", "")
-	add("rclone", "remote", "rclone remote", "the remote name from `rclone config`, e.g. gdrive", "")
-	add("rclone", "path", "Folder", "path inside the remote, e.g. backups/web-01", "")
-	add("sftp", "target", "User and host", "user@host", "")
-	add("sftp", "path", "Folder", "absolute path on the server, e.g. /srv/backups", "")
-	add("custom", "url", "Location", "any restic repository location, e.g. b2:bucket:path", "")
+	add("local", "path", "Thư mục", "thư mục trên máy này hoặc ổ đĩa đã mount; dùng được ${HOME}", "")
+	add("s3", "endpoint", "Endpoint", "để trống = Amazon S3; với MinIO, R2 hoặc Wasabi: https://host", "Amazon S3")
+	add("s3", "bucket", "Bucket", "tên bucket", "")
+	add("s3", "prefix", "Thư mục trong bucket", "tuỳ chọn: đường dẫn trong bucket, vd. web-01", "")
+	add("rclone", "remote", "rclone remote", "tên remote trong `rclone config`, vd. gdrive", "")
+	add("rclone", "path", "Thư mục", "đường dẫn trong remote, vd. backups/web-01", "")
+	add("sftp", "target", "User và host", "user@host", "")
+	add("sftp", "path", "Thư mục", "đường dẫn tuyệt đối trên server, vd. /srv/backups", "")
+	add("custom", "url", "Địa chỉ", "địa chỉ repository restic bất kỳ, vd. b2:bucket:path", "")
 	for i := range fields {
 		fields[i].complete = fields[i].key == "path" && slices.Equal(fields[i].only, []string{"local"})
 	}
 	fields = append(fields,
-		formField{key: "access_key_env", label: "Access key var", hint: "name of the environment variable holding the access key id", value: repository.Env[awsKeyID], onField: "kind", only: []string{"s3"}},
-		formField{key: "secret_key_env", label: "Secret key var", hint: "name of the environment variable holding the secret access key", value: repository.Env[awsSecretKey], onField: "kind", only: []string{"s3"}},
-		formField{key: "password_env", label: "Password env var", hint: passwordHint, value: repository.PasswordEnv},
+		formField{key: "access_key_env", label: "Access key var", hint: "tên env var chứa access key id", value: repository.Env[awsKeyID], onField: "kind", only: []string{"s3"}},
+		formField{key: "secret_key_env", label: "Secret key var", hint: "tên env var chứa secret access key", value: repository.Env[awsSecretKey], onField: "kind", only: []string{"s3"}},
+		formField{key: "password_env", label: "Env var mật khẩu", hint: passwordHint, value: repository.PasswordEnv},
 	)
 	return form{kind: formRepository, title: title, original: original, passwordKept: repository.PasswordLiteral, known: configedit.Known{Repositories: listing.Repositories}, fields: fields, touched: map[string]bool{}, kept: kept}
 }
@@ -163,9 +163,9 @@ func (f form) repository() configedit.Repository {
 }
 
 func newUptimeForm(check configedit.Uptime, original string) form {
-	title := "Add an uptime check"
+	title := "Thêm uptime check"
 	if original != "" {
-		title = "Edit check " + original
+		title = "Sửa check " + original
 	}
 	if check.Type == "" {
 		check.Type = config.CheckHTTP
@@ -179,17 +179,17 @@ func newUptimeForm(check configedit.Uptime, original string) form {
 		return field
 	}
 	return form{kind: formUptime, title: title, original: original, touched: map[string]bool{}, fields: []formField{
-		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: check.Name},
-		{key: "type", label: "Type", hint: "← → http: a web address · tcp: a host:port that accepts connections · ping: a host that answers", kind: fieldChoice, value: check.Type, choices: []string{config.CheckHTTP, config.CheckTCP, config.CheckPing}},
-		field("url", "Address", "https://example.com/health", check.URL, "", fieldText, config.CheckHTTP),
-		field("address", "Host:port", "e.g. 10.0.0.5:5432", check.Address, "", fieldText, config.CheckTCP),
-		field("host", "Host", "a name or address to ping", check.Host, "", fieldText, config.CheckPing),
-		field("interval", "Every", "how often to check, e.g. 30s, 1m, 5m", check.Interval, "1m", fieldText),
-		field("timeout", "Timeout", "give up on one check after, e.g. 10s", check.Timeout, "10s", fieldText),
-		field("expect_status", "Expect status", "the HTTP status that means up", check.ExpectStatus, "200", fieldNumber, config.CheckHTTP),
-		field("keyword", "Must contain", "optional: text that must appear in the page", check.Keyword, "", fieldText, config.CheckHTTP),
-		field("cert_expiry_days", "Cert warning", "warn when the TLS certificate expires within this many days", check.CertExpiryDays, "off", fieldNumber, config.CheckHTTP),
-		field("fail_after", "Alert after", "alert after this many failed checks in a row", check.FailAfter, "3", fieldNumber),
+		{key: "name", label: "Tên", hint: "chữ, số, . _ -", value: check.Name},
+		{key: "type", label: "Loại", hint: "← → http: địa chỉ web · tcp: host:port nhận kết nối · ping: host có trả lời", kind: fieldChoice, value: check.Type, choices: []string{config.CheckHTTP, config.CheckTCP, config.CheckPing}},
+		field("url", "Địa chỉ", "https://example.com/health", check.URL, "", fieldText, config.CheckHTTP),
+		field("address", "Host:port", "vd. 10.0.0.5:5432", check.Address, "", fieldText, config.CheckTCP),
+		field("host", "Host", "tên hoặc địa chỉ để ping", check.Host, "", fieldText, config.CheckPing),
+		field("interval", "Mỗi", "bao lâu kiểm tra một lần, vd. 30s, 1m, 5m", check.Interval, "1m", fieldText),
+		field("timeout", "Timeout", "quá thời gian này thì coi lần kiểm tra là lỗi, vd. 10s", check.Timeout, "10s", fieldText),
+		field("expect_status", "Status mong đợi", "HTTP status được coi là up", check.ExpectStatus, "200", fieldNumber, config.CheckHTTP),
+		field("keyword", "Phải chứa", "tuỳ chọn: chữ phải có trong trang", check.Keyword, "", fieldText, config.CheckHTTP),
+		field("cert_expiry_days", "Cảnh báo cert", "cảnh báo khi chứng chỉ TLS hết hạn trong chừng này ngày", check.CertExpiryDays, "tắt", fieldNumber, config.CheckHTTP),
+		field("fail_after", "Báo sau", "báo sau chừng này lần kiểm tra lỗi liên tiếp", check.FailAfter, "3", fieldNumber),
 	}}
 }
 
@@ -203,14 +203,14 @@ func (f form) uptime() configedit.Uptime {
 }
 
 func newNotifierForm(notifier configedit.Notifier, original string) form {
-	title := "Add a notifier"
+	title := "Thêm notifier"
 	if original != "" {
-		title = "Edit " + original
+		title = "Sửa " + original
 	}
 	if notifier.Kind == "" {
 		notifier.Kind = configedit.NotifierKinds[0]
 	}
-	fields := []formField{{key: "kind", label: "Notifier", hint: "← → to choose", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
+	fields := []formField{{key: "kind", label: "Notifier", hint: "← → để chọn", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
 	for _, kind := range configedit.NotifierKinds {
 		for _, spec := range configedit.NotifierFields(kind) {
 			field := formField{key: kind + "." + spec.Key, label: spec.Label, hint: notifierHint(spec), value: notifier.Values[spec.Key], onField: "kind", only: []string{kind}}
@@ -221,7 +221,7 @@ func newNotifierForm(notifier configedit.Notifier, original string) form {
 			case spec.Secret:
 				field.label += " var"
 				if notifier.Kind == kind && notifier.Literal[spec.Key] {
-					field.hint = "the file has a literal value; enter a variable name to replace it, or leave empty to keep it"
+					field.hint = "file đang ghi thẳng giá trị này; nhập tên env var để thay, hoặc để trống để giữ nguyên"
 				}
 			case spec.Number:
 				field.kind = fieldNumber
@@ -235,15 +235,15 @@ func newNotifierForm(notifier configedit.Notifier, original string) form {
 func notifierHint(spec configedit.NotifierField) string {
 	switch {
 	case spec.Secret:
-		return "name of the environment variable holding it, e.g. TG_TOKEN (never the secret itself)"
+		return "tên env var chứa giá trị này, vd. TG_TOKEN (không bao giờ nhập chính secret)"
 	case spec.List:
-		return "one or more addresses, separated by commas"
+		return "một hoặc nhiều địa chỉ, cách nhau bằng dấu phẩy"
 	case spec.Number:
-		return "port; empty = 587"
+		return "port; để trống = 587"
 	case spec.Key == "chat_id":
-		return "the chat or group id; a group id starts with -"
+		return "id của chat hoặc group; id group bắt đầu bằng -"
 	}
-	return "required"
+	return "bắt buộc"
 }
 
 // literalKeys remembers which secrets are literals in the file, so they are kept unless replaced.
@@ -288,14 +288,14 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 		}
 	}
 	return form{kind: formSettings, title: "Settings", original: "settings", touched: map[string]bool{}, known: configedit.Known{Repositories: listing.Repositories}, fields: []formField{
-		{key: "server_name", label: "Server name", hint: "the name shown in alerts and on this screen", value: settings.ServerName, placeholder: "this machine's host name"},
-		{key: "store", label: "State database", hint: "where run history and job locks are kept (a file path)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
-		{key: "cooldown", label: "Alert repeat", hint: "how long to wait before repeating an alert that is still open, e.g. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
-		{key: "notify_success", label: "Tell me successes", hint: "also send a message after every successful backup", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
-		{key: "verify_schedule", label: "Repo check", hint: "when to run `restic check` on every repository. " + scheduleHint, kind: fieldSchedule, value: settings.VerifySchedule, placeholder: "never"},
-		{key: "default_schedule", label: "Default schedule", hint: "for jobs that set none. " + scheduleHint, kind: fieldSchedule, value: settings.DefaultSchedule, placeholder: "none: jobs run by hand"},
-		{key: "default_repositories", label: "Default repos", hint: "space or click ticks; for jobs that list none. None ticked and a single repository = that repository", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
-		{key: "retention", label: "Default keep", hint: "snapshots kept by jobs that set none: last N, then one per day, week, month, year", kind: fieldRetention, counts: retention},
+		{key: "server_name", label: "Tên server", hint: "tên hiện trong cảnh báo và trên màn hình này", value: settings.ServerName, placeholder: "tên máy này"},
+		{key: "store", label: "File trạng thái", hint: "nơi lưu lịch sử chạy và khoá job (đường dẫn file)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
+		{key: "cooldown", label: "Lặp cảnh báo", hint: "chờ bao lâu rồi nhắc lại một cảnh báo còn mở, vd. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
+		{key: "notify_success", label: "Báo thành công", hint: "cũng gửi tin sau mỗi backup thành công", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
+		{key: "verify_schedule", label: "Kiểm tra repo", hint: "khi nào chạy `restic check` trên mọi repository. " + scheduleHint, kind: fieldSchedule, value: settings.VerifySchedule, placeholder: "không bao giờ"},
+		{key: "default_schedule", label: "Schedule mặc định", hint: "cho job không đặt schedule. " + scheduleHint, kind: fieldSchedule, value: settings.DefaultSchedule, placeholder: "chưa có: job chạy bằng tay"},
+		{key: "default_repositories", label: "Repo mặc định", hint: "space hoặc click để tick; cho job không liệt kê repository. Không tick gì mà chỉ có một repository = repository đó", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
+		{key: "retention", label: "Giữ mặc định", hint: "số snapshot job giữ lại khi không đặt: N cái mới nhất, rồi mỗi ngày, tuần, tháng, năm một cái", kind: fieldRetention, counts: retention},
 	}}
 }
 
@@ -315,7 +315,7 @@ func (f form) settings() (configedit.Settings, error) {
 	for i, target := range []*int{&settings.DefaultRetention.Last, &settings.DefaultRetention.Daily, &settings.DefaultRetention.Weekly, &settings.DefaultRetention.Monthly, &settings.DefaultRetention.Yearly} {
 		if counts[i] != "" {
 			if _, err := fmt.Sscan(counts[i], target); err != nil {
-				return settings, formProblem("retention", "retention: %q is not a number", counts[i])
+				return settings, formProblem("retention", "retention: %q không phải là số", counts[i])
 			}
 		}
 	}
@@ -360,7 +360,7 @@ func (f form) repositoryProblems(repo configedit.Repository) []error {
 	required := map[string][]string{"local": {"path"}, "s3": {"bucket"}, "rclone": {"remote", "path"}, "sftp": {"target", "path"}, "custom": {"url"}}
 	for _, key := range required[f.field("kind").value] {
 		if strings.TrimSpace(f.field(key).value) == "" {
-			problems = append(problems, formProblem(key, "%s is required", strings.ToLower(f.field(key).label)))
+			problems = append(problems, formProblem(key, "cần nhập %s", strings.ToLower(f.field(key).label)))
 		}
 	}
 	return problems
@@ -388,16 +388,16 @@ func (f form) applyEntry(actions manageActions) (string, error) {
 		return "repository " + repository.Name, actions.saveRepository(f.original, repository)
 	case formUptime:
 		check := f.uptime()
-		return "check " + check.Name, actions.saveUptime(f.original, check)
+		return "uptime check " + check.Name, actions.saveUptime(f.original, check)
 	case formNotifier:
 		notifier := f.notifier()
-		return notifier.Kind + " notifications", actions.saveNotifier(notifier)
+		return "notifier " + notifier.Kind, actions.saveNotifier(notifier)
 	case formSettings:
 		settings, _ := f.settings()
-		return "settings", actions.saveSettings(settings)
+		return "cài đặt", actions.saveSettings(settings)
 	case formInit:
 		initial, _ := f.initial()
 		return "config", actions.initialize(initial)
 	}
-	return "", errors.New("unknown form")
+	return "", errors.New("form không rõ")
 }
