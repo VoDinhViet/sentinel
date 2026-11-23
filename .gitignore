@@ -4,3 +4,6 @@
 *.db-*
 .env
 /test/.data/
+
+# Claude Code: personal settings stay local
+.claude/settings.local.json
