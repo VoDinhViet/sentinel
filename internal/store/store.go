@@ -60,6 +60,10 @@ var migrations = []string{
 	);`,
 	// Resource metrics are no longer collected.
 	`DROP TABLE metrics;`,
+	// Alert keys renamed: repo-check:<repo> -> verify:<repo>, backup-stale:<job> -> stale:<job>.
+	// Rewriting them keeps an alert that is open now from being announced a second time.
+	`UPDATE alerts SET key = 'verify:' || substr(key, 12) WHERE substr(key, 1, 11) = 'repo-check:';
+	UPDATE alerts SET key = 'stale:' || substr(key, 14) WHERE substr(key, 1, 13) = 'backup-stale:';`,
 }
 
 // Open opens (creating if needed) the database at path and applies migrations.

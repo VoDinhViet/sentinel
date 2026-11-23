@@ -110,8 +110,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-func backupKey(job, repo string) string { return "backup:" + job + ":" + repo }
-
 // RunBackup runs one job and raises or resolves an alert per repository.
 //
 // If the job is already running it does nothing and returns one unrecorded run
@@ -134,12 +132,12 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 	}
 	var successLines []string
 	for _, run := range runs {
-		key := backupKey(job.Name, run.Repository)
+		key := alert.BackupKey(job.Name, run.Repository)
 		if run.Success {
 			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", job.Name, run.Repository), "")
 			successLines = append(successLines, fmt.Sprintf("%s: snapshot %.8s, +%d bytes", run.Repository, run.SnapshotID, run.BytesAdded))
 			// The snapshot is safe, but retention failed: warn separately from a failed backup.
-			retentionKey := "retention:" + job.Name + ":" + run.Repository
+			retentionKey := alert.RetentionKey(job.Name, run.Repository)
 			if run.Error != "" {
 				d.Alerts.Fire(ctx, retentionKey, notify.Warning,
 					fmt.Sprintf("Retention for %s in %s failed", job.Name, run.Repository), run.Error)
@@ -173,7 +171,7 @@ func (d *Daemon) CheckRepositories(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		key := "repo-check:" + repoName
+		key := alert.VerifyKey(repoName)
 		if err != nil {
 			d.Alerts.Fire(ctx, key, notify.Critical, "Repository check failed: "+repoName, err.Error())
 		} else {
@@ -196,7 +194,7 @@ func (d *Daemon) CheckStale(ctx context.Context) {
 			lastSuccess = time.Time{}
 		}
 		stale, limit := isStale(job, lastSuccess, d.started, now)
-		key := "backup-stale:" + job.Name
+		key := alert.StaleKey(job.Name)
 		if stale {
 			lastSuccessText := "never succeeded"
 			if everSucceeded {

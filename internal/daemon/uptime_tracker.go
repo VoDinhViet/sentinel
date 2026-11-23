@@ -53,7 +53,7 @@ func (t *UptimeTracker) Observe(ctx context.Context, check config.UptimeCheck, r
 	failures := t.failuresByName[check.Name]
 	t.mu.Unlock()
 
-	key := "uptime:" + check.Name
+	key := alert.UptimeKey(check.Name)
 	endpoint := uptime.Endpoint(check)
 	switch {
 	case result.OK:
@@ -67,7 +67,7 @@ func (t *UptimeTracker) Observe(ctx context.Context, check config.UptimeCheck, r
 
 	if check.CertExpiryDays > 0 && !result.CertExpiry.IsZero() {
 		untilExpiry := result.CertExpiry.Sub(now)
-		certKey := "cert:" + check.Name
+		certKey := alert.CertKey(check.Name)
 		if untilExpiry < time.Duration(check.CertExpiryDays)*24*time.Hour {
 			t.Alerts.Fire(ctx, certKey, notify.Warning, "TLS certificate for "+check.Name+" expires soon",
 				fmt.Sprintf("%s: certificate expires %s (in %d days).", endpoint, result.CertExpiry.Format("2006-01-02"), int(untilExpiry.Hours()/24)))

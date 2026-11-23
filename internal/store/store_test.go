@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -225,5 +226,51 @@ func TestBackupRunOutcomeAndSummary(t *testing.T) {
 				t.Errorf("Summary = %q, want %q", got, tc.wantSummary)
 			}
 		})
+	}
+}
+
+// A database from before the alert keys were renamed keeps its open alerts under the new keys.
+func TestMigrationRenamesAlertKeys(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Put the database back where version 2 left it, with alerts under the old keys.
+	old := []string{"repo-check:s3", "backup-stale:appdb", "backup:appdb:s3", "uptime:site", "backup-stale:repo-check:odd"}
+	for _, key := range old {
+		if _, err := s.db.Exec(`INSERT INTO alerts (key, firing, since, last_notified, message) VALUES (?, 1, 100, 200, 'm')`, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 2`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	alerts, err := s.Alerts(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, alert := range alerts {
+		got = append(got, alert.Key)
+		if !alert.Firing || alert.Since.Unix() != 100 || alert.LastNotified.Unix() != 200 || alert.Message != "m" {
+			t.Errorf("alert %q lost its state: %+v", alert.Key, alert)
+		}
+	}
+	want := []string{"backup:appdb:s3", "stale:appdb", "stale:repo-check:odd", "uptime:site", "verify:s3"}
+	if !slices.Equal(got, want) {
+		t.Errorf("keys after migration = %v, want %v", got, want)
+	}
+	var version int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 3 {
+		t.Errorf("user_version = %d, %v; want 3", version, err)
 	}
 }
