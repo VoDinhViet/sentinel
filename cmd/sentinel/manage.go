@@ -32,7 +32,7 @@ func (a *app) manageCmd() *cobra.Command {
 // runManage opens the terminal manager on the loaded config.
 func (a *app) runManage(cmd *cobra.Command) error {
 	if !stdoutIsTerminal() {
-		return fmt.Errorf("manage needs a terminal; use `sentinel status --output json` in scripts")
+		return fmt.Errorf("manage cần chạy trong terminal; trong script hãy dùng `sentinel status --output json`")
 	}
 	cfg, err := a.loadConfig()
 	if err != nil {

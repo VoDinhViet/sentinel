@@ -57,7 +57,7 @@ func completePath(token string) (completed string, options []string) {
 		}
 	}
 	if len(names) > maxOptions {
-		names = append(names[:maxOptions], fmt.Sprintf("+%d more", len(names)-maxOptions))
+		names = append(names[:maxOptions], fmt.Sprintf("+%d nữa", len(names)-maxOptions))
 	}
 	return dirText + common, names
 }

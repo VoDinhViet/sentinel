@@ -315,7 +315,7 @@ func (m manageModel) browseClick(action string) (tea.Model, tea.Cmd, bool) {
 // sizeNote is the estimate shown at the end of a folder's line.
 func (b browseState) sizeNote(row browseRow) string {
 	if row.denied {
-		return "✗ no access"
+		return "✗ không có quyền"
 	}
 	size, known := b.sizes[row.path]
 	switch {
@@ -331,15 +331,16 @@ func (b browseState) sizeNote(row browseRow) string {
 
 func (m manageModel) renderBrowse() []string {
 	browse := m.browse
-	title := titleStyle.Render("Choose folders to back up")
-	chosen := fmt.Sprintf("%d chosen", len(browse.marks))
+	const heading = "Chọn thư mục để backup"
+	title := titleStyle.Render(heading)
+	chosen := fmt.Sprintf("đã chọn %d", len(browse.marks))
 	where := ""
-	if room := m.width - lipgloss.Width("Choose folders to back up") - len(chosen) - 10; room >= 12 {
+	if room := m.width - lipgloss.Width(heading) - lipgloss.Width(chosen) - 10; room >= 12 {
 		where = tailOf(browse.dir, room) + "  ·  " // too narrow a screen drops the folder: the last line shows it
 	}
 	screenLines := []string{
 		title + dimStyle.Render("  "+where+chosen),
-		"Search: " + browse.filter + lipglossAccent("▏"),
+		"Tìm: " + browse.filter + lipglossAccent("▏"),
 	}
 	rows := browse.rows()
 	folders := 0
@@ -354,25 +355,25 @@ func (m manageModel) renderBrowse() []string {
 	for i := first; i < min(first+visible, len(rows)); i++ {
 		row := rows[i]
 		if row.kind == browseDeeper && !deeperShown {
-			screenLines = append(screenLines, dimStyle.Render("  also found deeper:"))
+			screenLines = append(screenLines, dimStyle.Render("  còn thấy ở sâu hơn:"))
 			deeperShown = true
 		}
 		screenLines = append(screenLines, m.browseLine(len(screenLines), i, row))
 	}
 	if folders == 0 {
-		message := "no folders here"
+		message := "không có thư mục nào ở đây"
 		if browse.filter != "" {
-			message = "no folder matches \"" + browse.filter + "\""
+			message = "không có thư mục nào khớp \"" + browse.filter + "\""
 		}
 		screenLines = append(screenLines, dimStyle.Render("  "+message))
 	}
 	if hidden := len(rows) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … còn %d", hidden)))
 	}
 	if browse.cursor < len(rows) {
 		screenLines = append(screenLines, "", dimStyle.Render(tailOf(rows[browse.cursor].path, m.width-2)))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "select", "space", "mark", "enter", "open", "←", "up", "ctrl+s", "done", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "chọn", "space", "đánh dấu", "enter", "mở", "←", "lên", "ctrl+s", "xong", "esc", "huỷ"))
 }
 
 // browseLine draws one row: marker, tick box, name and the note at the right edge.

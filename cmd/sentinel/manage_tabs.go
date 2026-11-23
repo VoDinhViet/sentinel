@@ -12,7 +12,7 @@ import (
 func (m manageModel) tabs() []manageTab {
 	now := m.report.GeneratedAt
 	// Columns are ordered by importance: a narrow screen drops the last ones.
-	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LAST RUN", "RESULT", "HISTORY", "SNAPSHOT", "ADDED"}, statusCol: 3, historyCol: 4}
+	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LẦN CUỐI", "KẾT QUẢ", "LỊCH SỬ", "SNAPSHOT", "THÊM"}, statusCol: 3, historyCol: 4}
 	for _, backup := range m.report.Jobs {
 		line := manageLine{
 			cells:   []string{backup.Job, backup.Repository, relativeAgo(backup.FinishedAt, now), "ok", "", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded)},
@@ -22,23 +22,23 @@ func (m manageModel) tabs() []manageTab {
 		}
 		switch {
 		case !backup.Success:
-			line.severity, line.cells[3], line.cells[5], line.cells[6] = sevBad, "FAILED", "", ""
+			line.severity, line.cells[3], line.cells[5], line.cells[6] = sevBad, "LỖI", "", ""
 		case backup.Warning != "":
-			line.severity, line.cells[3] = sevWarn, "warning"
+			line.severity, line.cells[3] = sevWarn, "cảnh báo"
 		}
 		backups.lines = append(backups.lines, line)
 	}
 	for _, jobRepo := range m.jobRepositories {
 		if !m.hasBackupLine(jobRepo) {
 			backups.lines = append(backups.lines, manageLine{
-				cells:    []string{jobRepo.job, jobRepo.repository, "never", "never run", "", "", ""},
+				cells:    []string{jobRepo.job, jobRepo.repository, "chưa có", cellNeverRun, "", "", ""},
 				severity: sevWarn,
-				detail:   jobRepo.job + " → " + jobRepo.repository + ": never run. Press b to back it up now.",
+				detail:   jobRepo.job + " → " + jobRepo.repository + ": chưa chạy lần nào. Bấm b để backup ngay.",
 				job:      jobRepo.job, repository: jobRepo.repository,
 			})
 		}
 	}
-	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "STATUS", "LATENCY", "LAST CHECK"}, statusCol: 1, historyCol: -1}
+	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "TRẠNG THÁI", "ĐỘ TRỄ", "LẦN CUỐI"}, statusCol: 1, historyCol: -1}
 	for _, check := range m.report.Checks {
 		line := manageLine{
 			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), relativeAgo(check.At, now)},
@@ -49,7 +49,7 @@ func (m manageModel) tabs() []manageTab {
 		}
 		checks.lines = append(checks.lines, line)
 	}
-	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "SINCE", "MESSAGE"}, statusCol: -1, historyCol: -1}
+	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "TỪ", "NỘI DUNG"}, statusCol: -1, historyCol: -1}
 	for _, alert := range m.report.Alerts {
 		alerts.lines = append(alerts.lines, manageLine{
 			cells:    []string{alert.Key, relativeAgo(alert.Since, now), alert.Message},
@@ -60,6 +60,9 @@ func (m manageModel) tabs() []manageTab {
 	return []manageTab{backups, checks, alerts, m.buildDoctorTab(), m.buildConfigTab()}
 }
 
+// cellNeverRun is the result cell of a job that has not run yet; the counts recognise it by it.
+const cellNeverRun = "chưa chạy"
+
 // summary is the one line under the title: what needs attention, or "all good".
 // healthCounts is how the jobs, alerts and checks add up, for the summary line and the cards.
 type healthCounts struct{ healthy, warning, failed, neverRun, checksDown, alerts int }
@@ -68,7 +71,7 @@ func (m manageModel) healthCounts() healthCounts {
 	var counts healthCounts
 	for _, line := range m.tabs()[0].lines {
 		switch {
-		case line.cells[3] == "never run":
+		case line.cells[3] == cellNeverRun:
 			counts.neverRun++
 		case line.severity == sevBad:
 			counts.failed++
@@ -107,11 +110,11 @@ func (m manageModel) renderCards() []string {
 		level severity
 	}
 	cards := []card{
-		{counts.healthy, "healthy", sevOK},
-		{counts.failed, "failed", sevBad},
-		{counts.warning + counts.neverRun, "warnings", sevWarn},
-		{counts.alerts, plural(counts.alerts, "alert", "alerts"), sevBad},
-		{counts.checksDown, plural(counts.checksDown, "check down", "checks down"), sevBad},
+		{counts.healthy, "ổn", sevOK},
+		{counts.failed, "lỗi", sevBad},
+		{counts.warning + counts.neverRun, "cảnh báo", sevWarn},
+		{counts.alerts, "alert", sevBad},
+		{counts.checksDown, "check down", sevBad},
 	}
 	const gap = 2
 	width := min((m.width-gap*(len(cards)-1))/len(cards), 26)
@@ -146,19 +149,19 @@ func (m manageModel) summary() string {
 			parts = append(parts, part{fmt.Sprintf("%d %s", count, label), level})
 		}
 	}
-	add(failed, "failed", sevBad)
-	add(len(m.report.Alerts), plural(len(m.report.Alerts), "alert", "alerts"), sevBad)
-	add(checksDown, plural(checksDown, "check down", "checks down"), sevBad)
-	add(warning, plural(warning, "warning", "warnings"), sevWarn)
-	add(neverRun, "never run", sevWarn)
-	add(healthy, "healthy", sevOK)
+	add(failed, "lỗi", sevBad)
+	add(len(m.report.Alerts), "alert", sevBad)
+	add(checksDown, "check down", sevBad)
+	add(warning, "cảnh báo", sevWarn)
+	add(neverRun, "chưa chạy", sevWarn)
+	add(healthy, "ổn", sevOK)
 	if len(parts) == 0 {
-		return dimStyle.Render("nothing configured yet")
+		return dimStyle.Render("chưa cấu hình gì")
 	}
 	// On a narrow screen the least important parts (the last) are dropped.
 	const separator = " · "
 	for len(parts) > 1 {
-		total := len(separator) * (len(parts) - 1)
+		total := lipgloss.Width(separator) * (len(parts) - 1)
 		for _, part := range parts {
 			total += lipgloss.Width(part.text)
 		}
@@ -172,13 +175,6 @@ func (m manageModel) summary() string {
 		rendered[i] = severityStyle(part.level).Render(part.text)
 	}
 	return strings.Join(rendered, dimStyle.Render(separator))
-}
-
-func plural(count int, one, many string) string {
-	if count == 1 {
-		return one
-	}
-	return many
 }
 
 func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {

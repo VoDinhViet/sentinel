@@ -108,7 +108,7 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 	case modeBusy:
 		if key == "ctrl+c" && m.cancelBusy != nil {
 			m.cancelBusy()
-			m.busyText += " (cancelling: restic may take up to 30s to stop cleanly)"
+			m.busyText += " (đang huỷ: restic có thể mất tới 30 giây để dừng gọn)"
 		}
 		return m, nil
 	case modeResult:
@@ -167,7 +167,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		return m, m.reload()
 	case "b":
 		if line, ok := m.selectedBackup(); ok {
-			ctx := m.startBusy(fmt.Sprintf("Backing up %s → %s", line.job, line.repository))
+			ctx := m.startBusy(fmt.Sprintf("Đang backup %s → %s", line.job, line.repository))
 			job, repository, actions := line.job, line.repository, m.actions
 			return m, tea.Batch(m.spin(), func() tea.Msg {
 				runs, err := actions.runBackup(ctx, job, repository)
@@ -200,7 +200,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 			return m.configEdit(), nil
 		}
 		if line, ok := m.selectedBackup(); ok {
-			ctx := m.startBusy(fmt.Sprintf("Listing snapshots of %s in %s", line.job, line.repository))
+			ctx := m.startBusy(fmt.Sprintf("Đang liệt kê snapshot của %s trong %s", line.job, line.repository))
 			job, repository, actions := line.job, line.repository, m.actions
 			return m, tea.Batch(m.spin(), func() tea.Msg {
 				snapshots, err := actions.snapshots(ctx, job, repository)
@@ -227,7 +227,7 @@ func (m manageModel) afterBackup(msg backupDoneMsg) (tea.Model, tea.Cmd) {
 	case msg.err != nil:
 		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
 	case len(msg.runs) == 0:
-		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: no run was reported", msg.job, msg.repository), true
+		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: không có kết quả chạy nào được báo", msg.job, msg.repository), true
 	default:
 		run := msg.runs[0]
 		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, run.Summary()), !run.Success
@@ -298,7 +298,7 @@ func (m manageModel) onTargetKey(key, text string) (tea.Model, tea.Cmd) {
 	case "enter":
 		target := strings.TrimSpace(m.target)
 		if !strings.HasPrefix(target, "/") {
-			m.inputError = "enter an absolute path, e.g. /tmp/restore"
+			m.inputError = "nhập đường dẫn tuyệt đối, ví dụ /tmp/restore"
 			return m, nil
 		}
 		m.target, m.mode, m.confirm, m.inputError = target, modeConfirm, "", ""
@@ -314,10 +314,10 @@ func (m manageModel) onConfirmKey(key, text string) (tea.Model, tea.Cmd) {
 		m.mode = modeSnapshots
 	case "enter":
 		if m.confirm != m.snapshotJob {
-			m.inputError = "the name does not match"
+			m.inputError = "tên không khớp"
 			return m, nil
 		}
-		ctx := m.startBusy(fmt.Sprintf("Restoring %s of %s into %s", shortID(m.chosen.ID), m.snapshotJob, m.target))
+		ctx := m.startBusy(fmt.Sprintf("Đang restore %s của %s vào %s", shortID(m.chosen.ID), m.snapshotJob, m.target))
 		job, repository, snapshot, target, actions := m.snapshotJob, m.snapshotRepo, m.chosen, m.target, m.actions
 		return m, tea.Batch(m.spin(), func() tea.Msg {
 			hint, err := actions.restore(ctx, job, repository, snapshot, target)
@@ -333,12 +333,12 @@ func (m manageModel) afterRestore(msg restoreDoneMsg) manageModel {
 	m.endBusy()
 	m.mode, m.resultBad = modeResult, msg.err != nil
 	if msg.err != nil {
-		m.resultText = "Restore failed: " + msg.err.Error()
+		m.resultText = "Restore thất bại: " + msg.err.Error()
 		return m
 	}
-	m.resultText = fmt.Sprintf("Restored %s of %s from %s into %s.", shortID(m.chosen.ID), m.snapshotJob, m.snapshotRepo, m.target)
+	m.resultText = fmt.Sprintf("Đã restore %s của %s từ %s vào %s.", shortID(m.chosen.ID), m.snapshotJob, m.snapshotRepo, m.target)
 	if msg.hint != "" {
-		m.resultText += "\n\nLoad it with:\n  " + msg.hint + "\n\nThis replaces existing data: try it on a scratch database or server first."
+		m.resultText += "\n\nNạp lại bằng lệnh:\n  " + msg.hint + "\n\nLệnh này thay thế dữ liệu hiện có: hãy thử trên database hoặc server tạm trước."
 	}
 	return m
 }

@@ -46,7 +46,7 @@ func press(t *testing.T, screen manageModel, key string) (manageModel, tea.Cmd) 
 
 func TestManageBackupsTab(t *testing.T) {
 	view := plain(loadedModel(t).render())
-	for _, want := range []string{"web-01", "1 Backups 3", "appdb", "01234567", "2.0 KiB", "FAILED", "warning", "3 Alerts 1"} {
+	for _, want := range []string{"web-01", "1 Backups 3", "appdb", "01234567", "2.0 KiB", "LỖI", "cảnh báo", "3 Alerts 1"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
@@ -58,7 +58,7 @@ func TestManageBackupsTab(t *testing.T) {
 
 func TestManageSummaryAndHistoryGlyphs(t *testing.T) {
 	view := plain(loadedModel(t).render())
-	for _, want := range []string{"1 failed · 1 alert · 1 check down · 1 warning · 1 healthy", "✓✓✗✓", "✓✗✗", "1h ago", "2h ago"} {
+	for _, want := range []string{"1 lỗi · 1 alert · 1 check down · 1 cảnh báo · 1 ổn", "✓✓✗✓", "✓✗✗", "1 giờ trước", "2 giờ trước"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
@@ -71,16 +71,16 @@ func TestManageSummaryAndHistoryGlyphs(t *testing.T) {
 func TestManageSummaryAllGoodAndNarrow(t *testing.T) {
 	healthy := status.Report{Server: "s", GeneratedAt: time.Now(), Jobs: []status.Job{{Job: "a", Repository: "r", Success: true, Result: "ok"}}}
 	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return healthy, nil }, manageActions{}, nil).Update(reportMsg{report: healthy})
-	if got := plain(model.(manageModel).summary()); got != "1 healthy" {
+	if got := plain(model.(manageModel).summary()); got != "1 ổn" {
 		t.Errorf("summary = %q", got)
 	}
 	narrow := loadedModel(t)
 	narrow.width = 20
-	if got := plain(narrow.summary()); len([]rune(got)) > 20 || !strings.HasPrefix(got, "1 failed") {
+	if got := plain(narrow.summary()); len([]rune(got)) > 20 || !strings.HasPrefix(got, "1 lỗi") {
 		t.Errorf("narrow summary = %q (the most important parts stay)", got)
 	}
 	empty, _ := newManageModel(context.Background(), func() (status.Report, error) { return status.Report{}, nil }, manageActions{}, nil).Update(reportMsg{})
-	if got := plain(empty.(manageModel).summary()); got != "nothing configured yet" {
+	if got := plain(empty.(manageModel).summary()); got != "chưa cấu hình gì" {
 		t.Errorf("empty summary = %q", got)
 	}
 }
@@ -134,7 +134,7 @@ func TestManageShowsStoreErrorAndKeepsLastReport(t *testing.T) {
 
 func TestManageEmptyAndNarrow(t *testing.T) {
 	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return status.Report{}, nil }, manageActions{}, nil).Update(reportMsg{})
-	if view := plain(model.(manageModel).render()); !strings.Contains(view, "No backups recorded yet") {
+	if view := plain(model.(manageModel).render()); !strings.Contains(view, "Chưa có backup nào") {
 		t.Errorf("empty view:\n%s", view)
 	}
 	narrow := loadedModel(t)
@@ -166,12 +166,12 @@ func TestWideScreenShowsCardsAndPinsTheKeyBarToTheBottom(t *testing.T) {
 		t.Fatalf("the frame fills the screen: %d lines, want 24", len(lines))
 	}
 	view := strings.Join(lines, "\n")
-	for _, want := range []string{"╭─ ◆ Sentinel", "1 healthy", "1 failed", "1 warnings", "1 alert", "1 check down"} {
+	for _, want := range []string{"╭─ ◆ Sentinel", "1 ổn", "1 lỗi", "1 cảnh báo", "1 alert", "1 check down"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}
-	if !strings.Contains(lines[len(lines)-2], "q quit") {
+	if !strings.Contains(lines[len(lines)-2], "q thoát") {
 		t.Errorf("the key bar is the last line inside the frame: %q", lines[len(lines)-2])
 	}
 	model, _ = screen.Update(tea.WindowSizeMsg{Width: 90, Height: 24})

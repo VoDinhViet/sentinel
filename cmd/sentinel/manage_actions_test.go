@@ -104,7 +104,7 @@ func TestBackupNowRunsTheSelectedJobAndShowsTheOutcome(t *testing.T) {
 	screen := modelWith(t, fake)
 	model, cmd := screen.onKey("b", "")
 	screen = model.(manageModel)
-	if screen.mode != modeBusy || !strings.Contains(plain(screen.render()), "Backing up appdb → s3") {
+	if screen.mode != modeBusy || !strings.Contains(plain(screen.render()), "Đang backup appdb → s3") {
 		t.Fatalf("busy screen missing:\n%s", plain(screen.render()))
 	}
 	screen = feed(t, screen, messagesOf(cmd))
@@ -139,7 +139,7 @@ func TestBackupKeyOnlyActsOnTheBackupsTab(t *testing.T) {
 func TestJobsThatNeverRanAreListed(t *testing.T) {
 	screen := modelWith(t, &fakeActions{})
 	view := plain(screen.render())
-	if !strings.Contains(view, "newjob") || !strings.Contains(view, "never run") || !strings.Contains(view, "1 Backups 4") {
+	if !strings.Contains(view, "newjob") || !strings.Contains(view, "chưa chạy") || !strings.Contains(view, "1 Backups 4") {
 		t.Errorf("never-run job missing:\n%s", view)
 	}
 }
@@ -198,7 +198,7 @@ func TestRestoreNeedsTargetAndTheJobNameThenShowsTheLoadCommand(t *testing.T) {
 		t.Fatalf("restore call: %v to %q", fake.restored, fake.restoreTo)
 	}
 	view := plain(screen.render())
-	if screen.mode != modeResult || !strings.Contains(view, "Restored older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
+	if screen.mode != modeResult || !strings.Contains(view, "Đã restore older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
 		t.Errorf("result screen (mode %d):\n%s", screen.mode, view)
 	}
 	model, _ = screen.onKey("x", "x")
@@ -219,7 +219,7 @@ func TestRestoreFailureIsShown(t *testing.T) {
 	screen = typeText(t, model.(manageModel), "appdb")
 	model, cmd = screen.onKey("enter", "")
 	screen = feed(t, model.(manageModel), messagesOf(cmd))
-	if !screen.resultBad || !strings.Contains(plain(screen.render()), "Restore failed: disk full") {
+	if !screen.resultBad || !strings.Contains(plain(screen.render()), "Restore thất bại: disk full") {
 		t.Errorf("failure missing:\n%s", plain(screen.render()))
 	}
 }
@@ -231,7 +231,7 @@ func TestRestoreToRootWarns(t *testing.T) {
 	model, _ = screen.onKey("enter", "")
 	screen = typeText(t, model.(manageModel), "/")
 	model, _ = screen.onKey("enter", "")
-	if view := plain(model.(manageModel).render()); !strings.Contains(view, "restored in place") {
+	if view := plain(model.(manageModel).render()); !strings.Contains(view, "restore tại chỗ") {
 		t.Errorf("want a warning for /:\n%s", view)
 	}
 }
@@ -260,7 +260,7 @@ func TestCtrlCCancelsARunningActionButQDoesNotQuit(t *testing.T) {
 		t.Error("q must not quit while an action runs")
 	}
 	model, _ = model.(manageModel).onKey("ctrl+c", "")
-	if ctx.Err() == nil || !strings.Contains(model.(manageModel).busyText, "cancelling") {
+	if ctx.Err() == nil || !strings.Contains(model.(manageModel).busyText, "đang huỷ") {
 		t.Error("ctrl+c must cancel the running action")
 	}
 }
