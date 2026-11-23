@@ -17,6 +17,7 @@ import (
 	"sentinel/internal/config"
 	"sentinel/internal/engine"
 	"sentinel/internal/notify"
+	"sentinel/internal/store"
 )
 
 var minRestic = [3]int{0, 17, 0} // first release with --stdin-from-command
@@ -25,7 +26,8 @@ type finding struct {
 	name string
 	err  error
 	info string
-	warn bool // err is a warning: reported, but doctor still passes
+	warn bool   // err is a warning: reported, but doctor still passes
+	hint string // how to fix it, shown by the interactive screen
 }
 
 // checkBinaries verifies the external tools the config needs are installed.
@@ -45,8 +47,10 @@ func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 		switch {
 		case err != nil:
 			f.err = fmt.Errorf("not usable: %w", err)
+			f.hint = "install restic >= 0.17 (https://restic.net, or: sudo apt install restic)"
 		case versionLess(v, minRestic):
 			f.err = fmt.Errorf("version %d.%d.%d is too old, need >= %d.%d.%d", v[0], v[1], v[2], minRestic[0], minRestic[1], minRestic[2])
+			f.hint = "upgrade restic to 0.17 or newer"
 		default:
 			f.info = fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2])
 		}
@@ -61,6 +65,7 @@ func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 		f := finding{name: tool}
 		if path, err := exec.LookPath(tool); err != nil {
 			f.err = errors.New("not found in PATH")
+			f.hint = "install " + tool + " and make sure it is on PATH (see the install section of the README)"
 		} else {
 			f.info = path
 		}
@@ -92,6 +97,51 @@ func printFindings(w io.Writer, fs []finding) (failed int) {
 	return failed
 }
 
+// runDoctor checks the config's tools, store, repositories and notifiers. It is
+// what `sentinel doctor` prints and what the Doctor tab of `sentinel manage` shows.
+func runDoctor(ctx context.Context, cfg *config.Config, configPath string, openStore func(*config.Config) (*store.Store, error)) []finding {
+	findings := []finding{{name: "config", info: configPath}}
+	findings = append(findings, checkBinaries(ctx, cfg)...)
+
+	st, err := openStore(cfg)
+	if err == nil {
+		st.Close()
+	}
+	storeFinding := finding{name: "store", err: err, info: cfg.Store}
+	if err != nil {
+		storeFinding.hint = "check that the directory of " + cfg.Store + " exists and is writable"
+	}
+	findings = append(findings, storeFinding)
+
+	runner := &backup.Runner{Config: cfg}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Repositories)) {
+		repoFinding := finding{name: "repository " + name}
+		restic, _ := runner.Restic(name)
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		initialized, err := restic.Exists(checkCtx)
+		cancel()
+		switch {
+		case err != nil:
+			repoFinding.err = err
+			repoFinding.hint = "check the repository url, its credentials and the network"
+		case !initialized:
+			repoFinding.err = errors.New("not initialized (run: sentinel backup init <job>)")
+			repoFinding.hint = "run: sentinel backup init <job> (once per repository)"
+		default:
+			repoFinding.info = "reachable"
+		}
+		findings = append(findings, repoFinding)
+	}
+
+	channels := len(notify.FromConfig(cfg.Notifiers))
+	notifierFinding := finding{name: "notifiers", info: fmt.Sprintf("%d configured (test with: sentinel notify test)", channels)}
+	if channels == 0 {
+		notifierFinding.err, notifierFinding.warn = errors.New("none configured: alerts will only be logged"), true
+		notifierFinding.hint = "add telegram, smtp, discord or slack under notifiers: in the config"
+	}
+	return append(findings, notifierFinding)
+}
+
 func (a *app) doctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
@@ -104,42 +154,7 @@ func (a *app) doctorCmd() *cobra.Command {
 				fmt.Fprintf(w, "  FAIL  %-28s %v\n", strings.TrimSpace("config "+a.configPath), err)
 				return errors.New("doctor found problems")
 			}
-			fs := []finding{{name: "config", info: a.configPath}}
-			fs = append(fs, checkBinaries(cmd.Context(), cfg)...)
-
-			st, err := a.openStore(cfg)
-			if err == nil {
-				st.Close()
-			}
-			fs = append(fs, finding{name: "store", err: err, info: cfg.Store})
-
-			runner := &backup.Runner{Config: cfg}
-			names := slices.Sorted(maps.Keys(cfg.Repositories))
-			for _, name := range names {
-				f := finding{name: "repository " + name}
-				rc, _ := runner.Restic(name)
-				ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
-				ok, err := rc.Exists(ctx)
-				cancel()
-				switch {
-				case err != nil:
-					f.err = err
-				case !ok:
-					f.err = errors.New("not initialized (run: sentinel backup init <job>)")
-				default:
-					f.info = "reachable"
-				}
-				fs = append(fs, f)
-			}
-
-			n := len(notify.FromConfig(cfg.Notifiers))
-			nf := finding{name: "notifiers", info: fmt.Sprintf("%d configured (test with: sentinel notify test)", n)}
-			if n == 0 {
-				nf.err, nf.warn = errors.New("none configured: alerts will only be logged"), true
-			}
-			fs = append(fs, nf)
-
-			if printFindings(w, fs) > 0 {
+			if printFindings(w, runDoctor(cmd.Context(), cfg, a.configPath, a.openStore)) > 0 {
 				return errors.New("doctor found problems")
 			}
 			return nil
