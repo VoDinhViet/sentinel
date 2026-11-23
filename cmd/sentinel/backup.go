@@ -92,9 +92,9 @@ func (a *app) backupCmd() *cobra.Command {
 			fmt.Fprintln(w, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 			failed := 0
 			for _, r := range runs {
-				result := "ok"
+				result := runResult(r)
 				if !r.Success {
-					result, failed = "FAILED: "+r.Error, failed+1
+					failed++
 				}
 				fmt.Fprintf(w, "%s\t%s\t%.8s\t%s\t%s\n", r.Repository, result, r.SnapshotID,
 					humanBytes(r.BytesAdded), r.FinishedAt.Sub(r.StartedAt).Round(time.Second))
@@ -174,6 +174,15 @@ func (a *app) backupCmd() *cobra.Command {
 					return fmt.Errorf("no snapshots for job %q in %s", job.Name, repos[0])
 				}
 				snapshot = snaps[len(snaps)-1].ID
+			} else {
+				jobSnapshot, err := rc.JobSnapshot(cmd.Context(), backup.JobTags(job), snapshot)
+				if errors.Is(err, backup.ErrForeignSnapshot) {
+					return fmt.Errorf("snapshot %s is not a snapshot of job %q in %s (see `sentinel backup list %s`)", snapshot, job.Name, repos[0], job.Name)
+				}
+				if err != nil {
+					return err
+				}
+				snapshot = jobSnapshot.ID
 			}
 			if err := rc.Restore(cmd.Context(), snapshot, target); err != nil {
 				return err
@@ -181,6 +190,7 @@ func (a *app) backupCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "restored %.8s from %s into %s\n", snapshot, repos[0], target)
 			if dbEngine, ok := engine.For(job.Type); ok {
 				fmt.Fprintf(cmd.OutOrStdout(), "load it with: %s\n", dbEngine.RestoreHint(job, target))
+				fmt.Fprintln(cmd.OutOrStdout(), "this replaces existing data: try it on a scratch database or server first")
 			}
 			return nil
 		},

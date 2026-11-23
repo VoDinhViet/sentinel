@@ -270,6 +270,35 @@ func (r *Restic) Snapshots(ctx context.Context, tags []string) ([]Snapshot, erro
 	return snaps, nil
 }
 
+// ErrForeignSnapshot means the snapshot is not one of the job's snapshots.
+var ErrForeignSnapshot = errors.New("snapshot does not belong to the job")
+
+// JobSnapshot finds the snapshot named by a full id or a unique id prefix among
+// the snapshots with tags (a job's tags, on this host). Restoring through it
+// keeps one job from restoring, and being told how to load, another job's data.
+func (r *Restic) JobSnapshot(ctx context.Context, tags []string, idOrPrefix string) (Snapshot, error) {
+	snapshots, err := r.Snapshots(ctx, tags)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	var matches []Snapshot
+	for _, snapshot := range snapshots {
+		if snapshot.ID == idOrPrefix {
+			return snapshot, nil
+		}
+		if idOrPrefix != "" && strings.HasPrefix(snapshot.ID, idOrPrefix) {
+			matches = append(matches, snapshot)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return Snapshot{}, fmt.Errorf("%w: %s", ErrForeignSnapshot, idOrPrefix)
+	case 1:
+		return matches[0], nil
+	}
+	return Snapshot{}, fmt.Errorf("snapshot id %q is ambiguous (%d matches); use a longer prefix", idOrPrefix, len(matches))
+}
+
 func (r *Restic) Restore(ctx context.Context, snapshotID, target string) error {
 	_, err := r.run(ctx, "restore", "--json", snapshotID, "--target", target)
 	return err

@@ -303,3 +303,33 @@ func TestRetentionFailureKeepsBackupSuccessful(t *testing.T) {
 		t.Errorf("retention failure not reported: %q", runs[0].Error)
 	}
 }
+
+func TestJobLockIsSharedAcrossRunners(t *testing.T) {
+	slowRestic := filepath.Join(t.TempDir(), "restic")
+	script := "#!/bin/sh\nsleep 1\necho '{\"message_type\":\"summary\",\"snapshot_id\":\"abcdef123456\"}'\n"
+	if err := os.WriteFile(slowRestic, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		ServerName:   "h",
+		Store:        filepath.Join(t.TempDir(), "state.db"),
+		Repositories: map[string]config.Repository{"r": {URL: "/repo", Password: "p"}},
+	}
+	job := config.Backup{Name: "site/with slash", Type: config.BackupFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
+
+	// Two runners stand for the daemon and a `sentinel backup run` process.
+	first := make(chan []store.BackupRun, 1)
+	go func() { first <- (&Runner{Config: cfg, Bin: slowRestic}).Run(context.Background(), &job) }()
+	time.Sleep(300 * time.Millisecond)
+
+	overlapping := (&Runner{Config: cfg, Bin: slowRestic}).Run(context.Background(), &job)
+	if len(overlapping) != 1 || overlapping[0].Error != AlreadyRunning || overlapping[0].Success {
+		t.Fatalf("overlapping run = %+v", overlapping)
+	}
+	if runs := <-first; !runs[0].Success {
+		t.Fatalf("first run = %+v", runs[0])
+	}
+	if runs := (&Runner{Config: cfg, Bin: slowRestic}).Run(context.Background(), &job); !runs[0].Success {
+		t.Fatalf("run after the first finished = %+v", runs[0])
+	}
+}

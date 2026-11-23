@@ -330,3 +330,76 @@ func TestReloadWaitsForRunningBackup(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// executeOnAgent runs one command against a daemon that uses fakeRestic.
+func executeOnAgent(t *testing.T, e *env, cfg *config.Config, fakeRestic string, command api.Command) api.CommandResult {
+	t.Helper()
+	d := e.daemon(cfg)
+	d.Backups.Bin = fakeRestic
+	runner := &CommandRunner{Client: e.client, Current: func() (*scheduler.Daemon, int64) { return d, 0 }}
+	return runner.Execute(context.Background(), command)
+}
+
+func TestRestoreOnlyFromTheJobsOwnSnapshots(t *testing.T) {
+	e := newEnv(t)
+	cfg := testConfig(e.dir)
+	restoreArgsFile := filepath.Join(e.dir, "restore-args")
+	fakeRestic := filepath.Join(e.dir, "restic-two-jobs")
+	// Like restic, list only the snapshots matching --tag: the other job's
+	// snapshot shows up only when the caller does not filter by the job's tag.
+	script := `#!/bin/sh
+case "$1" in
+  snapshots)
+    case "$*" in
+      *job=site*) echo '[{"id":"aaaa1111bbbb2222","tags":["job=site"]}]' ;;
+      *) echo '[{"id":"aaaa1111bbbb2222","tags":["job=site"]},{"id":"cccc3333dddd4444","tags":["job=other"]}]' ;;
+    esac ;;
+  restore) echo "$*" > ` + restoreArgsFile + `; mkdir -p "$5" ;;
+esac
+`
+	if err := os.WriteFile(fakeRestic, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restoreCommand := func(snapshot string) api.Command {
+		args, _ := json.Marshal(api.RestoreArgs{Job: "site", Repository: "s3", Snapshot: snapshot})
+		return api.Command{ID: 1, Type: api.CmdRestore, Args: args}
+	}
+
+	foreign := executeOnAgent(t, e, cfg, fakeRestic, restoreCommand("cccc3333"))
+	if foreign.OK || !strings.Contains(foreign.Error, "does not belong") {
+		t.Errorf("restoring another job's snapshot = %+v", foreign)
+	}
+	if _, err := os.Stat(restoreArgsFile); err == nil {
+		t.Error("restic restore ran for a snapshot of another job")
+	}
+
+	own := executeOnAgent(t, e, cfg, fakeRestic, restoreCommand("aaaa1111"))
+	if !own.OK {
+		t.Fatalf("restoring the job's own snapshot by prefix = %+v", own)
+	}
+	if args, _ := os.ReadFile(restoreArgsFile); !strings.Contains(string(args), "aaaa1111bbbb2222") {
+		t.Errorf("restic must get the full snapshot id, got %q", args)
+	}
+}
+
+func TestBackupNowReportsRetentionWarning(t *testing.T) {
+	e := newEnv(t)
+	cfg := testConfig(e.dir)
+	cfg.Backups[0].Retention = config.Retention{Last: 1}
+	fakeRestic := filepath.Join(e.dir, "restic-forget-fails")
+	script := `#!/bin/sh
+if [ "$1" = forget ]; then echo 'Fatal: repository is locked' >&2; exit 1; fi
+echo '{"message_type":"summary","snapshot_id":"abcdef123456"}'
+`
+	if err := os.WriteFile(fakeRestic, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(api.BackupRunArgs{Job: "site"})
+	result := executeOnAgent(t, e, cfg, fakeRestic, api.Command{ID: 1, Type: api.CmdBackupRun, Args: args})
+	if !result.OK {
+		t.Fatalf("a snapshot was made, so the command succeeds: %+v", result)
+	}
+	if !strings.Contains(string(result.Output), "snapshot abcdef12") || !strings.Contains(string(result.Output), "warning: retention failed") {
+		t.Errorf("retention warning missing from the result: %s", result.Output)
+	}
+}

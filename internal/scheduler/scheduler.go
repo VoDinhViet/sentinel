@@ -19,6 +19,7 @@ import (
 	"sentinel/internal/alert"
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
+	"sentinel/internal/engine"
 	"sentinel/internal/notify"
 	"sentinel/internal/schedule"
 	"sentinel/internal/store"
@@ -52,7 +53,7 @@ type Daemon struct {
 
 // ErrAlreadyRunning is the Error of the run RunBackup returns, without
 // recording it, when the job is already running.
-const ErrAlreadyRunning = "backup already running"
+const ErrAlreadyRunning = backup.AlreadyRunning
 
 // Busy reports whether a backup or repository check is running, so a config
 // reload can wait instead of interrupting it.
@@ -63,6 +64,7 @@ func (d *Daemon) Busy() bool { return d.busy.Load() > 0 }
 // lock) and waits for them to exit.
 func (d *Daemon) Run(ctx context.Context) error {
 	d.started = time.Now()
+	d.sweepStaleSecretFiles()
 	jobCtx, cancelJobs := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelJobs()
 
@@ -131,6 +133,9 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Backup) []store.Back
 	d.busy.Add(1)
 	defer d.busy.Add(-1)
 	runs := d.Backups.Run(ctx, job)
+	if len(runs) == 1 && runs[0].Error == backup.AlreadyRunning {
+		return runs // another sentinel process holds the job: nothing ran, nothing to alert
+	}
 	if ctx.Err() != nil {
 		// Shutting down: the run was interrupted, not broken.
 		return runs
@@ -251,4 +256,17 @@ type slogAdapter struct{}
 func (slogAdapter) Info(msg string, kv ...any) { slog.Debug("cron: "+msg, kv...) }
 func (slogAdapter) Error(err error, msg string, kv ...any) {
 	slog.Error("cron: "+msg, append(kv, "error", err)...)
+}
+
+// sweepStaleSecretFiles removes credential files a crashed dump left in the
+// temp directory. A file younger than the longest backup timeout may belong to
+// a dump running in another sentinel process, so it is kept.
+func (d *Daemon) sweepStaleSecretFiles() {
+	longest := time.Hour
+	for _, job := range d.Config.Backups {
+		longest = max(longest, job.Timeout)
+	}
+	if removed := engine.SweepStaleSecretFiles(longest + time.Hour); removed > 0 {
+		slog.Warn("removed stale credential files left by a crashed backup", "count", removed)
+	}
 }

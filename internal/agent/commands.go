@@ -102,7 +102,11 @@ func (c *CommandRunner) Execute(ctx context.Context, cmd api.Command) api.Comman
 		for _, r := range runs {
 			switch {
 			case r.Success:
-				parts = append(parts, fmt.Sprintf("%s: snapshot %.8s", r.Repository, r.SnapshotID))
+				part := fmt.Sprintf("%s: snapshot %.8s", r.Repository, r.SnapshotID)
+				if r.Error != "" { // the snapshot exists, but retention failed
+					part += " (warning: " + r.Error + ")"
+				}
+				parts = append(parts, part)
 			case r.Repository == "": // not run at all, e.g. already running
 				errs = append(errs, r.Error)
 			default:
@@ -151,18 +155,18 @@ func (c *CommandRunner) Execute(ctx context.Context, cmd api.Command) api.Comman
 			return fail(err)
 		}
 		// Only snapshots of this job may be restored under its name.
-		snaps, err := rc.Snapshots(ctx, backup.JobTags(job))
+		jobSnapshot, err := rc.JobSnapshot(ctx, backup.JobTags(job), a.Snapshot)
+		if errors.Is(err, backup.ErrForeignSnapshot) {
+			return fail(fmt.Errorf("snapshot %s does not belong to job %q", a.Snapshot, a.Job))
+		}
 		if err != nil {
 			return fail(err)
-		}
-		if !slices.ContainsFunc(snaps, func(snapshot backup.Snapshot) bool { return strings.HasPrefix(snapshot.ID, a.Snapshot) }) {
-			return fail(fmt.Errorf("snapshot %s does not belong to job %q", a.Snapshot, a.Job))
 		}
 		target, err := RestoreTarget(d.Config.RestoreDir, a.Job, a.Snapshot, c.now())
 		if err != nil {
 			return fail(err)
 		}
-		if err := rc.Restore(ctx, a.Snapshot, target); err != nil {
+		if err := rc.Restore(ctx, jobSnapshot.ID, target); err != nil {
 			return fail(err)
 		}
 		return ok(api.RestoreOutput{Path: target})

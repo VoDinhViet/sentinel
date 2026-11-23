@@ -48,6 +48,16 @@ func (r *Runner) Restic(repoName string) (*Restic, error) {
 // retention. Every repository is attempted even if an earlier one fails;
 // the returned runs say which succeeded.
 func (r *Runner) Run(ctx context.Context, job *config.Backup) []store.BackupRun {
+	held, release, err := r.lockJob(job.Name)
+	defer release()
+	if err != nil {
+		slog.Error("lock job", "job", job.Name, "error", err)
+		return []store.BackupRun{{Job: job.Name, StartedAt: r.now(), FinishedAt: r.now(), Error: err.Error()}}
+	}
+	if !held {
+		slog.Warn("backup skipped, already running", "job", job.Name)
+		return []store.BackupRun{{Job: job.Name, Error: AlreadyRunning}}
+	}
 	ctx, cancel := context.WithTimeout(ctx, job.Timeout)
 	defer cancel()
 
