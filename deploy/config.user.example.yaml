@@ -1,10 +1,13 @@
 # Sentinel configuration for one user on a workstation or a small server, no root needed.
 #   mkdir -p ~/.config/sentinel
 #   cp deploy/config.user.example.yaml ~/.config/sentinel/config.yaml
-#   export RESTIC_PASSWORD='choose-a-long-passphrase'    # losing it means losing the backups
 #   sentinel backup init documents && sentinel backup run documents && sentinel manage
 #
-# ${VAR} is replaced by the environment variable VAR; a missing variable is an error.
+# ${VAR} is replaced by the value of the environment variable named VAR (so ${RESTIC_PASSWORD},
+# not the password itself). On a terminal, Sentinel asks for a variable that is not set and can
+# save it in sentinel.env beside this file (mode 0600); scripts and the daemon never ask, a
+# missing variable is an error there. You can also `export RESTIC_PASSWORD='...'` yourself.
+# Losing the repository password means losing the backups.
 # For servers (system service, alerts, S3) start from config.example.yaml instead.
 
 server_name: my-laptop

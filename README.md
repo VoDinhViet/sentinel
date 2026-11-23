@@ -35,13 +35,16 @@ Không cần root, không cần service: build, cài vào `~/.local/bin`, rồi 
 ```sh
 make build && make install          # không có Go thì tự build qua docker; sudo make install PREFIX=/usr/local để cài cho mọi người dùng
 sentinel init                       # một form: kho lưu ở đâu, backup gì, lịch nào -> ghi ~/.config/sentinel/config.yaml
-export RESTIC_PASSWORD='mat-khau-dai-va-kho-doan'   # mất mật khẩu này là mất backup
-sentinel backup init documents      # tạo kho restic (một lần)
+sentinel backup init documents      # tạo kho restic (một lần); lần đầu sẽ hỏi mật khẩu kho
 sentinel backup run documents       # backup ngay
 sentinel manage                     # màn hình quản lý: backup, snapshot + restore, sửa mọi thứ trong config
 ```
 
 `sentinel init` chạy bằng root thì ghi `/etc/sentinel/config.yaml` và tự tạo mật khẩu ngẫu nhiên cho kho trong `/etc/sentinel/sentinel.env` (quyền 0600; hãy lưu một bản ở nơi khác). Đã có config thì lệnh từ chối, trừ khi thêm `--force` (file cũ được giữ lại thành `config.yaml.old`). Thích sửa tay thì chép [deploy/config.user.example.yaml](deploy/config.user.example.yaml).
+
+**Không có đăng nhập.** Sentinel không có tài khoản; thứ duy nhất giống "mật khẩu" là mật khẩu mã hoá kho restic, ghi trong config dạng `${RESTIC_PASSWORD}`. Gõ `sentinel` trơn trên terminal thì mở form `init` nếu chưa có config, đã có thì mở `sentinel manage`; ngoài terminal (script, pipe) nó in phần trợ giúp.
+
+Khi config có biến `${VAR}` chưa được đặt và bạn đang ở terminal, Sentinel hỏi giá trị bằng ô nhập ẩn (không hiện ký tự), kiểm tra mật khẩu với kho (sai thì hỏi lại tối đa 3 lần; kho mới thì bắt gõ hai lần), rồi hỏi có lưu vào `sentinel.env` cạnh config không (quyền 0600). Lần sau Sentinel tự đọc file đó; biến đã `export` trong shell luôn được ưu tiên. Daemon `sentinel run` và script không bao giờ hỏi: thiếu biến là lỗi. Vẫn dùng được cách cũ `export RESTIC_PASSWORD=...`. Chú ý: giá trị trong `${...}` là **tên biến**, không phải mật khẩu; viết `${pass123}` sẽ báo `unset environment variables: [pass123]`.
 
 Không cần gõ `-c`: Sentinel lấy file config theo thứ tự `--config`, biến `SENTINEL_CONFIG`, `/etc/sentinel/config.yaml`, rồi `~/.config/sentinel/config.yaml` (file đầu tiên tồn tại). Nếu `~/.local/bin` chưa nằm trong `PATH`, `make install` sẽ nhắc.
 
