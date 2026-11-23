@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"sync"
 	"time"
 
@@ -135,6 +136,17 @@ func (m *Multi) SendEach(ctx context.Context, msg Message) []error {
 	return errs
 }
 
+// withoutURL drops the request URL from a failed HTTP call's error. The URL of a
+// Telegram bot or a Discord/Slack webhook contains the secret token, and the
+// error is logged and may be shown in alerts.
+func withoutURL(err error) error {
+	var urlErr *neturl.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Errorf("%s request failed: %w", urlErr.Op, urlErr.Err)
+	}
+	return err
+}
+
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 func postJSON(ctx context.Context, url string, payload any) error {
@@ -144,12 +156,12 @@ func postJSON(ctx context.Context, url string, payload any) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return withoutURL(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return withoutURL(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {

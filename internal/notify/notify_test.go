@@ -197,3 +197,25 @@ func TestSMTP(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedRequestDoesNotLeakTheBotToken(t *testing.T) {
+	srv, _, _ := capture(t, 200)
+	baseURL := srv.URL
+	srv.Close() // nothing listens any more, so the request fails to connect
+
+	notifiers := map[string]Notifier{
+		"telegram": &Telegram{Token: "123:secret-token", ChatID: "-100", BaseURL: baseURL},
+		"discord":  &Discord{URL: baseURL + "/api/webhooks/42/secret-token"},
+	}
+	for name, notifier := range notifiers {
+		t.Run(name, func(t *testing.T) {
+			err := notifier.Send(context.Background(), msg)
+			if err == nil {
+				t.Fatal("want an error when the server is down")
+			}
+			if strings.Contains(err.Error(), "secret-token") {
+				t.Errorf("token in error: %v", err)
+			}
+		})
+	}
+}
