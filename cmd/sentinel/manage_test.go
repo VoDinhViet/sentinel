@@ -30,20 +30,20 @@ func sampleReport() statusReport {
 	}
 }
 
-func loadedManager(t *testing.T) manager {
+func loadedModel(t *testing.T) manageModel {
 	t.Helper()
-	model, _ := newManager(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
-	return model.(manager)
+	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
+	return model.(manageModel)
 }
 
-func press(t *testing.T, d manager, key string) (manager, tea.Cmd) {
+func press(t *testing.T, screen manageModel, key string) (manageModel, tea.Cmd) {
 	t.Helper()
-	model, cmd := d.onKey(key, "")
-	return model.(manager), cmd
+	model, cmd := screen.onKey(key, "")
+	return model.(manageModel), cmd
 }
 
 func TestManageBackupsTab(t *testing.T) {
-	view := plain(loadedManager(t).render())
+	view := plain(loadedModel(t).render())
 	for _, want := range []string{"web-01", "1 Backups (3)", "appdb", "01234567", "2.0 KiB", "FAILED", "warning", "3 Alerts (1)"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
@@ -55,59 +55,59 @@ func TestManageBackupsTab(t *testing.T) {
 }
 
 func TestManageKeysSwitchTabsAndMoveSelection(t *testing.T) {
-	d := loadedManager(t)
-	d, _ = press(t, d, "down")
-	if d.cursor != 1 || !strings.Contains(plain(d.render()), "files → local: FAILED: restic exited 1") {
-		t.Fatalf("cursor %d; detail of the selected line missing:\n%s", d.cursor, d.render())
+	screen := loadedModel(t)
+	screen, _ = press(t, screen, "down")
+	if screen.cursor != 1 || !strings.Contains(plain(screen.render()), "files → local: FAILED: restic exited 1") {
+		t.Fatalf("cursor %d; detail of the selected line missing:\n%s", screen.cursor, screen.render())
 	}
-	d, _ = press(t, d, "2")
-	if d.tab != 1 || d.cursor != 0 {
-		t.Fatalf("tab %d cursor %d, want tab 1 cursor 0", d.tab, d.cursor)
+	screen, _ = press(t, screen, "2")
+	if screen.tab != 1 || screen.cursor != 0 {
+		t.Fatalf("tab %d cursor %d, want tab 1 cursor 0", screen.tab, screen.cursor)
 	}
-	if view := plain(d.render()); !strings.Contains(view, "DOWN") || !strings.Contains(view, "site") {
+	if view := plain(screen.render()); !strings.Contains(view, "DOWN") || !strings.Contains(view, "site") {
 		t.Errorf("uptime tab:\n%s", view)
 	}
-	d, _ = press(t, d, "tab")
-	d, _ = press(t, d, "tab")
-	if d.tab != 0 {
-		t.Errorf("tab wraps around, got %d", d.tab)
+	screen, _ = press(t, screen, "tab")
+	screen, _ = press(t, screen, "tab")
+	if screen.tab != 0 {
+		t.Errorf("tab wraps around, got %d", screen.tab)
 	}
-	d, _ = press(t, d, "G")
-	if d.cursor != 2 {
-		t.Errorf("G goes to the last line, cursor %d", d.cursor)
+	screen, _ = press(t, screen, "G")
+	if screen.cursor != 2 {
+		t.Errorf("G goes to the last line, cursor %d", screen.cursor)
 	}
-	d, _ = press(t, d, "down")
-	if d.cursor != 2 {
-		t.Errorf("cursor must stop at the last line, got %d", d.cursor)
+	screen, _ = press(t, screen, "down")
+	if screen.cursor != 2 {
+		t.Errorf("cursor must stop at the last line, got %d", screen.cursor)
 	}
 }
 
 func TestManageQuit(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+c", "esc"} {
-		d, cmd := press(t, loadedManager(t), key)
-		if cmd == nil || !d.quitting {
+		screen, cmd := press(t, loadedModel(t), key)
+		if cmd == nil || !screen.quitting {
 			t.Errorf("%s must quit", key)
 		}
 	}
 }
 
 func TestManageShowsStoreErrorAndKeepsLastReport(t *testing.T) {
-	d := loadedManager(t)
-	model, _ := d.Update(reportMsg{err: errors.New("database is locked")})
-	view := plain(model.(manager).render())
+	screen := loadedModel(t)
+	model, _ := screen.Update(reportMsg{err: errors.New("database is locked")})
+	view := plain(model.(manageModel).render())
 	if !strings.Contains(view, "database is locked") || !strings.Contains(view, "appdb") {
 		t.Errorf("want the error and the previous data:\n%s", view)
 	}
 }
 
 func TestManageEmptyAndNarrow(t *testing.T) {
-	model, _ := newManager(context.Background(), func() (statusReport, error) { return statusReport{}, nil }, manageActions{}, nil).Update(reportMsg{})
-	if view := plain(model.(manager).render()); !strings.Contains(view, "No backups recorded yet") {
+	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return statusReport{}, nil }, manageActions{}, nil).Update(reportMsg{})
+	if view := plain(model.(manageModel).render()); !strings.Contains(view, "No backups recorded yet") {
 		t.Errorf("empty view:\n%s", view)
 	}
-	narrow := loadedManager(t)
+	narrow := loadedModel(t)
 	model, _ = narrow.Update(tea.WindowSizeMsg{Width: 44, Height: 14})
-	for _, line := range strings.Split(plain(model.(manager).render()), "\n") {
+	for _, line := range strings.Split(plain(model.(manageModel).render()), "\n") {
 		if width := len([]rune(line)); width > 44 {
 			t.Errorf("line too long for a 44-column screen (%d): %q", width, line)
 		}

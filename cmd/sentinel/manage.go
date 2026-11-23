@@ -41,7 +41,7 @@ func (a *app) manageCmd() *cobra.Command {
 			defer st.Close()
 			ctx := cmd.Context()
 			load := func() (statusReport, error) { return buildStatusReport(ctx, cfg, st, time.Now()) }
-			model := newManager(ctx, load, newManageActions(cfg, st, a.configPath), configuredPairs(cfg))
+			model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))
 			_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
 			return err
 		},
@@ -88,14 +88,14 @@ const (
 	modeDelete                      // typing the job name to confirm its removal
 )
 
-type manager struct {
-	ctx     context.Context
-	load    func() (statusReport, error)
-	act     manageActions
-	pairs   []jobRepository
-	report  statusReport
-	loadErr error
-	loaded  bool
+type manageModel struct {
+	ctx             context.Context
+	load            func() (statusReport, error)
+	actions         manageActions
+	jobRepositories []jobRepository
+	report          statusReport
+	loadErr         error
+	loaded          bool
 
 	mode     manageMode
 	tab      int
@@ -150,214 +150,214 @@ type (
 	}
 )
 
-func newManager(ctx context.Context, load func() (statusReport, error), act manageActions, pairs []jobRepository) manager {
-	return manager{ctx: ctx, load: load, act: act, pairs: pairs, width: 100, height: 30}
+func newManageModel(ctx context.Context, load func() (statusReport, error), actions manageActions, jobRepositories []jobRepository) manageModel {
+	return manageModel{ctx: ctx, load: load, actions: actions, jobRepositories: jobRepositories, width: 100, height: 30}
 }
 
-func (d manager) Init() tea.Cmd {
-	return tea.Batch(d.reload(), d.scheduleRefresh())
+func (m manageModel) Init() tea.Cmd {
+	return tea.Batch(m.reload(), m.scheduleRefresh())
 }
 
-func (d manager) reload() tea.Cmd {
+func (m manageModel) reload() tea.Cmd {
 	return func() tea.Msg {
-		report, err := d.load()
+		report, err := m.load()
 		return reportMsg{report: report, err: err}
 	}
 }
 
-func (d manager) scheduleRefresh() tea.Cmd {
+func (m manageModel) scheduleRefresh() tea.Cmd {
 	return tea.Tick(manageRefresh, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
-func (d manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		d.width, d.height = msg.Width, msg.Height
+		m.width, m.height = msg.Width, msg.Height
 	case reportMsg:
-		d.loaded, d.loadErr = true, msg.err
+		m.loaded, m.loadErr = true, msg.err
 		if msg.err == nil {
-			d.report = msg.report
+			m.report = msg.report
 		}
-		d.cursor = min(d.cursor, max(len(d.tabs()[d.tab].lines)-1, 0))
+		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case refreshMsg:
-		return d, tea.Batch(d.reload(), d.scheduleRefresh())
+		return m, tea.Batch(m.reload(), m.scheduleRefresh())
 	case spinMsg:
-		if d.mode == modeBusy {
-			d.busyFrame++
-			return d, d.spin()
+		if m.mode == modeBusy {
+			m.busyFrame++
+			return m, m.spin()
 		}
 	case backupDoneMsg:
-		return d.afterBackup(msg)
+		return m.afterBackup(msg)
 	case snapshotsMsg:
-		return d.afterSnapshots(msg), nil
+		return m.afterSnapshots(msg), nil
 	case restoreDoneMsg:
-		return d.afterRestore(msg), d.reload()
+		return m.afterRestore(msg), m.reload()
 	case tea.KeyPressMsg:
-		return d.onKey(msg.String(), msg.Text)
+		return m.onKey(msg.String(), msg.Text)
 	}
-	return d, nil
+	return m, nil
 }
 
-func (d manager) spin() tea.Cmd {
+func (m manageModel) spin() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg { return spinMsg{} })
 }
 
 // startBusy switches to the busy screen and returns the context the action runs
 // with; ctrl+c on the busy screen cancels it.
-func (d *manager) startBusy(text string) context.Context {
-	ctx, cancel := context.WithCancel(d.ctx)
-	d.mode, d.busyText, d.busyStart, d.busyFrame, d.cancelBusy = modeBusy, text, time.Now(), 0, cancel
-	d.notice = ""
+func (m *manageModel) startBusy(text string) context.Context {
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.mode, m.busyText, m.busyStart, m.busyFrame, m.cancelBusy = modeBusy, text, time.Now(), 0, cancel
+	m.notice = ""
 	return ctx
 }
 
-func (d *manager) endBusy() {
-	if d.cancelBusy != nil {
-		d.cancelBusy()
+func (m *manageModel) endBusy() {
+	if m.cancelBusy != nil {
+		m.cancelBusy()
 	}
-	d.cancelBusy = nil
+	m.cancelBusy = nil
 }
 
-func (d manager) onKey(key, text string) (tea.Model, tea.Cmd) {
-	switch d.mode {
+func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
+	switch m.mode {
 	case modeBusy:
-		if key == "ctrl+c" && d.cancelBusy != nil {
-			d.cancelBusy()
-			d.busyText += " (cancelling: restic may take up to 30s to stop cleanly)"
+		if key == "ctrl+c" && m.cancelBusy != nil {
+			m.cancelBusy()
+			m.busyText += " (cancelling: restic may take up to 30s to stop cleanly)"
 		}
-		return d, nil
+		return m, nil
 	case modeResult:
-		d.mode = modeTable
-		if d.snapshotJob != "" && !d.resultBad {
-			d.mode = modeSnapshots
+		m.mode = modeTable
+		if m.snapshotJob != "" && !m.resultBad {
+			m.mode = modeSnapshots
 		}
-		return d, nil
+		return m, nil
 	case modeSnapshots:
-		return d.onSnapshotsKey(key)
+		return m.onSnapshotsKey(key)
 	case modeTarget:
-		return d.onTargetKey(key, text)
+		return m.onTargetKey(key, text)
 	case modeConfirm:
-		return d.onConfirmKey(key, text)
+		return m.onConfirmKey(key, text)
 	case modeForm:
-		return d.onFormKey(key, text)
+		return m.onFormKey(key, text)
 	case modeDelete:
-		return d.onDeleteKey(key, text)
+		return m.onDeleteKey(key, text)
 	}
-	return d.onTableKey(key)
+	return m.onTableKey(key)
 }
 
-func (d manager) onTableKey(key string) (tea.Model, tea.Cmd) {
-	tabCount := len(d.tabs())
-	d.notice = ""
+func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
+	tabCount := len(m.tabs())
+	m.notice = ""
 	switch key {
 	case "q", "ctrl+c", "esc":
-		d.quitting = true
-		return d, tea.Quit
+		m.quitting = true
+		return m, tea.Quit
 	case "tab", "right", "l":
-		d.tab, d.cursor = (d.tab+1)%tabCount, 0
+		m.tab, m.cursor = (m.tab+1)%tabCount, 0
 	case "shift+tab", "left", "h":
-		d.tab, d.cursor = (d.tab+tabCount-1)%tabCount, 0
+		m.tab, m.cursor = (m.tab+tabCount-1)%tabCount, 0
 	case "1", "2", "3":
-		d.tab, d.cursor = int(key[0]-'1'), 0
+		m.tab, m.cursor = int(key[0]-'1'), 0
 	case "down", "j":
-		d.cursor = min(d.cursor+1, max(len(d.tabs()[d.tab].lines)-1, 0))
+		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case "up", "k":
-		d.cursor = max(d.cursor-1, 0)
+		m.cursor = max(m.cursor-1, 0)
 	case "g", "home":
-		d.cursor = 0
+		m.cursor = 0
 	case "G", "end":
-		d.cursor = max(len(d.tabs()[d.tab].lines)-1, 0)
+		m.cursor = max(len(m.tabs()[m.tab].lines)-1, 0)
 	case "r":
-		return d, d.reload()
+		return m, m.reload()
 	case "b":
-		if line, ok := d.selectedBackup(); ok {
-			ctx := d.startBusy(fmt.Sprintf("Backing up %s → %s", line.job, line.repository))
-			job, repository, act := line.job, line.repository, d.act
-			return d, tea.Batch(d.spin(), func() tea.Msg {
-				runs, err := act.runBackup(ctx, job, repository)
+		if line, ok := m.selectedBackup(); ok {
+			ctx := m.startBusy(fmt.Sprintf("Backing up %s → %s", line.job, line.repository))
+			job, repository, actions := line.job, line.repository, m.actions
+			return m, tea.Batch(m.spin(), func() tea.Msg {
+				runs, err := actions.runBackup(ctx, job, repository)
 				return backupDoneMsg{job: job, repository: repository, runs: runs, err: err}
 			})
 		}
 	case "a":
-		if d.tab == 0 {
-			return d.startAdd(), nil
+		if m.tab == 0 {
+			return m.startAdd(), nil
 		}
 	case "e":
-		if d.tab == 0 {
-			return d.startEdit(), nil
+		if m.tab == 0 {
+			return m.startEdit(), nil
 		}
 	case "d":
-		if d.tab == 0 {
-			return d.startDelete(), nil
+		if m.tab == 0 {
+			return m.startDelete(), nil
 		}
 	case "s", "enter":
-		if line, ok := d.selectedBackup(); ok {
-			ctx := d.startBusy(fmt.Sprintf("Listing snapshots of %s in %s", line.job, line.repository))
-			job, repository, act := line.job, line.repository, d.act
-			return d, tea.Batch(d.spin(), func() tea.Msg {
-				snapshots, err := act.snapshots(ctx, job, repository)
+		if line, ok := m.selectedBackup(); ok {
+			ctx := m.startBusy(fmt.Sprintf("Listing snapshots of %s in %s", line.job, line.repository))
+			job, repository, actions := line.job, line.repository, m.actions
+			return m, tea.Batch(m.spin(), func() tea.Msg {
+				snapshots, err := actions.snapshots(ctx, job, repository)
 				return snapshotsMsg{job: job, repository: repository, snapshots: snapshots, err: err}
 			})
 		}
 	}
-	return d, nil
+	return m, nil
 }
 
 // selectedBackup is the backup line under the cursor, on the Backups tab.
-func (d manager) selectedBackup() (manageLine, bool) {
-	lines := d.tabs()[d.tab].lines
-	if d.tab != 0 || d.cursor >= len(lines) {
+func (m manageModel) selectedBackup() (manageLine, bool) {
+	lines := m.tabs()[m.tab].lines
+	if m.tab != 0 || m.cursor >= len(lines) {
 		return manageLine{}, false
 	}
-	return lines[d.cursor], true
+	return lines[m.cursor], true
 }
 
-func (d manager) afterBackup(msg backupDoneMsg) (tea.Model, tea.Cmd) {
-	d.endBusy()
-	d.mode = modeTable
+func (m manageModel) afterBackup(msg backupDoneMsg) (tea.Model, tea.Cmd) {
+	m.endBusy()
+	m.mode = modeTable
 	switch {
 	case msg.err != nil:
-		d.notice, d.noticeBad = fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
+		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
 	case len(msg.runs) == 0:
-		d.notice, d.noticeBad = fmt.Sprintf("%s → %s: no run was reported", msg.job, msg.repository), true
+		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: no run was reported", msg.job, msg.repository), true
 	default:
 		run := msg.runs[0]
-		d.notice, d.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, runResult(run)), !run.Success
+		m.notice, m.noticeBad = fmt.Sprintf("%s → %s: %s", msg.job, msg.repository, runResult(run)), !run.Success
 		if run.Success {
-			d.notice += "  " + shortID(run.SnapshotID)
+			m.notice += "  " + shortID(run.SnapshotID)
 		}
 	}
-	return d, d.reload()
+	return m, m.reload()
 }
 
-func (d manager) afterSnapshots(msg snapshotsMsg) manager {
-	d.endBusy()
+func (m manageModel) afterSnapshots(msg snapshotsMsg) manageModel {
+	m.endBusy()
 	if msg.err != nil {
-		d.mode, d.notice, d.noticeBad = modeTable, fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
-		return d
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
+		return m
 	}
-	d.mode, d.snapshotJob, d.snapshotRepo, d.snapshots, d.snapshotCursor = modeSnapshots, msg.job, msg.repository, msg.snapshots, 0
-	return d
+	m.mode, m.snapshotJob, m.snapshotRepo, m.snapshots, m.snapshotCursor = modeSnapshots, msg.job, msg.repository, msg.snapshots, 0
+	return m
 }
 
-func (d manager) onSnapshotsKey(key string) (tea.Model, tea.Cmd) {
+func (m manageModel) onSnapshotsKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
-		d.mode = modeTable
+		m.mode = modeTable
 	case "down", "j":
-		d.snapshotCursor = min(d.snapshotCursor+1, max(len(d.snapshots)-1, 0))
+		m.snapshotCursor = min(m.snapshotCursor+1, max(len(m.snapshots)-1, 0))
 	case "up", "k":
-		d.snapshotCursor = max(d.snapshotCursor-1, 0)
+		m.snapshotCursor = max(m.snapshotCursor-1, 0)
 	case "g", "home":
-		d.snapshotCursor = 0
+		m.snapshotCursor = 0
 	case "G", "end":
-		d.snapshotCursor = max(len(d.snapshots)-1, 0)
+		m.snapshotCursor = max(len(m.snapshots)-1, 0)
 	case "enter", "r":
-		if len(d.snapshots) > 0 {
-			d.chosen, d.mode, d.target, d.inputError = d.snapshots[d.snapshotCursor], modeTarget, "", ""
+		if len(m.snapshots) > 0 {
+			m.chosen, m.mode, m.target, m.inputError = m.snapshots[m.snapshotCursor], modeTarget, "", ""
 		}
 	}
-	return d, nil
+	return m, nil
 }
 
 // editText applies one key to a single-line text field.
@@ -372,63 +372,63 @@ func editText(field, key, text string) string {
 	return field
 }
 
-func (d manager) onTargetKey(key, text string) (tea.Model, tea.Cmd) {
+func (m manageModel) onTargetKey(key, text string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		d.mode = modeSnapshots
+		m.mode = modeSnapshots
 	case "enter":
-		target := strings.TrimSpace(d.target)
+		target := strings.TrimSpace(m.target)
 		if !strings.HasPrefix(target, "/") {
-			d.inputError = "enter an absolute path, e.g. /tmp/restore"
-			return d, nil
+			m.inputError = "enter an absolute path, e.g. /tmp/restore"
+			return m, nil
 		}
-		d.target, d.mode, d.confirm, d.inputError = target, modeConfirm, "", ""
+		m.target, m.mode, m.confirm, m.inputError = target, modeConfirm, "", ""
 	default:
-		d.target, d.inputError = editText(d.target, key, text), ""
+		m.target, m.inputError = editText(m.target, key, text), ""
 	}
-	return d, nil
+	return m, nil
 }
 
-func (d manager) onConfirmKey(key, text string) (tea.Model, tea.Cmd) {
+func (m manageModel) onConfirmKey(key, text string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		d.mode = modeSnapshots
+		m.mode = modeSnapshots
 	case "enter":
-		if d.confirm != d.snapshotJob {
-			d.inputError = "the name does not match"
-			return d, nil
+		if m.confirm != m.snapshotJob {
+			m.inputError = "the name does not match"
+			return m, nil
 		}
-		ctx := d.startBusy(fmt.Sprintf("Restoring %s of %s into %s", shortID(d.chosen.ID), d.snapshotJob, d.target))
-		job, repository, snapshot, target, act := d.snapshotJob, d.snapshotRepo, d.chosen, d.target, d.act
-		return d, tea.Batch(d.spin(), func() tea.Msg {
-			hint, err := act.restore(ctx, job, repository, snapshot, target)
+		ctx := m.startBusy(fmt.Sprintf("Restoring %s of %s into %s", shortID(m.chosen.ID), m.snapshotJob, m.target))
+		job, repository, snapshot, target, actions := m.snapshotJob, m.snapshotRepo, m.chosen, m.target, m.actions
+		return m, tea.Batch(m.spin(), func() tea.Msg {
+			hint, err := actions.restore(ctx, job, repository, snapshot, target)
 			return restoreDoneMsg{hint: hint, err: err}
 		})
 	default:
-		d.confirm, d.inputError = editText(d.confirm, key, text), ""
+		m.confirm, m.inputError = editText(m.confirm, key, text), ""
 	}
-	return d, nil
+	return m, nil
 }
 
-func (d manager) afterRestore(msg restoreDoneMsg) manager {
-	d.endBusy()
-	d.mode, d.resultBad = modeResult, msg.err != nil
+func (m manageModel) afterRestore(msg restoreDoneMsg) manageModel {
+	m.endBusy()
+	m.mode, m.resultBad = modeResult, msg.err != nil
 	if msg.err != nil {
-		d.resultText = "Restore failed: " + msg.err.Error()
-		return d
+		m.resultText = "Restore failed: " + msg.err.Error()
+		return m
 	}
-	d.resultText = fmt.Sprintf("Restored %s of %s from %s into %s.", shortID(d.chosen.ID), d.snapshotJob, d.snapshotRepo, d.target)
+	m.resultText = fmt.Sprintf("Restored %s of %s from %s into %s.", shortID(m.chosen.ID), m.snapshotJob, m.snapshotRepo, m.target)
 	if msg.hint != "" {
-		d.resultText += "\n\nLoad it with:\n  " + msg.hint + "\n\nThis replaces existing data: try it on a scratch database or server first."
+		m.resultText += "\n\nLoad it with:\n  " + msg.hint + "\n\nThis replaces existing data: try it on a scratch database or server first."
 	}
-	return d
+	return m
 }
 
 // tabs turns the report into the three manager tabs.
-func (d manager) tabs() []manageTab {
-	now := d.report.GeneratedAt
+func (m manageModel) tabs() []manageTab {
+	now := m.report.GeneratedAt
 	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LAST RUN", "RESULT", "SNAPSHOT", "ADDED"}, statusCol: 3}
-	for _, backup := range d.report.Backups {
+	for _, backup := range m.report.Backups {
 		line := manageLine{
 			cells:  []string{backup.Job, backup.Repository, ago(backup.FinishedAt, now), "ok", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded)},
 			detail: backup.Job + " → " + backup.Repository + ": " + backup.Result,
@@ -442,18 +442,18 @@ func (d manager) tabs() []manageTab {
 		}
 		backups.lines = append(backups.lines, line)
 	}
-	for _, pair := range d.pairs {
-		if !d.hasBackupLine(pair) {
+	for _, jobRepo := range m.jobRepositories {
+		if !m.hasBackupLine(jobRepo) {
 			backups.lines = append(backups.lines, manageLine{
-				cells:    []string{pair.job, pair.repository, "never", "never run", "", ""},
+				cells:    []string{jobRepo.job, jobRepo.repository, "never", "never run", "", ""},
 				severity: sevWarn,
-				detail:   pair.job + " → " + pair.repository + ": never run. Press b to back it up now.",
-				job:      pair.job, repository: pair.repository,
+				detail:   jobRepo.job + " → " + jobRepo.repository + ": never run. Press b to back it up now.",
+				job:      jobRepo.job, repository: jobRepo.repository,
 			})
 		}
 	}
 	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "STATUS", "LATENCY", "LAST CHECK"}, statusCol: 1}
-	for _, check := range d.report.Checks {
+	for _, check := range m.report.Checks {
 		line := manageLine{
 			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), ago(check.At, now)},
 			detail: check.Name + ": up",
@@ -464,7 +464,7 @@ func (d manager) tabs() []manageTab {
 		checks.lines = append(checks.lines, line)
 	}
 	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "SINCE", "MESSAGE"}, statusCol: -1}
-	for _, alert := range d.report.Alerts {
+	for _, alert := range m.report.Alerts {
 		alerts.lines = append(alerts.lines, manageLine{
 			cells:    []string{alert.Key, ago(alert.Since, now), alert.Message},
 			severity: sevBad,
@@ -474,9 +474,9 @@ func (d manager) tabs() []manageTab {
 	return []manageTab{backups, checks, alerts}
 }
 
-func (d manager) hasBackupLine(pair jobRepository) bool {
-	for _, backup := range d.report.Backups {
-		if backup.Job == pair.job && backup.Repository == pair.repository {
+func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {
+	for _, backup := range m.report.Backups {
+		if backup.Job == jobRepo.job && backup.Repository == jobRepo.repository {
 			return true
 		}
 	}
@@ -514,49 +514,49 @@ func severityStyle(s severity) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(colourOK)
 }
 
-func (d manager) View() tea.View {
-	view := tea.NewView(d.render())
+func (m manageModel) View() tea.View {
+	view := tea.NewView(m.render())
 	view.AltScreen = true
 	return view
 }
 
-func (d manager) render() string {
-	if d.quitting {
+func (m manageModel) render() string {
+	if m.quitting {
 		return ""
 	}
-	out := d.renderHeader()
-	switch d.mode {
+	screenLines := m.renderHeader()
+	switch m.mode {
 	case modeBusy:
-		out = append(out, d.renderBusy()...)
+		screenLines = append(screenLines, m.renderBusy()...)
 	case modeSnapshots:
-		out = append(out, d.renderSnapshots()...)
+		screenLines = append(screenLines, m.renderSnapshots()...)
 	case modeTarget:
-		out = append(out, d.renderTarget()...)
+		screenLines = append(screenLines, m.renderTarget()...)
 	case modeConfirm:
-		out = append(out, d.renderConfirm()...)
+		screenLines = append(screenLines, m.renderConfirm()...)
 	case modeResult:
-		out = append(out, d.renderResult()...)
+		screenLines = append(screenLines, m.renderResult()...)
 	case modeForm:
-		out = append(out, d.renderForm()...)
+		screenLines = append(screenLines, m.renderForm()...)
 	case modeDelete:
-		out = append(out, d.renderDelete()...)
+		screenLines = append(screenLines, m.renderDelete()...)
 	default:
-		out = append(out, d.renderTabs()...)
+		screenLines = append(screenLines, m.renderTabs()...)
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(screenLines, "\n")
 }
 
-func (d manager) renderHeader() []string {
+func (m manageModel) renderHeader() []string {
 	updated := "loading…"
-	if d.loaded {
-		updated = "updated " + d.report.GeneratedAt.Local().Format("15:04:05")
+	if m.loaded {
+		updated = "updated " + m.report.GeneratedAt.Local().Format("15:04:05")
 	}
-	return []string{titleStyle.Render("Sentinel") + dimStyle.Render("  "+d.report.Server+"  ·  "+updated), ""}
+	return []string{titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server+"  ·  "+updated), ""}
 }
 
-func (d manager) renderTabs() []string {
-	tabs := d.tabs()
-	var out []string
+func (m manageModel) renderTabs() []string {
+	tabs := m.tabs()
+	var screenLines []string
 	var tabBar []string
 	for i, tab := range tabs {
 		label := fmt.Sprintf("%d %s", i+1, tab.title)
@@ -564,7 +564,7 @@ func (d manager) renderTabs() []string {
 			label += fmt.Sprintf(" (%d)", n)
 		}
 		switch {
-		case i == d.tab:
+		case i == m.tab:
 			tabBar = append(tabBar, activeTab.Render(label))
 		case i == 2 && len(tab.lines) > 0:
 			tabBar = append(tabBar, severityStyle(sevBad).Render(label))
@@ -572,39 +572,39 @@ func (d manager) renderTabs() []string {
 			tabBar = append(tabBar, dimStyle.Render(label))
 		}
 	}
-	out = append(out, strings.Join(tabBar, "   "), "")
+	screenLines = append(screenLines, strings.Join(tabBar, "   "), "")
 
-	if d.loadErr != nil {
-		out = append(out, severityStyle(sevBad).Render("could not read the store: "+d.loadErr.Error()), "")
+	if m.loadErr != nil {
+		screenLines = append(screenLines, severityStyle(sevBad).Render("could not read the store: "+m.loadErr.Error()), "")
 	}
 
-	tab := tabs[d.tab]
+	tab := tabs[m.tab]
 	// Lines available for the table: the screen minus header, tabs, column
 	// header, detail box, notice and help line.
-	visible := max(d.height-12, 3)
-	out = append(out, d.renderTable(tab, visible)...)
+	visible := max(m.height-12, 3)
+	screenLines = append(screenLines, m.renderTable(tab, visible)...)
 
-	out = append(out, "")
+	screenLines = append(screenLines, "")
 	if len(tab.lines) > 0 {
-		out = append(out, wrap(tab.lines[d.cursor].detail, d.width-2))
+		screenLines = append(screenLines, wrap(tab.lines[m.cursor].detail, m.width-2))
 	} else {
-		out = append(out, dimStyle.Render(emptyText(d.tab)))
+		screenLines = append(screenLines, dimStyle.Render(emptyText(m.tab)))
 	}
-	if d.notice != "" {
+	if m.notice != "" {
 		style := severityStyle(sevOK)
-		if d.noticeBad {
+		if m.noticeBad {
 			style = severityStyle(sevBad)
 		}
-		out = append(out, style.Render(wrap(d.notice, d.width-2)))
+		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
 	help := "tab switch · ↑↓ select · r refresh · q quit"
-	if d.tab == 0 {
+	if m.tab == 0 {
 		help = "b backup · s snapshots · a add db · e edit · d remove · q"
-		if d.width < 60 {
+		if m.width < 60 {
 			help = "b s a e d · q"
 		}
 	}
-	return append(out, "", dimStyle.Render(help))
+	return append(screenLines, "", dimStyle.Render(help))
 }
 
 func emptyText(tab int) string {
@@ -615,7 +615,7 @@ func emptyText(tab int) string {
 	}[tab]
 }
 
-func (d manager) renderTable(tab manageTab, visible int) []string {
+func (m manageModel) renderTable(tab manageTab, visible int) []string {
 	if len(tab.lines) == 0 {
 		return nil
 	}
@@ -631,27 +631,27 @@ func (d manager) renderTable(tab manageTab, visible int) []string {
 	const gap = 2
 	// Columns are ordered by importance: on a narrow screen the last ones are dropped.
 	keep := len(widths)
-	for keep > 2 && 2+gap*(keep-1)+keep*minColumn > d.width {
+	for keep > 2 && 2+gap*(keep-1)+keep*minColumn > m.width {
 		keep--
 	}
 	widths = widths[:keep]
-	fitWidths(widths, d.width-2, gap)
+	fitWidths(widths, m.width-2, gap)
 
 	cellsLine := func(cells []string, style func(col int, text string) string) string {
 		cells = cells[:min(len(cells), keep)]
-		parts := make([]string, len(cells))
+		cellTexts := make([]string, len(cells))
 		for i, cell := range cells {
 			text := truncate(cell, widths[i])
 			text += strings.Repeat(" ", max(widths[i]-lipgloss.Width(text), 0))
-			parts[i] = style(i, text)
+			cellTexts[i] = style(i, text)
 		}
-		return strings.Join(parts, strings.Repeat(" ", gap))
+		return strings.Join(cellTexts, strings.Repeat(" ", gap))
 	}
 
-	out := []string{"  " + cellsLine(tab.headers, func(_ int, text string) string { return headerStyle.Render(text) })}
+	screenLines := []string{"  " + cellsLine(tab.headers, func(_ int, text string) string { return headerStyle.Render(text) })}
 	first := 0
-	if d.cursor >= visible {
-		first = d.cursor - visible + 1
+	if m.cursor >= visible {
+		first = m.cursor - visible + 1
 	}
 	for i := first; i < min(first+visible, len(tab.lines)); i++ {
 		line := tab.lines[i]
@@ -661,18 +661,18 @@ func (d manager) renderTable(tab manageTab, visible int) []string {
 			}
 			return text
 		})
-		if i == d.cursor {
+		if i == m.cursor {
 			// Reverse video on the plain text keeps the selection readable on any theme.
 			plain := cellsLine(line.cells, func(_ int, text string) string { return text })
-			out = append(out, selectedStyle.Render("› "+plain))
+			screenLines = append(screenLines, selectedStyle.Render("› "+plain))
 			continue
 		}
-		out = append(out, "  "+rendered)
+		screenLines = append(screenLines, "  "+rendered)
 	}
 	if hidden := len(tab.lines) - (first + visible); hidden > 0 {
-		out = append(out, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 	}
-	return out
+	return screenLines
 }
 
 // fitWidths shrinks the widest columns until the table fits in total cells.

@@ -19,14 +19,14 @@ type jobRepository struct {
 	job, repository string
 }
 
-func configuredPairs(cfg *config.Config) []jobRepository {
-	var pairs []jobRepository
+func configuredJobRepositories(cfg *config.Config) []jobRepository {
+	var jobRepositories []jobRepository
 	for _, job := range cfg.Backups {
 		for _, repository := range job.Repositories {
-			pairs = append(pairs, jobRepository{job: job.Name, repository: repository})
+			jobRepositories = append(jobRepositories, jobRepository{job: job.Name, repository: repository})
 		}
 	}
-	return pairs
+	return jobRepositories
 }
 
 // manageActions are the things the manager does besides reading the store. They
@@ -106,87 +106,87 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 // renderBusy, renderSnapshots, renderTarget, renderConfirm and renderResult are the
 // screens other than the three tabs.
 
-func (d manager) renderBusy() []string {
+func (m manageModel) renderBusy() []string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	elapsed := time.Since(d.busyStart).Round(time.Second)
+	elapsed := time.Since(m.busyStart).Round(time.Second)
 	return []string{
-		lipglossAccent(frames[d.busyFrame%len(frames)]) + " " + d.busyText + dimStyle.Render("  "+elapsed.String()),
+		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
 		"",
 		dimStyle.Render("ctrl+c cancel"),
 	}
 }
 
-func (d manager) renderSnapshots() []string {
-	out := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", d.snapshotJob, d.snapshotRepo)), ""}
-	if len(d.snapshots) == 0 {
-		return append(out, dimStyle.Render("No snapshots for this job in this repository yet."), "", dimStyle.Render("esc back"))
+func (m manageModel) renderSnapshots() []string {
+	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", m.snapshotJob, m.snapshotRepo)), ""}
+	if len(m.snapshots) == 0 {
+		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", dimStyle.Render("esc back"))
 	}
-	visible := max(d.height-8, 3)
+	visible := max(m.height-8, 3)
 	first := 0
-	if d.snapshotCursor >= visible {
-		first = d.snapshotCursor - visible + 1
+	if m.snapshotCursor >= visible {
+		first = m.snapshotCursor - visible + 1
 	}
-	out = append(out, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "TIME", "SIZE")))
-	for i := first; i < min(first+visible, len(d.snapshots)); i++ {
-		snapshot := d.snapshots[i]
+	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "TIME", "SIZE")))
+	for i := first; i < min(first+visible, len(m.snapshots)); i++ {
+		snapshot := m.snapshots[i]
 		size := ""
 		if snapshot.Summary != nil {
 			size = humanBytes(snapshot.Summary.TotalBytes)
 		}
 		line := fmt.Sprintf("%-10s %-17s %s", shortID(snapshot.ID), snapshot.Time.Local().Format("2006-01-02 15:04"), size)
-		if i == d.snapshotCursor {
-			out = append(out, selectedStyle.Render("› "+line))
+		if i == m.snapshotCursor {
+			screenLines = append(screenLines, selectedStyle.Render("› "+line))
 		} else {
-			out = append(out, "  "+line)
+			screenLines = append(screenLines, "  "+line)
 		}
 	}
-	if hidden := len(d.snapshots) - (first + visible); hidden > 0 {
-		out = append(out, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
+	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
+		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 	}
-	return append(out, "", dimStyle.Render("↑↓ select · enter restore… · esc back"))
+	return append(screenLines, "", dimStyle.Render("↑↓ select · enter restore… · esc back"))
 }
 
-func (d manager) renderTarget() []string {
-	out := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(d.chosen.ID), d.snapshotJob)),
+func (m manageModel) renderTarget() []string {
+	screenLines := []string{
+		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
 		"",
 		"Directory to restore into (absolute path):",
-		"  " + d.target + lipglossAccent("▏"),
+		"  " + m.target + lipglossAccent("▏"),
 	}
-	if d.inputError != "" {
-		out = append(out, "", severityStyle(sevBad).Render(d.inputError))
+	if m.inputError != "" {
+		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(out, "", dimStyle.Render("enter continue · esc back"))
+	return append(screenLines, "", dimStyle.Render("enter continue · esc back"))
 }
 
-func (d manager) renderConfirm() []string {
-	out := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(d.chosen.ID), d.snapshotJob)),
+func (m manageModel) renderConfirm() []string {
+	screenLines := []string{
+		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
 		"",
 		wrap(fmt.Sprintf("Snapshot %s (%s) from %s will be restored into %s.",
-			shortID(d.chosen.ID), d.chosen.Time.Local().Format("2006-01-02 15:04"), d.snapshotRepo, d.target), d.width-2),
+			shortID(m.chosen.ID), m.chosen.Time.Local().Format("2006-01-02 15:04"), m.snapshotRepo, m.target), m.width-2),
 	}
-	if d.target == "/" {
-		out = append(out, "", severityStyle(sevWarn).Render("Target is / : files are restored in place and overwrite what is there."))
+	if m.target == "/" {
+		screenLines = append(screenLines, "", severityStyle(sevWarn).Render("Target is / : files are restored in place and overwrite what is there."))
 	}
-	out = append(out, "", "Type the job name ("+d.snapshotJob+") to confirm:", "  "+d.confirm+lipglossAccent("▏"))
-	if d.inputError != "" {
-		out = append(out, "", severityStyle(sevBad).Render(d.inputError))
+	screenLines = append(screenLines, "", "Type the job name ("+m.snapshotJob+") to confirm:", "  "+m.confirm+lipglossAccent("▏"))
+	if m.inputError != "" {
+		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(out, "", dimStyle.Render("enter restore · esc cancel"))
+	return append(screenLines, "", dimStyle.Render("enter restore · esc cancel"))
 }
 
-func (d manager) renderResult() []string {
+func (m manageModel) renderResult() []string {
 	style := severityStyle(sevOK)
-	if d.resultBad {
+	if m.resultBad {
 		style = severityStyle(sevBad)
 	}
-	first, rest, _ := strings.Cut(d.resultText, "\n")
-	out := []string{style.Render(wrap(first, d.width-2))}
+	first, rest, _ := strings.Cut(m.resultText, "\n")
+	screenLines := []string{style.Render(wrap(first, m.width-2))}
 	if rest != "" {
-		out = append(out, rest)
+		screenLines = append(screenLines, rest)
 	}
-	return append(out, "", dimStyle.Render("any key to continue"))
+	return append(screenLines, "", dimStyle.Render("any key to continue"))
 }
 
 func lipglossAccent(text string) string {

@@ -33,25 +33,25 @@ func messagesOf(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
-func feed(t *testing.T, d manager, messages []tea.Msg) manager {
+func feed(t *testing.T, screen manageModel, messages []tea.Msg) manageModel {
 	t.Helper()
 	for _, msg := range messages {
 		if _, isReload := msg.(reportMsg); isReload {
 			continue
 		}
-		model, _ := d.Update(msg)
-		d = model.(manager)
+		model, _ := screen.Update(msg)
+		screen = model.(manageModel)
 	}
-	return d
+	return screen
 }
 
-func typeText(t *testing.T, d manager, text string) manager {
+func typeText(t *testing.T, screen manageModel, text string) manageModel {
 	t.Helper()
 	for _, r := range text {
-		model, _ := d.onKey(string(r), string(r))
-		d = model.(manager)
+		model, _ := screen.onKey(string(r), string(r))
+		screen = model.(manageModel)
 	}
-	return d
+	return screen
 }
 
 type fakeActions struct {
@@ -90,54 +90,54 @@ func (f *fakeActions) actions() manageActions {
 	}
 }
 
-func managerWith(t *testing.T, fake *fakeActions) manager {
+func modelWith(t *testing.T, fake *fakeActions) manageModel {
 	t.Helper()
-	d := newManager(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, fake.actions(),
+	screen := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, fake.actions(),
 		[]jobRepository{{"appdb", "s3"}, {"newjob", "local"}})
-	model, _ := d.Update(reportMsg{report: sampleReport()})
-	return model.(manager)
+	model, _ := screen.Update(reportMsg{report: sampleReport()})
+	return model.(manageModel)
 }
 
 func TestBackupNowRunsTheSelectedJobAndShowsTheOutcome(t *testing.T) {
 	fake := &fakeActions{}
-	d := managerWith(t, fake)
-	model, cmd := d.onKey("b", "")
-	d = model.(manager)
-	if d.mode != modeBusy || !strings.Contains(plain(d.render()), "Backing up appdb → s3") {
-		t.Fatalf("busy screen missing:\n%s", plain(d.render()))
+	screen := modelWith(t, fake)
+	model, cmd := screen.onKey("b", "")
+	screen = model.(manageModel)
+	if screen.mode != modeBusy || !strings.Contains(plain(screen.render()), "Backing up appdb → s3") {
+		t.Fatalf("busy screen missing:\n%s", plain(screen.render()))
 	}
-	d = feed(t, d, messagesOf(cmd))
+	screen = feed(t, screen, messagesOf(cmd))
 	if len(fake.backups) != 1 || fake.backups[0] != "appdb/s3" {
 		t.Fatalf("backups run: %v", fake.backups)
 	}
-	if view := plain(d.render()); d.mode != modeTable || !strings.Contains(view, "appdb → s3: ok aabbccdd") {
-		t.Errorf("outcome missing (mode %d):\n%s", d.mode, view)
+	if view := plain(screen.render()); screen.mode != modeTable || !strings.Contains(view, "appdb → s3: ok aabbccdd") {
+		t.Errorf("outcome missing (mode %d):\n%s", screen.mode, view)
 	}
 }
 
 func TestBackupFailureIsShownNotHidden(t *testing.T) {
 	fake := &fakeActions{failWith: errors.New("unknown job")}
-	d := managerWith(t, fake)
-	_, cmd := d.onKey("b", "")
-	d = feed(t, d, messagesOf(cmd))
-	if !d.noticeBad || !strings.Contains(plain(d.render()), "unknown job") {
-		t.Errorf("want the failure on screen:\n%s", plain(d.render()))
+	screen := modelWith(t, fake)
+	_, cmd := screen.onKey("b", "")
+	screen = feed(t, screen, messagesOf(cmd))
+	if !screen.noticeBad || !strings.Contains(plain(screen.render()), "unknown job") {
+		t.Errorf("want the failure on screen:\n%s", plain(screen.render()))
 	}
 }
 
 func TestBackupKeyOnlyActsOnTheBackupsTab(t *testing.T) {
 	fake := &fakeActions{}
-	d := managerWith(t, fake)
-	model, _ := d.onKey("2", "")
-	model, cmd := model.(manager).onKey("b", "")
-	if cmd != nil || model.(manager).mode != modeTable || len(fake.backups) != 0 {
+	screen := modelWith(t, fake)
+	model, _ := screen.onKey("2", "")
+	model, cmd := model.(manageModel).onKey("b", "")
+	if cmd != nil || model.(manageModel).mode != modeTable || len(fake.backups) != 0 {
 		t.Error("b on the Uptime tab must do nothing")
 	}
 }
 
 func TestJobsThatNeverRanAreListed(t *testing.T) {
-	d := managerWith(t, &fakeActions{})
-	view := plain(d.render())
+	screen := modelWith(t, &fakeActions{})
+	view := plain(screen.render())
 	if !strings.Contains(view, "newjob") || !strings.Contains(view, "never run") || !strings.Contains(view, "1 Backups (4)") {
 		t.Errorf("never-run job missing:\n%s", view)
 	}
@@ -145,121 +145,121 @@ func TestJobsThatNeverRanAreListed(t *testing.T) {
 
 func TestRestoreNeedsTargetAndTheJobNameThenShowsTheLoadCommand(t *testing.T) {
 	fake := &fakeActions{}
-	d := managerWith(t, fake)
-	model, cmd := d.onKey("s", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
-	if d.mode != modeSnapshots || !strings.Contains(plain(d.render()), "newest00") {
-		t.Fatalf("snapshot list missing (mode %d):\n%s", d.mode, plain(d.render()))
+	screen := modelWith(t, fake)
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if screen.mode != modeSnapshots || !strings.Contains(plain(screen.render()), "newest00") {
+		t.Fatalf("snapshot list missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
-	model, _ = d.onKey("down", "")
-	model, _ = model.(manager).onKey("enter", "")
-	d = model.(manager)
-	if d.mode != modeTarget || d.chosen.ID != "older00000000000" {
-		t.Fatalf("mode %d chosen %q", d.mode, d.chosen.ID)
+	model, _ = screen.onKey("down", "")
+	model, _ = model.(manageModel).onKey("enter", "")
+	screen = model.(manageModel)
+	if screen.mode != modeTarget || screen.chosen.ID != "older00000000000" {
+		t.Fatalf("mode %d chosen %q", screen.mode, screen.chosen.ID)
 	}
 
-	model, _ = d.onKey("enter", "") // empty target
-	d = model.(manager)
-	if d.mode != modeTarget || d.inputError == "" {
+	model, _ = screen.onKey("enter", "") // empty target
+	screen = model.(manageModel)
+	if screen.mode != modeTarget || screen.inputError == "" {
 		t.Fatal("an empty or relative target must be refused")
 	}
-	d = typeText(t, d, "relative/dir")
-	model, _ = d.onKey("enter", "")
-	if model.(manager).mode != modeTarget {
+	screen = typeText(t, screen, "relative/dir")
+	model, _ = screen.onKey("enter", "")
+	if model.(manageModel).mode != modeTarget {
 		t.Fatal("a relative target must be refused")
 	}
-	d = model.(manager)
+	screen = model.(manageModel)
 	for range "relative/dir" {
-		model, _ = d.onKey("backspace", "")
-		d = model.(manager)
+		model, _ = screen.onKey("backspace", "")
+		screen = model.(manageModel)
 	}
-	d = typeText(t, d, "/tmp/restore")
-	model, _ = d.onKey("enter", "")
-	d = model.(manager)
-	if d.mode != modeConfirm || !strings.Contains(plain(d.render()), "/tmp/restore") {
-		t.Fatalf("confirm screen missing (mode %d):\n%s", d.mode, plain(d.render()))
+	screen = typeText(t, screen, "/tmp/restore")
+	model, _ = screen.onKey("enter", "")
+	screen = model.(manageModel)
+	if screen.mode != modeConfirm || !strings.Contains(plain(screen.render()), "/tmp/restore") {
+		t.Fatalf("confirm screen missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 
-	d = typeText(t, d, "wrong")
-	model, cmd = d.onKey("enter", "")
-	d = model.(manager)
-	if cmd != nil || len(fake.restored) != 0 || d.inputError == "" {
+	screen = typeText(t, screen, "wrong")
+	model, cmd = screen.onKey("enter", "")
+	screen = model.(manageModel)
+	if cmd != nil || len(fake.restored) != 0 || screen.inputError == "" {
 		t.Fatal("a wrong job name must not start the restore")
 	}
 	for range "wrong" {
-		model, _ = d.onKey("backspace", "")
-		d = model.(manager)
+		model, _ = screen.onKey("backspace", "")
+		screen = model.(manageModel)
 	}
-	d = typeText(t, d, "appdb")
-	model, cmd = d.onKey("enter", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
+	screen = typeText(t, screen, "appdb")
+	model, cmd = screen.onKey("enter", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
 	if len(fake.restored) != 1 || fake.restored[0] != "appdb/s3/older00000000000" || fake.restoreTo != "/tmp/restore" {
 		t.Fatalf("restore call: %v to %q", fake.restored, fake.restoreTo)
 	}
-	view := plain(d.render())
-	if d.mode != modeResult || !strings.Contains(view, "Restored older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
-		t.Errorf("result screen (mode %d):\n%s", d.mode, view)
+	view := plain(screen.render())
+	if screen.mode != modeResult || !strings.Contains(view, "Restored older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
+		t.Errorf("result screen (mode %d):\n%s", screen.mode, view)
 	}
-	model, _ = d.onKey("x", "x")
-	if model.(manager).mode != modeSnapshots {
+	model, _ = screen.onKey("x", "x")
+	if model.(manageModel).mode != modeSnapshots {
 		t.Error("a key after a successful restore returns to the snapshot list")
 	}
 }
 
 func TestRestoreFailureIsShown(t *testing.T) {
 	fake := &fakeActions{}
-	d := managerWith(t, fake)
-	model, cmd := d.onKey("s", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
+	screen := modelWith(t, fake)
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
 	fake.failWith = errors.New("disk full")
-	model, _ = d.onKey("enter", "")
-	d = typeText(t, model.(manager), "/tmp/r")
-	model, _ = d.onKey("enter", "")
-	d = typeText(t, model.(manager), "appdb")
-	model, cmd = d.onKey("enter", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
-	if !d.resultBad || !strings.Contains(plain(d.render()), "Restore failed: disk full") {
-		t.Errorf("failure missing:\n%s", plain(d.render()))
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "/tmp/r")
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "appdb")
+	model, cmd = screen.onKey("enter", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	if !screen.resultBad || !strings.Contains(plain(screen.render()), "Restore failed: disk full") {
+		t.Errorf("failure missing:\n%s", plain(screen.render()))
 	}
 }
 
 func TestRestoreToRootWarns(t *testing.T) {
-	d := managerWith(t, &fakeActions{})
-	model, cmd := d.onKey("s", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
-	model, _ = d.onKey("enter", "")
-	d = typeText(t, model.(manager), "/")
-	model, _ = d.onKey("enter", "")
-	if view := plain(model.(manager).render()); !strings.Contains(view, "restored in place") {
+	screen := modelWith(t, &fakeActions{})
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "/")
+	model, _ = screen.onKey("enter", "")
+	if view := plain(model.(manageModel).render()); !strings.Contains(view, "restored in place") {
 		t.Errorf("want a warning for /:\n%s", view)
 	}
 }
 
 func TestEscapeBacksOutOfRestore(t *testing.T) {
-	d := managerWith(t, &fakeActions{})
-	model, cmd := d.onKey("s", "")
-	d = feed(t, model.(manager), messagesOf(cmd))
-	model, _ = d.onKey("enter", "")
-	model, _ = model.(manager).onKey("esc", "")
-	if model.(manager).mode != modeSnapshots {
+	screen := modelWith(t, &fakeActions{})
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	model, _ = screen.onKey("enter", "")
+	model, _ = model.(manageModel).onKey("esc", "")
+	if model.(manageModel).mode != modeSnapshots {
 		t.Error("esc in the target prompt returns to the snapshot list")
 	}
-	model, _ = model.(manager).onKey("esc", "")
-	if model.(manager).mode != modeTable {
+	model, _ = model.(manageModel).onKey("esc", "")
+	if model.(manageModel).mode != modeTable {
 		t.Error("esc in the snapshot list returns to the tabs")
 	}
 }
 
 func TestCtrlCCancelsARunningActionButQDoesNotQuit(t *testing.T) {
-	d := managerWith(t, &fakeActions{})
+	screen := modelWith(t, &fakeActions{})
 	ctx, cancel := context.WithCancel(context.Background())
-	d.mode, d.cancelBusy = modeBusy, cancel
-	model, cmd := d.onKey("q", "q")
-	if cmd != nil || model.(manager).quitting {
+	screen.mode, screen.cancelBusy = modeBusy, cancel
+	model, cmd := screen.onKey("q", "q")
+	if cmd != nil || model.(manageModel).quitting {
 		t.Error("q must not quit while an action runs")
 	}
-	model, _ = model.(manager).onKey("ctrl+c", "")
-	if ctx.Err() == nil || !strings.Contains(model.(manager).busyText, "cancelling") {
+	model, _ = model.(manageModel).onKey("ctrl+c", "")
+	if ctx.Err() == nil || !strings.Contains(model.(manageModel).busyText, "cancelling") {
 		t.Error("ctrl+c must cancel the running action")
 	}
 }

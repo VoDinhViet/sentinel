@@ -100,16 +100,16 @@ func formProblem(format string, args ...any) error {
 }
 
 func retentionText(r config.Retention) string {
-	var parts []string
+	var cellTexts []string
 	for _, field := range []struct {
 		key   string
 		value int
 	}{{"last", r.Last}, {"daily", r.Daily}, {"weekly", r.Weekly}, {"monthly", r.Monthly}, {"yearly", r.Yearly}} {
 		if field.value > 0 {
-			parts = append(parts, fmt.Sprintf("%s=%d", field.key, field.value))
+			cellTexts = append(cellTexts, fmt.Sprintf("%s=%d", field.key, field.value))
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(cellTexts, " ")
 }
 
 func parseRetention(text string) (config.Retention, error) {
@@ -169,40 +169,40 @@ func (f jobForm) job() (configedit.Job, error) {
 	return job, nil
 }
 
-func (d manager) openForm(job configedit.Job, original string, repositories []string) manager {
-	d.form = newJobForm(job, original, repositories)
-	d.mode = modeForm
-	return d
+func (m manageModel) openForm(job configedit.Job, original string, repositories []string) manageModel {
+	m.form = newJobForm(job, original, repositories)
+	m.mode = modeForm
+	return m
 }
 
-func (d manager) onFormKey(key, text string) (tea.Model, tea.Cmd) {
-	shown := d.form.visible()
+func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
+	shown := m.form.visible()
 	position := 0
 	for i, index := range shown {
-		if index == d.form.focus {
+		if index == m.form.focus {
 			position = i
 		}
 	}
 	move := func(delta int) {
-		d.form.focus = shown[(position+delta+len(shown))%len(shown)]
+		m.form.focus = shown[(position+delta+len(shown))%len(shown)]
 	}
-	focused := &d.form.fields[d.form.focus]
+	focused := &m.form.fields[m.form.focus]
 	switch key {
 	case "esc":
-		d.mode = modeTable
+		m.mode = modeTable
 	case "tab", "down":
 		move(1)
 	case "shift+tab", "up":
 		move(-1)
 	case "ctrl+s":
-		return d.saveForm()
+		return m.saveForm()
 	case "enter":
 		if position == len(shown)-1 {
-			return d.saveForm()
+			return m.saveForm()
 		}
 		move(1)
 	case "left", "right", " ":
-		if focused.kind == fieldChoice && (focused.key != "type" || d.form.original == "") {
+		if focused.kind == fieldChoice && (focused.key != "type" || m.form.original == "") {
 			focused.value = cycle(focused.choices, focused.value, key == "left")
 		} else if focused.kind == fieldText && key == " " {
 			focused.value += " "
@@ -212,8 +212,8 @@ func (d manager) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 			focused.value = editText(focused.value, key, text)
 		}
 	}
-	d.form.problem = ""
-	return d, nil
+	m.form.problem = ""
+	return m, nil
 }
 
 func cycle(choices []string, current string, backwards bool) string {
@@ -230,165 +230,165 @@ func cycle(choices []string, current string, backwards bool) string {
 	return choices[(index+step)%len(choices)]
 }
 
-func (d manager) saveForm() (tea.Model, tea.Cmd) {
-	job, err := d.form.job()
+func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
+	job, err := m.form.job()
 	if err == nil {
-		err = d.act.saveJob(d.form.original, job)
+		err = m.actions.saveJob(m.form.original, job)
 	}
 	var invalid *configedit.InvalidError
 	switch {
 	case err == nil:
 		verb := "Added"
-		if d.form.original != "" {
+		if m.form.original != "" {
 			verb = "Saved"
 		}
-		d.mode, d.notice, d.noticeBad = modeTable, fmt.Sprintf("%s job %s in the config. Restart the daemon (sentinel run) to apply it.", verb, job.Name), false
-		d = d.refreshPairs()
-		return d, d.reload()
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s job %s in the config. Restart the daemon (sentinel run) to apply it.", verb, job.Name), false
+		m = m.refreshJobRepositories()
+		return m, m.reload()
 	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
-		d.form.problem = err.Error()
+		m.form.problem = err.Error()
 	default:
 		// Not the user's input: leave the form so the failure is not mistaken for a validation message.
-		d.mode, d.notice, d.noticeBad = modeTable, "Could not save the config: "+err.Error(), true
+		m.mode, m.notice, m.noticeBad = modeTable, "Could not save the config: "+err.Error(), true
 	}
-	return d, nil
+	return m, nil
 }
 
 // refreshPairs re-reads the config so new jobs show up (and removed ones go).
-func (d manager) refreshPairs() manager {
-	if listing, err := d.act.listJobs(); err == nil {
-		d.pairs = pairsOf(listing)
+func (m manageModel) refreshJobRepositories() manageModel {
+	if listing, err := m.actions.listJobs(); err == nil {
+		m.jobRepositories = jobRepositoriesOf(listing)
 	}
-	return d
+	return m
 }
 
-func pairsOf(listing configedit.Listing) []jobRepository {
-	var pairs []jobRepository
+func jobRepositoriesOf(listing configedit.Listing) []jobRepository {
+	var jobRepositories []jobRepository
 	for _, job := range listing.Jobs {
 		for _, repository := range job.Repositories {
-			pairs = append(pairs, jobRepository{job: job.Name, repository: repository})
+			jobRepositories = append(jobRepositories, jobRepository{job: job.Name, repository: repository})
 		}
 	}
-	return pairs
+	return jobRepositories
 }
 
 // startAdd opens an empty form.
-func (d manager) startAdd() manager {
-	listing, err := d.act.listJobs()
+func (m manageModel) startAdd() manageModel {
+	listing, err := m.actions.listJobs()
 	if err != nil {
-		d.notice, d.noticeBad = "Could not read the config: "+err.Error(), true
-		return d
+		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		return m
 	}
-	return d.openForm(configedit.Job{Type: config.BackupPostgres}, "", listing.Repositories)
+	return m.openForm(configedit.Job{Type: config.BackupPostgres}, "", listing.Repositories)
 }
 
 // startEdit opens the form for the selected job, or says why it cannot.
-func (d manager) startEdit() manager {
-	line, ok := d.selectedBackup()
+func (m manageModel) startEdit() manageModel {
+	line, ok := m.selectedBackup()
 	if !ok {
-		return d
+		return m
 	}
-	listing, err := d.act.listJobs()
+	listing, err := m.actions.listJobs()
 	if err != nil {
-		d.notice, d.noticeBad = "Could not read the config: "+err.Error(), true
-		return d
+		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		return m
 	}
 	for _, job := range listing.Jobs {
 		if job.Name != line.job {
 			continue
 		}
 		if !job.Editable() {
-			d.notice, d.noticeBad = fmt.Sprintf("%s is a %s job; only database jobs can be edited here. Edit the config file.", job.Name, job.Type), true
-			return d
+			m.notice, m.noticeBad = fmt.Sprintf("%s is a %s job; only database jobs can be edited here. Edit the config file.", job.Name, job.Type), true
+			return m
 		}
-		return d.openForm(job, job.Name, listing.Repositories)
+		return m.openForm(job, job.Name, listing.Repositories)
 	}
-	d.notice, d.noticeBad = line.job+" is not in the config file any more.", true
-	return d
+	m.notice, m.noticeBad = line.job+" is not in the config file any more.", true
+	return m
 }
 
 // startDelete asks for the job name before removing a database job.
-func (d manager) startDelete() manager {
-	line, ok := d.selectedBackup()
+func (m manageModel) startDelete() manageModel {
+	line, ok := m.selectedBackup()
 	if !ok {
-		return d
+		return m
 	}
-	listing, err := d.act.listJobs()
+	listing, err := m.actions.listJobs()
 	if err != nil {
-		d.notice, d.noticeBad = "Could not read the config: "+err.Error(), true
-		return d
+		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		return m
 	}
 	for _, job := range listing.Jobs {
 		if job.Name == line.job && job.Editable() {
-			d.mode, d.deleteName, d.confirm, d.inputError = modeDelete, job.Name, "", ""
-			return d
+			m.mode, m.deleteName, m.confirm, m.inputError = modeDelete, job.Name, "", ""
+			return m
 		}
 	}
-	d.notice, d.noticeBad = line.job+" is not a database job in the config; only those can be removed here.", true
-	return d
+	m.notice, m.noticeBad = line.job+" is not a database job in the config; only those can be removed here.", true
+	return m
 }
 
-func (d manager) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
+func (m manageModel) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		d.mode = modeTable
+		m.mode = modeTable
 	case "enter":
-		if d.confirm != d.deleteName {
-			d.inputError = "the name does not match"
-			return d, nil
+		if m.confirm != m.deleteName {
+			m.inputError = "the name does not match"
+			return m, nil
 		}
-		if err := d.act.deleteJob(d.deleteName); err != nil {
-			d.mode, d.notice, d.noticeBad = modeTable, "Could not remove the job: "+err.Error(), true
-			return d, nil
+		if err := m.actions.deleteJob(m.deleteName); err != nil {
+			m.mode, m.notice, m.noticeBad = modeTable, "Could not remove the job: "+err.Error(), true
+			return m, nil
 		}
-		d.mode, d.notice, d.noticeBad = modeTable, fmt.Sprintf("Removed job %s from the config. Its snapshots stay in the repositories. Restart the daemon (sentinel run) to apply it.", d.deleteName), false
-		d = d.refreshPairs()
-		d.cursor = 0
-		return d, d.reload()
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Removed job %s from the config. Its snapshots stay in the repositories. Restart the daemon (sentinel run) to apply it.", m.deleteName), false
+		m = m.refreshJobRepositories()
+		m.cursor = 0
+		return m, m.reload()
 	default:
-		d.confirm, d.inputError = editText(d.confirm, key, text), ""
+		m.confirm, m.inputError = editText(m.confirm, key, text), ""
 	}
-	return d, nil
+	return m, nil
 }
 
-func (d manager) renderForm() []string {
+func (m manageModel) renderForm() []string {
 	title := "Add a database job"
-	if d.form.original != "" {
-		title = "Edit " + d.form.original
+	if m.form.original != "" {
+		title = "Edit " + m.form.original
 	}
-	out := []string{titleStyle.Render(title), ""}
-	for _, index := range d.form.visible() {
-		field := d.form.fields[index]
+	screenLines := []string{titleStyle.Render(title), ""}
+	for _, index := range m.form.visible() {
+		field := m.form.fields[index]
 		marker := "  "
-		if index == d.form.focus {
+		if index == m.form.focus {
 			marker = lipglossAccent("› ")
 		}
 		value := field.value
 		if field.kind == fieldChoice {
 			value = "‹ " + value + " ›"
-		} else if index == d.form.focus {
+		} else if index == m.form.focus {
 			value += lipglossAccent("▏")
 		}
-		out = append(out, fmt.Sprintf("%s%-17s %s", marker, field.label, value))
+		screenLines = append(screenLines, fmt.Sprintf("%s%-17s %s", marker, field.label, value))
 	}
-	out = append(out, "", dimStyle.Render(d.form.fields[d.form.focus].hint))
-	if d.form.problem != "" {
-		out = append(out, "", severityStyle(sevBad).Render(wrap(d.form.problem, d.width-2)))
+	screenLines = append(screenLines, "", dimStyle.Render(m.form.fields[m.form.focus].hint))
+	if m.form.problem != "" {
+		screenLines = append(screenLines, "", severityStyle(sevBad).Render(wrap(m.form.problem, m.width-2)))
 	}
-	return append(out, "", dimStyle.Render("tab/↑↓ move · enter next, save on the last · ctrl+s save · esc cancel"))
+	return append(screenLines, "", dimStyle.Render("tab/↑↓ move · enter next, save on the last · ctrl+s save · esc cancel"))
 }
 
-func (d manager) renderDelete() []string {
-	out := []string{
-		titleStyle.Render("Remove " + d.deleteName),
+func (m manageModel) renderDelete() []string {
+	screenLines := []string{
+		titleStyle.Render("Remove " + m.deleteName),
 		"",
-		wrap("This removes the job from the config file. Existing snapshots stay in the repositories.", d.width-2),
+		wrap("This removes the job from the config file. Existing snapshots stay in the repositories.", m.width-2),
 		"",
-		"Type the job name (" + d.deleteName + ") to confirm:",
-		"  " + d.confirm + lipglossAccent("▏"),
+		"Type the job name (" + m.deleteName + ") to confirm:",
+		"  " + m.confirm + lipglossAccent("▏"),
 	}
-	if d.inputError != "" {
-		out = append(out, "", severityStyle(sevBad).Render(d.inputError))
+	if m.inputError != "" {
+		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(out, "", dimStyle.Render("enter remove · esc cancel"))
+	return append(screenLines, "", dimStyle.Render("enter remove · esc cancel"))
 }
