@@ -225,11 +225,11 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 	var invalid *configedit.InvalidError
 	switch {
 	case err == nil:
-		verb := "Added"
+		verb := "Đã thêm"
 		if m.form.original != "" {
-			verb = "Saved"
+			verb = "Đã lưu"
 		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s %s in the config. Restart the daemon (sentinel run) to apply it.", verb, label), false
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s %s vào config. Khởi động lại daemon (sentinel run) để áp dụng.", verb, label), false
 		m = m.refreshJobRepositories().refreshConfig()
 		return m, m.reload()
 	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
@@ -248,7 +248,7 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		}
 	default:
 		// Not the user's input: leave the form so the failure is not mistaken for a validation message.
-		m.mode, m.notice, m.noticeBad = modeTable, "Could not save the config: "+err.Error(), true
+		m.mode, m.notice, m.noticeBad = modeTable, "Không lưu được config: "+err.Error(), true
 	}
 	return m, nil
 }
@@ -272,16 +272,16 @@ func (f form) apply(actions manageActions) (string, error) {
 		if err := actions.saveRepository("", repo); err != nil {
 			return label, err
 		}
-		label += " with its backups in " + repo.URL
+		label += ", backup lưu tại " + repo.URL
 		if strings.Contains(repo.URL, ":") { // a remote location: the repository is not created behind anyone's back
-			label += " (create the repository once with: sentinel backup init " + job.Name + ")"
+			label += " (tạo repository một lần bằng: sentinel backup init " + job.Name + ")"
 		} else {
-			label += " (the repository is created at the first backup)"
+			label += " (repository sẽ được tạo ở lần backup đầu tiên)"
 		}
 	}
 	if err := actions.saveJob(f.original, job); err != nil {
 		if repo.URL != "" {
-			err = fmt.Errorf("repository %s was created, but the job was not saved: %w", repo.Name, err)
+			err = fmt.Errorf("đã tạo repository %s nhưng chưa lưu được job: %w", repo.Name, err)
 		}
 		return label, err
 	}

@@ -38,7 +38,7 @@ func jobRepositoriesOf(listing configedit.Listing) []jobRepository {
 func (m manageModel) startAdd() manageModel {
 	listing, err := m.actions.listJobs()
 	if err != nil {
-		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		m.notice, m.noticeBad = "Không đọc được config: "+err.Error(), true
 		return m
 	}
 	return m.openForm(configedit.Job{Type: config.JobPostgres}, "", listing)
@@ -57,7 +57,7 @@ func (m manageModel) startEdit() manageModel {
 func (m manageModel) editJob(name string) manageModel {
 	listing, err := m.actions.listJobs()
 	if err != nil {
-		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		m.notice, m.noticeBad = "Không đọc được config: "+err.Error(), true
 		return m
 	}
 	for _, job := range listing.Jobs {
@@ -65,12 +65,12 @@ func (m manageModel) editJob(name string) manageModel {
 			continue
 		}
 		if !job.Editable() {
-			m.notice, m.noticeBad = fmt.Sprintf("%s is a %s job, which this screen cannot edit. Edit the config file.", job.Name, job.Type), true
+			m.notice, m.noticeBad = fmt.Sprintf("%s là job loại %s, màn hình này không sửa được. Hãy sửa file config.", job.Name, job.Type), true
 			return m
 		}
 		return m.openForm(job, job.Name, listing)
 	}
-	m.notice, m.noticeBad = name+" is not in the config file any more.", true
+	m.notice, m.noticeBad = name+" không còn trong file config nữa.", true
 	return m
 }
 
@@ -87,16 +87,16 @@ func (m manageModel) startDelete() manageModel {
 func (m manageModel) deleteJobNamed(name string) manageModel {
 	listing, err := m.actions.listJobs()
 	if err != nil {
-		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
+		m.notice, m.noticeBad = "Không đọc được config: "+err.Error(), true
 		return m
 	}
 	for _, job := range listing.Jobs {
 		if job.Name == name && job.Editable() {
 			actions := m.actions
-			return m.confirmRemoval("job", name, "Existing snapshots stay in the repositories.", func() error { return actions.deleteJob(name) })
+			return m.confirmRemoval("job", name, "Các snapshot đã có vẫn nằm trong repository.", func() error { return actions.deleteJob(name) })
 		}
 	}
-	m.notice, m.noticeBad = name+" is not a job this screen can remove (it is not in the config file, or has another type).", true
+	m.notice, m.noticeBad = name+" không phải là job mà màn hình này xoá được (không có trong file config, hoặc thuộc loại khác).", true
 	return m
 }
 
@@ -112,14 +112,14 @@ func (m manageModel) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
 		m.mode = modeTable
 	case "enter":
 		if m.confirm != m.deleteName {
-			m.inputError = "the name does not match"
+			m.inputError = "tên không khớp"
 			return m, nil
 		}
 		if err := m.deleteAction(); err != nil {
-			m.mode, m.notice, m.noticeBad = modeTable, "Could not remove the "+m.deleteWhat+": "+err.Error(), true
+			m.mode, m.notice, m.noticeBad = modeTable, "Không xoá được "+m.deleteWhat+": "+err.Error(), true
 			return m, nil
 		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Removed %s %s from the config. %s Restart the daemon (sentinel run) to apply it.", m.deleteWhat, m.deleteName, m.deleteNote), false
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Đã xoá %s %s khỏi config. %s Khởi động lại daemon (sentinel run) để áp dụng.", m.deleteWhat, m.deleteName, m.deleteNote), false
 		m = m.refreshJobRepositories().refreshConfig()
 		m.cursor = max(min(m.cursor, len(m.tabs()[m.tab].lines)-1), 0)
 		return m, m.reload()
@@ -131,15 +131,15 @@ func (m manageModel) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
 
 func (m manageModel) renderDelete() []string {
 	screenLines := []string{
-		titleStyle.Render("Remove " + m.deleteName),
+		titleStyle.Render("Xoá " + m.deleteName),
 		"",
-		wrap(fmt.Sprintf("This removes the %s from the config file. %s", m.deleteWhat, m.deleteNote), m.width-2),
+		wrap(fmt.Sprintf("Thao tác này xoá %s khỏi file config. %s", m.deleteWhat, m.deleteNote), m.width-2),
 		"",
-		"Type the name (" + m.deleteName + ") to confirm:",
+		"Gõ tên (" + m.deleteName + ") để xác nhận:",
 		"  " + m.confirm + lipglossAccent("▏"),
 	}
 	if m.inputError != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "remove", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "xoá", "esc", "huỷ"))
 }
