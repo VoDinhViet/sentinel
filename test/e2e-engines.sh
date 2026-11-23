@@ -60,6 +60,10 @@ backups:
     type: mongodb
     mongodb: { host: mongo, user: root, password: "\${MONGO_PASS}", database: crm }
     repositories: [local]
+  - name: maria-wrong-password
+    type: mysql
+    mysql: { host: mariadb, user: root, password: "not-the-password", database: shop, tls: disabled }
+    repositories: [local]
 YAML
 
 cat >"$WORK/inside.sh" <<'INSIDE'
@@ -76,6 +80,25 @@ for job in maria mysql57 mongo; do
 done
 
 S doctor || { echo "FAIL doctor"; exit 1; }
+
+# A dump that fails must not leave a snapshot, and must not leave its credentials file.
+S backup init maria-wrong-password >/dev/null
+if S backup run maria-wrong-password >/dev/null 2>&1; then echo "FAIL backup with a wrong password reported success"; exit 1; fi
+echo "wrong_password_snapshots=$(S backup list maria-wrong-password | tail -n +2 | wc -l)"
+
+# While a dump runs, no process may carry a password on its command line.
+for job in maria mysql57 mongo; do
+	S backup run "$job" >/dev/null &
+	pid=$!
+	leaked=0
+	while kill -0 "$pid" 2>/dev/null; do
+		for secret in "$MARIA_PASS" "$MONGO_PASS" "$MYSQL_PASS_RAW"; do
+			if grep -qF -- "$secret" /proc/[0-9]*/cmdline 2>/dev/null; then leaked=1; fi
+		done
+	done
+	wait "$pid" || { echo "FAIL second backup of $job"; exit 1; }
+	echo "cmdline_leak_$job=$leaked"
+done
 
 # The passwords must not be visible to other processes while dumping, and the
 # temporary credential files must be gone afterwards.
@@ -108,6 +131,10 @@ OUT=$(docker run --rm --network "$NETWORK" -v "$WORK":/work -e MYSQL_PASS="$MYSQ
 echo "$OUT" | sed 's/^/    /'
 
 val() { echo "$OUT" | sed -n "s/^$1=//p"; }
+[ "$(val wrong_password_snapshots)" = 0 ] && pass "wrong password: no snapshot was made" || fail "wrong-password snapshots: $(val wrong_password_snapshots)"
+for job in maria mysql57 mongo; do
+	[ "$(val cmdline_leak_$job)" = 0 ] && pass "$job: password never on a command line" || fail "$job: password found on a command line"
+done
 [ "$(val maria_rows)" = 3000 ] && pass "mariadb: 3000 rows restored" || fail "mariadb rows: $(val maria_rows)"
 [ "$(val maria_fn)" = 42 ] && pass "mariadb: stored function restored" || fail "mariadb routine: $(val maria_fn)"
 [ "$(val maria_blob)" = 3000 ] && pass "mariadb: binary column intact" || fail "mariadb blob: $(val maria_blob)"
