@@ -57,6 +57,23 @@ func MissingVars(raw []byte) ([]string, error) {
 	return slices.Sorted(maps.Keys(missingVars)), nil
 }
 
+// eachRef calls visit for every ${VAR} in the values of a YAML document (not in comments or keys),
+// with the line of the value.
+func eachRef(node *yaml.Node, visit func(name string, line int)) {
+	if node.Kind == yaml.ScalarNode {
+		for _, match := range envRef.FindAllStringSubmatch(node.Value, -1) {
+			visit(match[1], node.Line)
+		}
+		return
+	}
+	for i, child := range node.Content {
+		if node.Kind == yaml.MappingNode && i%2 == 0 {
+			continue
+		}
+		eachRef(child, visit)
+	}
+}
+
 // RefVars lists every variable the config document refers to with ${VAR}, set or not.
 func RefVars(raw []byte) ([]string, error) {
 	var doc yaml.Node
@@ -64,23 +81,20 @@ func RefVars(raw []byte) ([]string, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	names := map[string]bool{}
-	var walk func(node *yaml.Node)
-	walk = func(node *yaml.Node) {
-		if node.Kind == yaml.ScalarNode {
-			for _, match := range envRef.FindAllStringSubmatch(node.Value, -1) {
-				names[match[1]] = true
-			}
-			return
-		}
-		for i, child := range node.Content {
-			if node.Kind == yaml.MappingNode && i%2 == 0 {
-				continue
-			}
-			walk(child)
-		}
-	}
-	walk(&doc)
+	eachRef(&doc, func(name string, _ int) { names[name] = true })
 	return slices.Sorted(maps.Keys(names)), nil
+}
+
+// checkDangerousRefs refuses a ${VAR} whose name IsDangerousEnvName: the env file is read for every
+// name the config refers to, so such a reference could set PATH or LD_PRELOAD for restic.
+func checkDangerousRefs(doc *yaml.Node) error {
+	var err error
+	eachRef(doc, func(name string, line int) {
+		if err == nil && IsDangerousEnvName(name) {
+			err = fmt.Errorf("parse config: line %d: ${%s} cannot be used: the variable changes which programs Sentinel runs", line, name)
+		}
+	})
+	return err
 }
 
 // wholeEnvRef matches a value that is exactly one ${VAR}.
@@ -126,11 +140,15 @@ type ParseOptions struct {
 
 func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	var cfg Config
-	if err := decodeStrict(raw, &cfg, opts.ExpandEnv); err != nil {
+	var err error
+	if err = decodeStrict(raw, &cfg, opts.ExpandEnv); err != nil {
 		return nil, err
 	}
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	if cfg.EnvRefs, err = RefVars(raw); err != nil {
 		return nil, err
 	}
 	if cfg.Monitor != nil {
@@ -154,6 +172,9 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 		return nil
 	}
 	if err := checkRenamedKeys(doc.Content[0]); err != nil {
+		return err
+	}
+	if err := checkDangerousRefs(&doc); err != nil {
 		return err
 	}
 	if expandVars {

@@ -48,7 +48,7 @@ func (r *Runner) Restic(repoName string) (*restic.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown repository %q", repoName)
 	}
-	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName}, nil
+	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName, DropEnv: r.Config.EnvRefs}, nil
 }
 
 // Run backs the job up to each of its repositories in turn and applies

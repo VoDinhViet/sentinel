@@ -20,6 +20,11 @@ type Config struct {
 	// monitors server resources.
 	Monitor      any           `yaml:"monitor"`
 	UptimeChecks []UptimeCheck `yaml:"uptime"`
+
+	// EnvRefs are the variables the file refers to with ${VAR}, sorted. Set when it is parsed, not read
+	// from YAML. restic and the dump tools get every value of the config explicitly, so they do not
+	// inherit these (see restic.Client.DropEnv): a notifier token is not theirs to see.
+	EnvRefs []string `yaml:"-"`
 }
 
 // Defaults are the values a backup job takes when it does not set its own, so a file with

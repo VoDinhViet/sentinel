@@ -21,6 +21,14 @@ func (c *Config) validate() error {
 		if repo.Password == "" {
 			add("repository %q: password is required", name)
 		}
+		for _, varName := range slices.Sorted(maps.Keys(repo.Env)) {
+			switch {
+			case !envName.MatchString(varName):
+				add("repository %q: env %q is not a variable name", name, varName)
+			case IsDangerousEnvName(varName):
+				add("repository %q: env %s cannot be set: it changes which programs restic runs", name, varName)
+			}
+		}
 	}
 
 	seenJobs := map[string]bool{}

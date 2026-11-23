@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +62,11 @@ type Client struct {
 	// ExtraEnv is appended to the environment (e.g. PGPASSWORD for pg_dump,
 	// which restic launches as a child process).
 	ExtraEnv []string
+	// DropEnv names variables that restic and its child processes must not inherit: the ones the
+	// config refers to with ${VAR}. Each of their values is already in the config, so whatever
+	// restic or a dump tool needs reaches it through Repo and ExtraEnv, and the rest (a notifier
+	// token, the password of another repository) is not theirs to see.
+	DropEnv []string
 }
 
 func (c *Client) bin() string {
@@ -73,7 +79,14 @@ func (c *Client) bin() string {
 // env passes the repository and secrets through the environment so they never
 // appear in the process list.
 func (c *Client) env() []string {
-	env := append(os.Environ(),
+	inherited := os.Environ()
+	env := make([]string, 0, len(inherited)+2+len(c.Repo.Env)+len(c.ExtraEnv))
+	for _, entry := range inherited {
+		if name, _, _ := strings.Cut(entry, "="); !slices.Contains(c.DropEnv, name) || isProcessSetting(name) {
+			env = append(env, entry)
+		}
+	}
+	env = append(env,
 		"RESTIC_REPOSITORY="+c.Repo.URL,
 		"RESTIC_PASSWORD="+c.Repo.Password,
 	)
@@ -81,6 +94,17 @@ func (c *Client) env() []string {
 		env = append(env, name+"="+value)
 	}
 	return append(env, c.ExtraEnv...)
+}
+
+// isProcessSetting reports ordinary settings of the process that carry no secret and that restic needs
+// (HOME for its cache, TMPDIR, the locale), so they stay even when the config uses one in a value such
+// as ${HOME}/backups.
+func isProcessSetting(name string) bool {
+	switch name {
+	case "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG", "LANGUAGE", "PWD", "HOSTNAME", "TERM":
+		return true
+	}
+	return strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_")
 }
 
 // run executes restic and returns stdout. On failure the error carries
