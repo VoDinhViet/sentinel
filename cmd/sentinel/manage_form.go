@@ -14,11 +14,11 @@ import (
 
 // The sections of a job form, in the order they are drawn.
 const (
-	sectionBasic      = "BASIC"
-	sectionConnection = "CONNECTION"
-	sectionSchedule   = "SCHEDULE & RETENTION"
-	sectionStorage    = "STORAGE"
-	sectionAdvanced   = "ADVANCED"
+	sectionBasic      = "CƠ BẢN"
+	sectionConnection = "KẾT NỐI"
+	sectionSchedule   = "LỊCH & GIỮ BẢN"
+	sectionStorage    = "NƠI LƯU"
+	sectionAdvanced   = "NÂNG CAO"
 )
 
 type fieldKind int
@@ -37,7 +37,7 @@ const (
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
 
 // scheduleHint says what a schedule field accepts and which keys step through it.
-const scheduleHint = `type it ("daily 2am", "weekly monday 3am", "every 6 hours", cron) · ← → change how often · alt+↑↓ time · alt+←→ weekday or day`
+const scheduleHint = `gõ trực tiếp ("daily 2am", "weekly monday 3am", "every 6 hours", cron) · ← → đổi tần suất · alt+↑↓ giờ · alt+←→ thứ hoặc ngày`
 
 // formField is one input of a form.
 type formField struct {
@@ -115,19 +115,19 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	if job.Port != 0 {
 		port = strconv.Itoa(job.Port)
 	}
-	typeHint := "← → to choose"
+	typeHint := "← → để chọn"
 	if original != "" {
-		typeHint = "fixed for an existing job"
+		typeHint = "không đổi được với job đã có"
 	}
-	passwordHint := "name of an environment variable holding the password (never the password itself)"
+	passwordHint := "tên env var chứa mật khẩu (không ghi chính mật khẩu vào đây)"
 	if job.PasswordLiteral {
-		passwordHint = "the file has a literal password; enter a variable name to replace it, or leave empty to keep it"
+		passwordHint = "file đang chứa mật khẩu ghi thẳng; nhập tên biến để thay, hoặc để trống để giữ nguyên"
 	}
 	scheduleHint := scheduleHint
-	scheduleNote := "empty = only run by hand"
+	scheduleNote := "để trống = chỉ chạy thủ công"
 	if listing.Defaults.Schedule != "" {
-		scheduleHint += "; empty = the default schedule"
-		scheduleNote = "default: " + listing.Defaults.Schedule
+		scheduleHint += "; để trống = schedule mặc định"
+		scheduleNote = "mặc định: " + listing.Defaults.Schedule
 	}
 	ticked := make([]bool, len(listing.Repositories))
 	for i, name := range listing.Repositories {
@@ -135,9 +135,9 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 			ticked[i] = ticked[i] || own == name
 		}
 	}
-	repositoriesHint := "space or click ticks a repository"
+	repositoriesHint := "space hoặc click để đánh dấu repository"
 	if len(listing.InheritedRepositories) > 0 {
-		repositoriesHint += "; none ticked = " + strings.Join(listing.InheritedRepositories, ", ") + " (the default)"
+		repositoriesHint += "; không đánh dấu = " + strings.Join(listing.InheritedRepositories, ", ") + " (mặc định)"
 	}
 	retention := [5]string{}
 	for i, count := range []int{job.Retention.Last, job.Retention.Daily, job.Retention.Weekly, job.Retention.Monthly, job.Retention.Yearly} {
@@ -145,27 +145,27 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 			retention[i] = strconv.Itoa(count)
 		}
 	}
-	form.kind, form.title = formJob, "Add a job"
+	form.kind, form.title = formJob, "Thêm job"
 	if original != "" {
-		form.title = "Edit " + original
+		form.title = "Sửa " + original
 	}
 	form.fields = []formField{
-		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != "", section: sectionBasic},
-		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name, section: sectionBasic},
-		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; Tab completes, alt+1.. or a click adds a suggested folder, ctrl+o browses the server", kind: fieldPaths, value: strings.Join(job.Paths, ", "), section: sectionBasic},
-		{key: "database", label: "Database", hint: "the database to dump", value: job.Database, section: sectionBasic},
-		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost", section: sectionConnection},
-		{key: "port", label: "Port", hint: "default 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "default", section: sectionConnection},
-		{key: "user", label: "User", hint: "optional", value: job.User, section: sectionConnection},
-		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv, section: sectionConnection},
+		{key: "type", label: "Loại", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != "", section: sectionBasic},
+		{key: "name", label: "Tên", hint: "chữ cái, chữ số, . _ -", value: job.Name, section: sectionBasic},
+		{key: "paths", label: "Đường dẫn", hint: "file và thư mục cần backup, cách nhau bằng dấu phẩy; dùng được ${HOME}; Tab để hoàn thành, alt+1.. hoặc click để thêm thư mục gợi ý, ctrl+o để duyệt trên server", kind: fieldPaths, value: strings.Join(job.Paths, ", "), section: sectionBasic},
+		{key: "database", label: "Database", hint: "database cần dump", value: job.Database, section: sectionBasic},
+		{key: "host", label: "Host", hint: "mặc định localhost", value: job.Host, placeholder: "localhost", section: sectionConnection},
+		{key: "port", label: "Cổng", hint: "mặc định 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "mặc định", section: sectionConnection},
+		{key: "user", label: "User", hint: "tuỳ chọn", value: job.User, section: sectionConnection},
+		{key: "password_env", label: "Env var mật khẩu", hint: passwordHint, value: job.PasswordEnv, section: sectionConnection},
 		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote, section: sectionSchedule},
-		{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year; all empty = keep everything", kind: fieldRetention, counts: retention, section: sectionSchedule},
-		{key: "store_at", label: "Folder", hint: "a folder for this job's backups (tab completes it); a repository named like the job is created for it. Empty = the repositories ticked below, or, for a database job with none, an automatic folder " + autoStoreBase() + "/<job name>", complete: true, placeholder: "automatic", section: sectionStorage},
+		{key: "retention", label: "Giữ lại", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
+		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó. Để trống = các repository đánh dấu bên dưới, hoặc với job database không có repository nào thì dùng thư mục tự động " + autoStoreBase() + "/<tên job>", complete: true, placeholder: "tự động", section: sectionStorage},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionStorage},
-		{key: "advanced", label: "Advanced options", hint: "enter or space opens or closes the options below", kind: fieldToggle, section: sectionAdvanced},
-		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", "), section: sectionAdvanced},
-		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS, section: sectionAdvanced},
-		{key: "auth_database", label: "Auth database", hint: "mongodb only: where the user is defined", value: job.AuthDatabase, section: sectionAdvanced},
+		{key: "advanced", label: "Tuỳ chọn nâng cao", hint: "enter hoặc space để mở hoặc đóng các tuỳ chọn bên dưới", kind: fieldToggle, section: sectionAdvanced},
+		{key: "exclude", label: "Loại trừ", hint: "mẫu cần bỏ qua, cách nhau bằng dấu phẩy, ví dụ *.tmp, node_modules", value: strings.Join(job.Exclude, ", "), section: sectionAdvanced},
+		{key: "tls", label: "TLS", hint: "chỉ với mysql: để trống, disabled hoặc required", value: job.TLS, section: sectionAdvanced},
+		{key: "auth_database", label: "Auth database", hint: "chỉ với mongodb: database nơi user được tạo", value: job.AuthDatabase, section: sectionAdvanced},
 	}
 	form.advancedOpen = len(job.Exclude) > 0 || job.TLS != "" || job.AuthDatabase != "" // keep what is set in view
 	for i := range form.fields {
@@ -250,7 +250,7 @@ func (f form) job() (configedit.Job, error) {
 	if portText := strings.TrimSpace(f.field("port").value); portText != "" {
 		port, err := strconv.Atoi(portText)
 		if err != nil {
-			return job, formProblem("port", "port: %q is not a number", portText)
+			return job, formProblem("port", "cổng: %q không phải là số", portText)
 		}
 		job.Port = port
 	}
@@ -267,7 +267,7 @@ func (f form) job() (configedit.Job, error) {
 		}
 		count, err := strconv.Atoi(counts[i])
 		if err != nil {
-			return job, formProblem("retention", "retention: %q is not a number", counts[i])
+			return job, formProblem("retention", "retention: %q không phải là số", counts[i])
 		}
 		*target = count
 	}
@@ -350,7 +350,7 @@ func (f form) jobWithStore() (configedit.Job, configedit.Known, configedit.Repos
 	}
 	repo := configedit.Repository{Name: job.Name, URL: folder, PasswordEnv: "RESTIC_PASSWORD"}
 	if slices.Contains(f.known.Repositories, repo.Name) {
-		return job, known, repo, &configedit.InvalidError{Field: "store_at", Message: fmt.Sprintf("a repository named %q exists: tick it below instead, or give the job another name", repo.Name)}
+		return job, known, repo, &configedit.InvalidError{Field: "store_at", Message: fmt.Sprintf("repository %q đã tồn tại: hãy đánh dấu nó ở dưới, hoặc đặt tên khác cho job", repo.Name)}
 	}
 	if problem := configedit.ValidateRepository(repo); problem != nil && job.Name != "" {
 		var invalid *configedit.InvalidError

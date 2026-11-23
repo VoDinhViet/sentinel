@@ -97,9 +97,9 @@ func (m manageModel) renderForm() []string {
 			}
 			value = strings.Join(boxes, "  ")
 			if len(field.choices) == 0 {
-				value = dimStyle.Render("no repository in the config yet")
+				value = dimStyle.Render("chưa có repository nào trong config")
 			} else if inherited := m.form.defaults.repositories; len(inherited) > 0 && !slicesAny(field.ticked) {
-				value += dimStyle.Render("   default: " + strings.Join(inherited, ", "))
+				value += dimStyle.Render("   mặc định: " + strings.Join(inherited, ", "))
 			}
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldRetention:
@@ -135,7 +135,7 @@ func (m manageModel) renderForm() []string {
 			folder, prefix := field.value, ""
 			if job, _ := m.form.job(); field.key == "store_at" && strings.TrimSpace(folder) == "" {
 				if folder = m.form.autoFolder(job); folder != "" {
-					prefix = dimStyle.Render("→ automatic: " + folder + "  ")
+					prefix = dimStyle.Render("→ tự động: " + folder + "  ")
 				}
 			}
 			if note := folderNote(folder); note != "" {
@@ -174,21 +174,22 @@ func (m manageModel) renderForm() []string {
 	if m.form.problem != "" {
 		screenLines = append(screenLines, "", severityStyle(sevBad).Render(wrap(m.form.problem, m.width-2)))
 	}
-	saveButton := "[ Save ]"
+	saveButton := "[ Lưu ]"
 	saveStyle := keyStyle
 	if !valid {
 		saveStyle = dimStyle
 	}
-	buttons := saveStyle.Render(saveButton) + "  " + keyStyle.Render("[ Cancel ]")
+	cancelButton := "[ Huỷ ]"
+	buttons := saveStyle.Render(saveButton) + "  " + keyStyle.Render(cancelButton)
 	buttonRow := len(screenLines) + 1
 	m.hits.add(buttonRow, 0, lipgloss.Width(saveButton), "ctrl+s")
-	m.hits.add(buttonRow, lipgloss.Width(saveButton)+2, lipgloss.Width("[ Cancel ]"), "esc")
+	m.hits.add(buttonRow, lipgloss.Width(saveButton)+2, lipgloss.Width(cancelButton), "esc")
 	screenLines = append(screenLines, "", buttons)
-	tabHint := "next"
+	tabHint := "tiếp"
 	if m.form.fields[m.form.focus].completes() {
-		tabHint = "complete"
+		tabHint = "hoàn thành"
 	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", tabHint, "space", "tick", "ctrl+s", "save", "esc", "cancel"))
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", tabHint, "space", "đánh dấu", "ctrl+s", "lưu", "esc", "huỷ"))
 }
 
 // folderNote says whether the folder chosen for the backups exists, whether it can be written to
@@ -209,23 +210,23 @@ func folderNote(folder string) string {
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {
-			return severityStyle(sevWarn).Render("▲ no such place")
+			return severityStyle(sevWarn).Render("▲ không thấy thư mục này")
 		}
 		existing, created = parent, true
 	}
 	var disk syscall.Statfs_t
 	free := ""
 	if syscall.Statfs(existing, &disk) == nil {
-		free = " · " + humanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " free on this disk"
+		free = " · còn trống " + humanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " trên ổ đĩa này"
 	}
 	writable := canWrite(fileInfo)
 	switch {
 	case !writable:
-		return severityStyle(sevBad).Render("✗ " + existing + " is not writable by you" + free)
+		return severityStyle(sevBad).Render("✗ " + existing + " bạn không có quyền ghi" + free)
 	case created:
-		return severityStyle(sevOK).Render("✓ will be created (" + existing + " exists)" + free)
+		return severityStyle(sevOK).Render("✓ sẽ được tạo (" + existing + " đã có)" + free)
 	}
-	return severityStyle(sevOK).Render("✓ exists, writable" + free)
+	return severityStyle(sevOK).Render("✓ đã có, ghi được" + free)
 }
 
 // canWrite guesses from the owner, group and mode whether the current user can create files in a folder.
@@ -248,18 +249,19 @@ func canWrite(fileInfo os.FileInfo) bool {
 // [ Browse ] chip, each a click target. On a narrow screen the chip gets a line of its own.
 // row is the first line's row within the form's lines.
 func (m manageModel) suggestionLines(screenRow, index int, value string) []string {
-	const browse = "[ Browse ]"
+	const browse = "[ Duyệt ]"
 	indent := 2 + formLabelWidth + 1
 	pad := strings.Repeat(" ", indent)
 	wide := m.width >= 80
 	line, column := pad, indent
 	if wide {
-		m.hits.add(screenRow, indent, len(browse), "browse")
-		line, column = line+keyStyle.Render(browse)+"  ", column+len(browse)+2
+		m.hits.add(screenRow, indent, lipgloss.Width(browse), "browse")
+		line, column = line+keyStyle.Render(browse)+"  ", column+lipgloss.Width(browse)+2
 	}
 	suggestions := suggestFolders(splitList(value))
+	const addLabel = "thêm: "
 	if len(suggestions) > 0 {
-		line, column = line+dimStyle.Render("add: "), column+len("add: ")
+		line, column = line+dimStyle.Render(addLabel), column+lipgloss.Width(addLabel)
 	}
 	for number, folder := range suggestions {
 		if number == 0 { // a long first folder is shortened rather than left out
@@ -280,7 +282,7 @@ func (m manageModel) suggestionLines(screenRow, index int, value string) []strin
 	if len(suggestions) > 0 {
 		lines = append(lines, line)
 	}
-	m.hits.add(screenRow+len(lines), indent, len(browse), "browse")
+	m.hits.add(screenRow+len(lines), indent, lipgloss.Width(browse), "browse")
 	return append(lines, pad+keyStyle.Render(browse))
 }
 
@@ -297,9 +299,9 @@ func pathsNote(pathsText string) string {
 	case len(paths) == 0:
 		return ""
 	case len(missing) == 0:
-		return severityStyle(sevOK).Render(fmt.Sprintf("✓ found on this machine (%d)", len(paths)))
+		return severityStyle(sevOK).Render(fmt.Sprintf("✓ có trên máy này (%d)", len(paths)))
 	}
-	return severityStyle(sevWarn).Render("▲ not found here: " + strings.Join(missing, ", "))
+	return severityStyle(sevWarn).Render("▲ không thấy ở đây: " + strings.Join(missing, ", "))
 }
 
 func slicesAny(flags []bool) bool {
@@ -327,34 +329,43 @@ func (m manageModel) schedulePreview(spec string) []string {
 		spec = m.form.defaults.schedule
 	}
 	if schedule.IsManual(spec) {
-		return []string{"→ only run by hand"}
+		return []string{"→ chỉ chạy thủ công"}
 	}
 	runs := schedule.NextRuns(spec, time.Now(), 3)
 	if len(runs) == 0 {
 		return nil
 	}
 	room := max(m.width-formLabelWidth-5, 20)
-	lines := []string{truncate(fmt.Sprintf("→ %s · next %s (%s)", schedule.Describe(spec), runs[0].Local().Format("Mon 02 Jan 15:04"), inFuture(time.Until(runs[0]))), room)}
+	lines := []string{truncate(fmt.Sprintf("→ %s · lần tới %s (%s)", schedule.Describe(spec), runDay(runs[0]), inFuture(time.Until(runs[0]))), room)}
 	var later []string
 	for _, run := range runs[1:] {
-		layout := "02 Jan"
+		layout := "02/01"
 		if run.Local().Format("15:04") != runs[0].Local().Format("15:04") { // every 6h and the like
-			layout = "02 Jan 15:04"
+			layout = "02/01 15:04"
 		}
 		later = append(later, run.Local().Format(layout))
 	}
-	return append(lines, truncate("  then "+strings.Join(later, ", "), room))
+	return append(lines, truncate("  sau đó "+strings.Join(later, ", "), room))
 }
 
-// inFuture is a rough "in 13h" for a duration ahead.
+// weekdayNames are the short Vietnamese weekdays, indexed like time.Weekday (Sunday first).
+var weekdayNames = [7]string{"CN", "T2", "T3", "T4", "T5", "T6", "T7"}
+
+// runDay is a run time as "T2 02/01 15:04".
+func runDay(run time.Time) string {
+	local := run.Local()
+	return weekdayNames[local.Weekday()] + " " + local.Format("02/01 15:04")
+}
+
+// inFuture is a rough "trong 13 giờ" for a duration ahead.
 func inFuture(dur time.Duration) string {
 	switch {
 	case dur < time.Minute:
-		return "in under a minute"
+		return "trong chưa đầy một phút"
 	case dur < time.Hour:
-		return fmt.Sprintf("in %dm", int(dur.Minutes()))
+		return fmt.Sprintf("trong %d phút", int(dur.Minutes()))
 	case dur < 48*time.Hour:
-		return fmt.Sprintf("in %dh", int(dur.Hours()))
+		return fmt.Sprintf("trong %d giờ", int(dur.Hours()))
 	}
-	return fmt.Sprintf("in %dd", int(dur.Hours()/24))
+	return fmt.Sprintf("trong %d ngày", int(dur.Hours()/24))
 }

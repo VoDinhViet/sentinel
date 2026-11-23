@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -103,14 +104,17 @@ func openAddForm(t *testing.T, screen manageModel) manageModel {
 	return keys(t, screen, "a")
 }
 
+// runDates matches a run time of the schedule preview ("02/01" or "02/01 15:04").
+var runDates = regexp.MustCompile(`\d\d/\d\d`)
+
 func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Add a job") {
+	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Thêm job") {
 		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen = keys(t, screen, "right") // type: postgres -> mysql
-	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "Advanced options") || strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
+	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "Tuỳ chọn nâng cao") || strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
 		t.Fatalf("type-specific fields wrong:\n%s", plain(screen.render()))
 	}
 	screen = keys(t, screen, "tab")
@@ -143,7 +147,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" {
 		t.Errorf("job saved = %+v", got)
 	}
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "Added job shop") || !strings.Contains(screen.notice, "Restart the daemon") {
+	if screen.mode != modeTable || !strings.Contains(screen.notice, "Đã thêm job shop") || !strings.Contains(screen.notice, "Khởi động lại daemon") {
 		t.Errorf("notice = %q (mode %d)", screen.notice, screen.mode)
 	}
 }
@@ -152,7 +156,7 @@ func TestEditFormIsPrefilledKeepsTheTypeFixedAndExplainsLiteralPasswords(t *test
 	screen, configFile := formModel(t)
 	screen = keys(t, screen, "e")
 	view := plain(screen.render())
-	for _, want := range []string{"Edit appdb", "appdb", "5433", "[x] s3", "[ ] local", "daily"} {
+	for _, want := range []string{"Sửa appdb", "appdb", "5433", "[x] s3", "[ ] local", "daily"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("form lacks %q:\n%s", want, view)
 		}
@@ -161,7 +165,7 @@ func TestEditFormIsPrefilledKeepsTheTypeFixedAndExplainsLiteralPasswords(t *test
 		t.Error("the type of an existing job cannot be cycled")
 	}
 	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab") // to the password env field
-	if !strings.Contains(plain(screen.render()), "literal password") {
+	if !strings.Contains(plain(screen.render()), "mật khẩu ghi thẳng") {
 		t.Errorf("the literal-password hint is missing:\n%s", plain(screen.render()))
 	}
 	keys(t, screen, "ctrl+s")
@@ -244,7 +248,7 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "inherits", "x"
 	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab", "tab") // schedule
-	if view := plain(screen.render()); !strings.Contains(view, "default: daily 02:00") || !strings.Contains(view, "→ every day at 02:00") {
+	if view := plain(screen.render()); !strings.Contains(view, "mặc định: daily 02:00") || !strings.Contains(view, "→ every day at 02:00") {
 		t.Errorf("an empty schedule shows the default and what it means:\n%s", view)
 	}
 	screen = keys(t, screen, "right")
@@ -260,7 +264,7 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 		t.Errorf("alt+↑ moves the time, alt+→ the weekday: %q", got)
 	}
 	view := plain(screen.render())
-	if !strings.Contains(view, "every Monday at 03:00") || !strings.Contains(view, "then ") || strings.Count(view, " Dec")+strings.Count(view, " Nov") < 3 {
+	if !strings.Contains(view, "every Monday at 03:00") || !strings.Contains(view, "sau đó ") || len(runDates.FindAllString(view, -1)) < 3 {
 		t.Errorf("preview names the schedule and lists three runs:\n%s", view)
 	}
 	screen = typeText(t, screen, " nonsense")
@@ -336,12 +340,12 @@ func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 		t.Fatalf("edit files job: mode %d notice %q", screen.mode, screen.notice)
 	}
 	view := plain(screen.render())
-	if !strings.Contains(view, "Paths") || !strings.Contains(view, "Advanced options") || strings.Contains(view, "Database") || strings.Contains(view, "Password env var") {
+	if !strings.Contains(view, "Đường dẫn") || !strings.Contains(view, "Tuỳ chọn nâng cao") || strings.Contains(view, "Database") || strings.Contains(view, "Env var mật khẩu") {
 		t.Errorf("a files job shows its own fields only:\n%s", view)
 	}
 	screen = keys(t, screen, "tab", "tab") // paths
 	screen = typeText(t, screen, "/tmp, /nonexistent-sentinel-dir")
-	if view := plain(screen.render()); !strings.Contains(view, "▲ not found here: /nonexistent-sentinel-dir") {
+	if view := plain(screen.render()); !strings.Contains(view, "▲ không thấy ở đây: /nonexistent-sentinel-dir") {
 		t.Errorf("a missing path is called out:\n%s", view)
 	}
 	screen = keys(t, screen, "ctrl+s")
@@ -369,7 +373,7 @@ func TestRemoveNeedsTheJobName(t *testing.T) {
 	screen, configFile := formModel(t)
 	model, _ := screen.onKey("d", "")
 	screen = model.(manageModel)
-	if screen.mode != modeDelete || !strings.Contains(plain(screen.render()), "Remove appdb") {
+	if screen.mode != modeDelete || !strings.Contains(plain(screen.render()), "Xoá appdb") {
 		t.Fatalf("delete screen missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen = typeText(t, screen, "nope")
@@ -385,7 +389,7 @@ func TestRemoveNeedsTheJobName(t *testing.T) {
 	screen = typeText(t, screen, "appdb")
 	model, _ = screen.onKey("enter", "")
 	screen = model.(manageModel)
-	if len(configFile.deleted) != 1 || configFile.deleted[0] != "appdb" || screen.mode != modeTable || !strings.Contains(screen.notice, "snapshots stay") {
+	if len(configFile.deleted) != 1 || configFile.deleted[0] != "appdb" || screen.mode != modeTable || !strings.Contains(screen.notice, "snapshot đã có vẫn nằm") {
 		t.Errorf("deleted %v mode %d notice %q", configFile.deleted, screen.mode, screen.notice)
 	}
 }
@@ -403,10 +407,10 @@ func TestFolderNoteTellsWhetherTheBackupFolderIsUsable(t *testing.T) {
 	existing := t.TempDir()
 	t.Setenv("SENTINEL_TEST_DIR", existing)
 	for name, tc := range map[string]struct{ folder, want string }{
-		"existing folder":        {existing, "✓ exists, writable"},
-		"free space is shown":    {existing, "free on this disk"},
-		"folder to be created":   {existing + "/backups/web-01", "✓ will be created"},
-		"variables are expanded": {"${SENTINEL_TEST_DIR}/new", "✓ will be created"},
+		"existing folder":        {existing, "✓ đã có, ghi được"},
+		"free space is shown":    {existing, "trên ổ đĩa này"},
+		"folder to be created":   {existing + "/backups/web-01", "✓ sẽ được tạo"},
+		"variables are expanded": {"${SENTINEL_TEST_DIR}/new", "✓ sẽ được tạo"},
 	} {
 		if got := plain(folderNote(tc.folder)); !strings.Contains(got, tc.want) {
 			t.Errorf("%s: %q lacks %q", name, got, tc.want)
@@ -421,12 +425,12 @@ func TestRepositoryFormShowsTheFolderNoteForLocalRepositoriesOnly(t *testing.T) 
 	screen, _ := configScreen(t)
 	screen = keys(t, screen, "a")
 	screen.form.field("path").value = t.TempDir()
-	if view := plain(screen.render()); !strings.Contains(view, "✓ exists, writable") {
+	if view := plain(screen.render()); !strings.Contains(view, "✓ đã có, ghi được") {
 		t.Errorf("a local folder gets a note:\n%s", view)
 	}
 	screen.form.field("kind").value = "rclone"
 	screen.form.field("path").value = t.TempDir()
-	if view := plain(screen.render()); strings.Contains(view, "exists, writable") {
+	if view := plain(screen.render()); strings.Contains(view, "đã có, ghi được") {
 		t.Errorf("a remote path is not checked on this disk:\n%s", view)
 	}
 }
@@ -511,7 +515,7 @@ func TestStoreAtCreatesTheRepositoryAndTicksItForTheJob(t *testing.T) {
 	if len(configFile.repositories) != 1 || configFile.repositories[0].Name != "orders" || !strings.HasSuffix(configFile.repositories[0].URL, "/dumps") || configFile.repositories[0].PasswordEnv != "RESTIC_PW" {
 		t.Errorf("repository saved = %+v", configFile.repositories)
 	}
-	if !strings.Contains(screen.notice, "created at the first backup") {
+	if !strings.Contains(screen.notice, "được tạo ở lần backup đầu tiên") {
 		t.Errorf("notice = %q, want to hear the repository is created by the first backup", screen.notice)
 	}
 }
@@ -522,7 +526,7 @@ func TestStoreAtRefusesAnExistingRepositoryName(t *testing.T) {
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "local") // a repository of that name exists
 	screen.form.field("store_at").value = "/srv/backups"
-	if message := screen.form.problems()["store_at"]; !strings.Contains(message, `"local" exists`) {
+	if message := screen.form.problems()["store_at"]; !strings.Contains(message, `"local" đã tồn tại`) {
 		t.Errorf("problems = %v", screen.form.problems())
 	}
 }
@@ -547,7 +551,7 @@ func TestDatabaseJobWithoutARepositoryGetsAnAutomaticFolder(t *testing.T) {
 	screen = typeText(t, screen, "ordersdb")
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "orders")
-	if view := plain(screen.render()); !strings.Contains(view, "automatic: "+autoStoreBase()+"/ordersdb") {
+	if view := plain(screen.render()); !strings.Contains(view, "tự động: "+autoStoreBase()+"/ordersdb") {
 		t.Errorf("the form says where the backups will go:\n%s", view)
 	}
 	if problems := screen.form.problems(); len(problems) != 0 {
@@ -561,7 +565,7 @@ func TestDatabaseJobWithoutARepositoryGetsAnAutomaticFolder(t *testing.T) {
 	if len(configFile.repositories) != 1 || configFile.repositories[0].URL != autoStoreBase()+"/ordersdb" {
 		t.Errorf("repository saved = %+v", configFile.repositories)
 	}
-	if !strings.Contains(screen.notice, autoStoreBase()+"/ordersdb") || !strings.Contains(screen.notice, "created at the first backup") {
+	if !strings.Contains(screen.notice, autoStoreBase()+"/ordersdb") || !strings.Contains(screen.notice, "được tạo ở lần backup đầu tiên") {
 		t.Errorf("notice = %q", screen.notice)
 	}
 }
