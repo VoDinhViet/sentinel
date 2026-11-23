@@ -283,6 +283,23 @@ func TestBrowserEscKeepsTheFieldAsItWas(t *testing.T) {
 	}
 }
 
+func TestCtrlCLeavesTheBrowserAndThenTheForm(t *testing.T) {
+	root := browseTree(t)
+	screen, _ := openBrowser(t, filepath.Join(root, "www"))
+	if screen = keys(t, screen, "ctrl+c"); screen.mode != modeForm {
+		t.Fatalf("ctrl+c leaves the browser for the form (mode %d)", screen.mode)
+	}
+	if screen = keys(t, screen, "ctrl+c"); screen.mode != modeTable {
+		t.Errorf("ctrl+c leaves the form (mode %d)", screen.mode)
+	}
+	program, _ := initScreen(t, false)
+	program.form.focus = fieldIndex(program.manageModel, "job_paths")
+	program = pressInit(t, pressInit(t, program, "ctrl+o"), "ctrl+c")
+	if program.mode != modeForm {
+		t.Errorf("init: ctrl+c in the browser goes back to the form (mode %d)", program.mode)
+	}
+}
+
 func TestBrowserDoesNotEnterOrMarkAFolderItCannotList(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can list every folder")

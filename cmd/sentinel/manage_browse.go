@@ -256,7 +256,7 @@ func (m manageModel) browseDone() manageModel {
 func (m manageModel) onBrowseKey(key, text string) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch key {
-	case "esc":
+	case "esc", "ctrl+c":
 		m.mode = modeForm
 	case "ctrl+s":
 		m = m.browseDone()
