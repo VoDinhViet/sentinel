@@ -146,6 +146,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "user", label: "User", hint: "optional", value: job.User},
 		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv},
 		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote},
+		{key: "store_at", label: "Store at", hint: "optional: a new local folder for this job's backups, e.g. /srv/backups/" + "db; a repository named like the job is created for it (tab completes the folder). Empty = use the repositories ticked below", complete: true},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
 		{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year; all empty = keep everything", kind: fieldRetention, counts: retention},
 		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS},
@@ -270,9 +271,9 @@ func (f form) problems() map[string]string {
 		}
 		return found
 	}
-	job, err := f.job()
+	job, known, _, err := f.jobWithStore()
 	add(err)
-	for _, problem := range configedit.Problems(&job, f.known) {
+	for _, problem := range configedit.Problems(&job, known) {
 		add(problem)
 	}
 	return found
@@ -305,4 +306,36 @@ func (f *form) completeFocused() bool {
 	field.value, field.options = completed, options
 	f.touched[field.key] = true
 	return changed || listed
+}
+
+// storeAt is the new folder typed in the "Store at" field of a job form, "" when it is empty.
+func (f form) storeAt() string {
+	if f.kind != formJob {
+		return ""
+	}
+	return strings.TrimSpace(f.field("store_at").value)
+}
+
+// jobWithStore is the job of the form plus the repository its "Store at" folder will create
+// (named like the job), and the repositories the job may refer to once that one exists.
+func (f form) jobWithStore() (configedit.Job, configedit.Known, configedit.Repository, error) {
+	job, err := f.job()
+	known := f.known
+	folder := f.storeAt()
+	if folder == "" {
+		return job, known, configedit.Repository{}, err
+	}
+	repo := configedit.Repository{Name: job.Name, URL: folder, PasswordEnv: "RESTIC_PASSWORD"}
+	if slices.Contains(f.known.Repositories, repo.Name) {
+		return job, known, repo, &configedit.InvalidError{Field: "store_at", Message: fmt.Sprintf("a repository named %q exists: tick it below instead, or give the job another name", repo.Name)}
+	}
+	if problem := configedit.ValidateRepository(repo); problem != nil && job.Name != "" {
+		var invalid *configedit.InvalidError
+		if errors.As(problem, &invalid) && invalid.Field != "password_env" {
+			return job, known, repo, &configedit.InvalidError{Field: "store_at", Message: invalid.Message}
+		}
+	}
+	known.Repositories = append(slices.Clone(known.Repositories), repo.Name)
+	job.Repositories = append(job.Repositories, repo.Name)
+	return job, known, repo, err
 }

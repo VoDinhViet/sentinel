@@ -99,7 +99,7 @@ func (m manageModel) renderForm() []string {
 		screenLines = append(screenLines, marker+label+" "+value)
 		if message, bad := problems[field.key]; bad {
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+severityStyle(sevBad).Render("✗ "+truncate(message, max(m.width-formLabelWidth-6, 10))))
-		} else if field.key == "path" && m.form.field("kind").value == "local" {
+		} else if field.key == "store_at" || (field.key == "path" && m.form.field("kind").value == "local") {
 			if note := folderNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}

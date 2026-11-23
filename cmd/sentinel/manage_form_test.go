@@ -121,7 +121,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "MYSQL_PW")
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "daily 02:30")
-	screen = keys(t, screen, "tab")             // repositories: local, s3
+	screen = keys(t, screen, "tab", "tab")      // store at (left empty), then repositories: local, s3
 	screen = keys(t, screen, " ", "right", " ") // tick both
 	screen = keys(t, screen, "tab")             // retention: last, daily, weekly...
 	screen = keys(t, screen, "right")
@@ -481,5 +481,40 @@ func TestTabCompletesTheRestoreFolder(t *testing.T) {
 	screen, _ = press(t, screen, "tab")
 	if screen.target != root+"/restore-here/" {
 		t.Errorf("target = %q", screen.target)
+	}
+}
+
+func TestStoreAtCreatesTheRepositoryAndTicksItForTheJob(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "orders")
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "ordersdb")
+	screen.form.field("store_at").value = t.TempDir() + "/dumps"
+	if problems := screen.form.problems(); len(problems) != 0 {
+		t.Fatalf("a Store at folder stands in for a ticked repository: %v", problems)
+	}
+	model, _ := screen.saveForm()
+	screen = model.(manageModel)
+	if len(configFile.saved) != 1 || strings.Join(configFile.saved[0].Repositories, ",") != "orders" {
+		t.Fatalf("job saved = %+v (notice %q)", configFile.saved, screen.notice)
+	}
+	if len(configFile.repositories) != 1 || configFile.repositories[0].Name != "orders" || !strings.HasSuffix(configFile.repositories[0].URL, "/dumps") || configFile.repositories[0].PasswordEnv != "RESTIC_PW" {
+		t.Errorf("repository saved = %+v", configFile.repositories)
+	}
+	if !strings.Contains(screen.notice, "sentinel backup init orders") {
+		t.Errorf("notice = %q, want the init command", screen.notice)
+	}
+}
+
+func TestStoreAtRefusesAnExistingRepositoryName(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen)
+	screen = keys(t, screen, "tab")
+	screen = typeText(t, screen, "local") // a repository of that name exists
+	screen.form.field("store_at").value = "/srv/backups"
+	if message := screen.form.problems()["store_at"]; !strings.Contains(message, `"local" exists`) {
+		t.Errorf("problems = %v", screen.form.problems())
 	}
 }

@@ -238,12 +238,41 @@ func (f form) apply(actions manageActions) (string, error) {
 	if f.kind != formJob {
 		return f.applyEntry(actions)
 	}
-	job, err := f.job()
+	job, known, repo, err := f.jobWithStore()
 	if err == nil {
-		err = configedit.Validate(&job, f.known)
+		err = configedit.Validate(&job, known)
 	}
-	if err == nil {
-		err = actions.saveJob(f.original, job)
+	if err != nil {
+		return "job " + job.Name, err
 	}
-	return "job " + job.Name, err
+	label := "job " + job.Name
+	if f.storeAt() != "" {
+		repo.PasswordEnv = f.sharedPasswordEnv(actions)
+		if err := actions.saveRepository("", repo); err != nil {
+			return label, err
+		}
+		label += " and its repository (create it once with: sentinel backup init " + job.Name + ")"
+	}
+	if err := actions.saveJob(f.original, job); err != nil {
+		if f.storeAt() != "" {
+			err = fmt.Errorf("repository %s was created, but the job was not saved: %w", repo.Name, err)
+		}
+		return label, err
+	}
+	return label, nil
+}
+
+// sharedPasswordEnv is the password variable of the first repository that has one, so a new
+// repository keeps using the passphrase the user already has; RESTIC_PASSWORD when there is none.
+func (f form) sharedPasswordEnv(actions manageActions) string {
+	if actions.overview != nil {
+		if overview, err := actions.overview(); err == nil {
+			for _, repo := range overview.Repositories {
+				if repo.PasswordEnv != "" {
+					return repo.PasswordEnv
+				}
+			}
+		}
+	}
+	return "RESTIC_PASSWORD"
 }
