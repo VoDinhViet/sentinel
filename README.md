@@ -66,7 +66,7 @@ sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                      # chạy mọi uptime check một lần
 sentinel status                     # backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json             # như trên, dạng JSON cho script
-sentinel tui                        # dashboard tương tác trên terminal (tab/1-3 đổi mục, ↑↓ chọn, r làm mới, q thoát)
+sentinel manage                     # màn hình quản lý tương tác trên terminal (alias: tui): tab/1-3 đổi mục, ↑↓ chọn, b backup ngay, s snapshot + restore, r làm mới, q thoát
 
 sudo systemctl enable --now sentinel
 journalctl -u sentinel -f

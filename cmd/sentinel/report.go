@@ -8,7 +8,7 @@ import (
 	"sentinel/internal/store"
 )
 
-// statusReport is everything `sentinel status` and the terminal dashboard
+// statusReport is everything `sentinel status` and the manage screen
 // show, read from the store. It is also the `--output json` format.
 type statusReport struct {
 	Server      string        `json:"server"`
