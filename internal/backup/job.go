@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/engine"
 	"sentinel/internal/store"
 )
 
@@ -81,16 +81,19 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 		return fail(err)
 	}
 	opts := BackupOptions{Tags: JobTags(job)}
-	switch job.Type {
-	case config.BackupFiles:
+	if job.Type == config.BackupFiles {
 		opts.Paths, opts.Excludes = job.Paths, job.Exclude
-	case config.BackupPostgres:
-		opts.Command, opts.StdinFilename = PgDumpCommand(job.Postgres)
-		if job.Postgres.Password != "" {
-			rc.ExtraEnv = append(rc.ExtraEnv, "PGPASSWORD="+job.Postgres.Password)
+	} else {
+		dbEngine, ok := engine.For(job.Type)
+		if !ok {
+			return fail(fmt.Errorf("unsupported backup type %q", job.Type))
 		}
-	default:
-		return fail(fmt.Errorf("unsupported backup type %q", job.Type))
+		dump, err := dbEngine.Dump(job)
+		if err != nil {
+			return fail(err)
+		}
+		opts.Command, opts.StdinFilename = dump.Command, dump.Filename
+		rc.ExtraEnv = append(rc.ExtraEnv, dump.Env...)
 	}
 
 	sum, err := rc.Backup(ctx, opts)
@@ -118,14 +121,4 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 	log.Info("backup finished", "snapshot", sum.SnapshotID[:min(8, len(sum.SnapshotID))],
 		"bytes_added", sum.BytesAdded, "duration", run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 	return run
-}
-
-// PgDumpCommand returns the pg_dump invocation for a job, in custom format
-// (compressed, restorable with pg_restore), and the file name it is stored as.
-func PgDumpCommand(pg *config.Postgres) (cmd []string, filename string) {
-	return []string{
-		"pg_dump", "--format=custom", "--no-password",
-		"--host", pg.Host, "--port", strconv.Itoa(pg.Port),
-		"--username", pg.User, "--dbname", pg.Database,
-	}, pg.Database + ".dump"
 }

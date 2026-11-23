@@ -15,6 +15,7 @@ import (
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
+	"sentinel/internal/engine"
 	"sentinel/internal/notify"
 )
 
@@ -31,15 +32,10 @@ type finding struct {
 func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 	var out []finding
 	needRestic := len(cfg.Backups) > 0
-	needRclone, needPgDump := false, false
+	needRclone := false
 	for _, r := range cfg.Repositories {
 		if strings.HasPrefix(r.URL, "rclone:") {
 			needRclone = true
-		}
-	}
-	for _, b := range cfg.Backups {
-		if b.Type == config.BackupPostgres {
-			needPgDump = true
 		}
 	}
 
@@ -56,15 +52,14 @@ func checkBinaries(ctx context.Context, cfg *config.Config) []finding {
 		}
 		out = append(out, f)
 	}
-	for _, bin := range []struct {
-		name   string
-		needed bool
-	}{{"rclone", needRclone}, {"pg_dump", needPgDump}} {
-		if !bin.needed {
-			continue
-		}
-		f := finding{name: bin.name}
-		if path, err := exec.LookPath(bin.name); err != nil {
+	var tools []string
+	if needRclone {
+		tools = append(tools, "rclone")
+	}
+	tools = append(tools, engine.ToolsFor(cfg.Backups)...)
+	for _, tool := range tools {
+		f := finding{name: tool}
+		if path, err := exec.LookPath(tool); err != nil {
 			f.err = errors.New("not found in PATH")
 		} else {
 			f.info = path

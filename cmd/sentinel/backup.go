@@ -10,6 +10,7 @@ import (
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
+	"sentinel/internal/engine"
 )
 
 func (a *app) backupCmd() *cobra.Command {
@@ -148,7 +149,7 @@ func (a *app) backupCmd() *cobra.Command {
 		Use:   "restore <job> <snapshot>",
 		Short: "Restore a snapshot into a directory",
 		Long: "Restore a snapshot into --target. Use \"latest\" for the newest snapshot.\n" +
-			"Postgres jobs restore a <database>.dump file; load it with pg_restore.",
+			"Database jobs restore a dump file; the command to load it is printed.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := a.loadConfig()
@@ -178,9 +179,8 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "restored %.8s from %s into %s\n", snapshot, repos[0], target)
-			if job.Type == config.BackupPostgres {
-				fmt.Fprintf(cmd.OutOrStdout(), "load it with: pg_restore --clean --if-exists -d %s %s/%s.dump\n",
-					job.Postgres.Database, target, job.Postgres.Database)
+			if dbEngine, ok := engine.For(job.Type); ok {
+				fmt.Fprintf(cmd.OutOrStdout(), "load it with: %s\n", dbEngine.RestoreHint(job, target))
 			}
 			return nil
 		},
