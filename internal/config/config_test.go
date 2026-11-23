@@ -193,62 +193,12 @@ backups:
 	}
 }
 
-func TestCentral(t *testing.T) {
-	c, err := Parse([]byte("central: { url: \"https://s.example.com\", token: t, managed: true }"))
-	if err != nil || !c.Central.Managed || c.RestoreDir != "/var/lib/sentinel/restore" {
-		t.Fatalf("central = %+v, %v", c, err)
-	}
-	if _, err := Parse([]byte("central: { url: s.example.com, token: t }")); err == nil {
-		t.Fatal("want error for url without scheme")
-	}
-}
-
-func TestParseServer(t *testing.T) {
-	c, err := ParseServer([]byte(`admin: { username: admin, password_hash: "$2a$10$abcdefghijklmnopqrstuv" }`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Listen != ":8443" || c.OfflineAfter != 3*time.Minute || !*c.SecureCookies {
-		t.Errorf("defaults = %+v", c)
-	}
-	if _, err := ParseServer([]byte(`admin: { username: admin, password_hash: hunter2 }`)); err == nil {
-		t.Error("plain-text password should be rejected")
-	}
-	if _, err := ParseServer(nil); err == nil {
-		t.Error("missing admin should be rejected")
-	}
-}
-
 func TestRetentionString(t *testing.T) {
 	if got := (Retention{}).String(); got != "keep all" {
 		t.Errorf("empty = %q", got)
 	}
 	if got := (Retention{Last: 7, Daily: 14, Yearly: 2}).String(); got != "last 7 · daily 14 · yearly 2" {
 		t.Errorf("got %q", got)
-	}
-}
-
-func TestParseServerBeszel(t *testing.T) {
-	base := `admin: { username: admin, password_hash: "$2a$10$abcdefghijklmnopqrstuv" }` + "\n"
-	c, err := ParseServer([]byte(base))
-	if err != nil || c.Beszel != nil {
-		t.Fatalf("no beszel section: %+v %v", c.Beszel, err)
-	}
-	t.Setenv("BESZEL_PW", "s3cret")
-	c, err = ParseServer([]byte(base + "beszel: { url: \"https://beszel.example.com\", email: sentinel@example.com, password: \"${BESZEL_PW}\" }"))
-	if err != nil || c.Beszel == nil || c.Beszel.Password != "s3cret" || c.Beszel.Poll != 30*time.Second {
-		t.Fatalf("beszel = %+v, %v", c.Beszel, err)
-	}
-	for name, bad := range map[string]string{
-		"url":      `beszel: { url: "beszel.example.com", email: a@b.c, password: x }`,
-		"email":    `beszel: { url: "http://h", password: x }`,
-		"password": `beszel: { url: "http://h", email: a@b.c }`,
-		"poll":     `beszel: { url: "http://h", email: a@b.c, password: x, poll: 1s }`,
-		"public":   `beszel: { url: "http://h", email: a@b.c, password: x, public_url: "hub.example.com" }`,
-	} {
-		if _, err := ParseServer([]byte(base + bad)); err == nil {
-			t.Errorf("%s: invalid beszel section accepted", name)
-		}
 	}
 }
 

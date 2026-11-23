@@ -1,5 +1,5 @@
 // Command sentinel is a small server maintenance agent: backups via restic,
-// resource monitoring, uptime checks and alerting.
+// uptime checks and alerting.
 package main
 
 import (
@@ -37,7 +37,7 @@ func newRootCmd() *cobra.Command {
 	a := &app{}
 	root := &cobra.Command{
 		Use:           "sentinel",
-		Short:         "Server maintenance agent: backups, monitoring, uptime, alerts",
+		Short:         "Server maintenance agent: backups, uptime checks, alerts",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -51,7 +51,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&a.configPath, "config", "c", "/etc/sentinel/config.yaml", "config file")
-	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd(), a.statusCmd(), a.serverCmd())
+	root.AddCommand(a.notifyCmd(), a.backupCmd(), a.doctorCmd(), a.runCmd(), a.checkCmd(), a.statusCmd())
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
 }

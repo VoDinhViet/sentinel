@@ -8,10 +8,6 @@ file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 rel=${file#"${CLAUDE_PROJECT_DIR:-$PWD}"/}
 
 case "$rel" in
-internal/server/web/dist/*)
-	echo "Blocked: $rel is build output of web/frontend (make frontend). Edit the source in web/frontend/src instead." >&2
-	exit 2
-	;;
 *.env)
 	echo "Blocked: $rel holds secrets. Ask the user to edit it; examples belong in deploy/*.example.yaml with \${VAR}." >&2
 	exit 2

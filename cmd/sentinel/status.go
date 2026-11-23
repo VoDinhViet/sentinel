@@ -11,7 +11,7 @@ import (
 func (a *app) statusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show last backups, open alerts, latest metrics and checks",
+		Short: "Show last backups, open alerts, and checks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -51,25 +51,13 @@ func (a *app) statusCmd() *cobra.Command {
 				fmt.Fprintln(out, "  none yet")
 			}
 			for _, r := range runs {
-				result := "ok " + fmt.Sprintf("%.8s", r.SnapshotID)
-				if !r.Success {
-					result = "FAILED: " + r.Error
+				result := runResult(r)
+				if r.Success {
+					result += fmt.Sprintf("  %.8s", r.SnapshotID)
 				}
 				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", r.Job, r.Repository, ago(r.FinishedAt), result)
 			}
 			w.Flush()
-
-			m, ok, err := st.LatestMetrics(ctx)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(out, "\nLatest metrics:")
-			if ok {
-				fmt.Fprintf(out, "  CPU %.1f%%  memory %.1f%%  swap %.1f%%  load %.2f  fullest disk %.1f%%  at %s\n",
-					m.CPU, m.Memory, m.Swap, m.Load1, m.DiskMax, ago(m.At))
-			} else {
-				fmt.Fprintln(out, "  none yet (monitor not configured or daemon not running)")
-			}
 
 			checks, err := st.LatestChecks(ctx)
 			if err != nil {

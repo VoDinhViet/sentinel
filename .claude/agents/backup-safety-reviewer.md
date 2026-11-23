@@ -21,14 +21,14 @@ repo or needs credentials.
 2. **Restore correctness**: does restore pick a snapshot of this host and this job (tags/host filters), and refuse or
    warn on a foreign snapshot? Can a restore overwrite a path it was not asked to?
 3. **Silent failure**: every error from restic, rclone, dump tools, `forget/prune` retention and `restic check` must reach
-   the job result, the store, the server report and the alert path. Look for `_ =`, logged-and-dropped errors, a non-zero exit
+   the job result, the store and the alert path. Look for `_ =`, logged-and-dropped errors, a non-zero exit
    that is treated as success, or a partial dump (tool exits non-zero after writing output) that is stored as a good snapshot.
 4. **Staleness alerts**: "no successful backup for too long" still fires when the job keeps failing or never runs.
 5. **Secrets**: `RESTIC_PASSWORD`, DB passwords, S3 keys, tokens never in argv, logs, alert text, error strings, API
    responses or the store. DB passwords go through `writeSecretFile` (`internal/engine/engine.go`) or env vars.
 6. **External commands**: `exec.CommandContext` with argv only, no `sh -c`; every call has a context with a timeout or
    cancellation; temp files and child processes are cleaned up on cancel.
-7. **Config and migrations**: `${VAR}` expansion is not applied to values that come from the server unvalidated;
+7. **Config and migrations**: `${VAR}` expansion is applied only to values from the local config file;
    SQLite migrations are append-only (`PRAGMA user_version`).
 8. **Tests**: is the changed behaviour covered by a test that would fail without the fix?
 

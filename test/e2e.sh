@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test: back up a real Postgres database and a directory to an S3
-# (SeaweedFS S3) and a local repository, restore both and compare with the originals;
-# then exercise the central server: register an agent, connect it, trigger a backup
-# and a config change from the web UI (via curl) and check both take effect.
+# (SeaweedFS S3) and a local repository, restore both and compare with the originals,
+# then check that a failed backup is reported.
 # Needs docker, restic, pg_dump/pg_restore/psql (major version 18), curl in PATH.
 set -euo pipefail
 
@@ -16,11 +15,11 @@ cleanup() {
 	# any plain "[ -n "$x" ] && cmd" that short-circuits (x empty) would make
 	# bash report the WHOLE script as failed even when every check passed.
 	set +e
-	for pid in "${AGENT2_PID:-}" "${SRV_PID:-}"; do
+	for pid in "${DAEMON_PID:-}"; do
 		[ -n "$pid" ] && kill "$pid" 2>/dev/null
 	done
 	sleep 1
-	for pid in "${AGENT2_PID:-}" "${SRV_PID:-}"; do
+	for pid in "${DAEMON_PID:-}"; do
 		[ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
 	done
 	"${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
@@ -121,101 +120,5 @@ if S backup run db -r local >/dev/null 2>&1; then fail "backup with postgres dow
 pass "backup fails when postgres is down"
 status_out=$(S status)
 printf '%s' "$status_out" | grep -q "FAILED" && pass "status shows the failed run" || fail "status missing failure"
-
-echo "== central server: register and connect an agent"
-SRV_WORK="$WORK/central"
-mkdir -p "$SRV_WORK"
-ADMIN_PASS="e2e-admin-pass"
-HASH=$(printf '%s\n' "$ADMIN_PASS" | "$BIN" server hash-password 2>/dev/null)
-[ -n "$HASH" ] || fail "hash-password produced no output"
-{
-	echo 'listen: "127.0.0.1:58080"'
-	echo "db: $SRV_WORK/server.db"
-	echo "offline_after: 30s"
-	echo "secure_cookies: false"  # curl is plain HTTP in this test; real deployments keep this on
-	echo "admin:"
-	echo "  username: admin"
-	printf '  password_hash: "%s"\n' "$HASH"
-} >"$SRV_WORK/server.yaml"
-
-"$BIN" --log-level warn server run --server-config "$SRV_WORK/server.yaml" >"$SRV_WORK/server.log" 2>&1 &
-SRV_PID=$!
-wait_for 30 "central server did not start" 'curl -s -o /dev/null http://127.0.0.1:58080/login'
-pass "central server listening"
-
-ADD_OUT=$("$BIN" server --server-config "$SRV_WORK/server.yaml" add-agent e2e-agent 2>"$SRV_WORK/add-agent.err")
-export AGENT_TOKEN="$ADD_OUT"
-AGENT_ID=$(grep -oE 'id [0-9]+' "$SRV_WORK/add-agent.err" | grep -oE '[0-9]+')
-[ -n "$AGENT_TOKEN" ] && [ -n "$AGENT_ID" ] || fail "add-agent did not return a token and id"
-pass "registered agent e2e-agent (id $AGENT_ID)"
-
-COOKIES="$WORK/cookies.txt"
-curl -s -c "$COOKIES" -d "username=admin" -d "password=$ADMIN_PASS" http://127.0.0.1:58080/login -o /dev/null
-CSRF=$(curl -s -b "$COOKIES" -c "$COOKIES" http://127.0.0.1:58080/manage | grep -oE 'X-CSRF-Token": "[^"]+' | sed 's/.*: "//')
-[ -n "$CSRF" ] || fail "could not log in to the central server UI"
-pass "logged in to central server UI"
-
-mkdir -p "$WORK/agent2/restore"
-cat >"$WORK/agent2/config.yaml" <<EOF
-server_name: e2e-agent
-store: $WORK/agent2/state.db
-restore_dir: $WORK/agent2/restore
-central:
-  url: "http://127.0.0.1:58080"
-  token: "\${AGENT_TOKEN}"
-  managed: true
-repositories:
-  local:
-    url: "$WORK/agent2/repo"
-    password: "\${RESTIC_PW}"
-backups:
-  - name: files2
-    type: files
-    paths: ["$WORK/files"]
-    repositories: [local]
-EOF
-"$BIN" -c "$WORK/agent2/config.yaml" backup init files2 >/dev/null || fail "could not init agent2's backup repository"
-"$BIN" --log-level warn -c "$WORK/agent2/config.yaml" run >"$WORK/agent2/agent.log" 2>&1 &
-AGENT2_PID=$!
-
-wait_for 60 "agent never showed online in the central UI" \
-	'page=$(curl -s -b "$COOKIES" "http://127.0.0.1:58080/manage"); printf "%s" "$page" | grep -q "badge ok\">online"'
-pass "agent connected and reports as online"
-
-echo "== central server: backup now from the UI"
-curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -d "job=files2" \
-	"http://127.0.0.1:58080/agents/$AGENT_ID/backup" -o "$WORK/backup-now.html"
-grep -qE "queued|running|badge ok" "$WORK/backup-now.html" || fail "backup now did not queue a command"
-wait_for 90 "backup triggered from the UI never completed" \
-	'page=$(curl -s -b "$COOKIES" "http://127.0.0.1:58080/agents/'"$AGENT_ID"'"); printf "%s" "$page" | grep -q "badge ok\">ok<"'
-pass "backup triggered from the UI completed and is visible on the agent page"
-
-echo "== central server: change config from the UI"
-# The textarea content spans multiple lines, so extract it with awk rather than
-# sed. A real browser HTML-decodes textarea content automatically; curl does
-# not, so undo html/template's escaping (&#34; etc.) before reusing the text.
-html_decode() {
-	sed -e 's/&#34;/"/g' -e "s/&#39;/'/g" -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g'
-}
-MANAGED_YAML=$(curl -s -b "$COOKIES" "http://127.0.0.1:58080/agents/$AGENT_ID/config" | awk '
-	/<textarea/ { intex = 1; sub(/^[^>]*>/, "") }
-	intex {
-		if (match($0, /<\/textarea>/)) { print substr($0, 1, RSTART - 1); exit }
-		print
-	}
-' | html_decode)
-NEW_YAML=$(printf '%s\nuptime:\n  - { name: e2e-check, type: tcp, address: "127.0.0.1:55432" }\n' "$MANAGED_YAML")
-curl -s -L -b "$COOKIES" -H "X-CSRF-Token: $CSRF" \
-	--data-urlencode "yaml=$NEW_YAML" --data-urlencode "comment=e2e added uptime check" \
-	"http://127.0.0.1:58080/agents/$AGENT_ID/config" -o "$WORK/config-save.html"
-grep -q "Saved as v2" "$WORK/config-save.html" || fail "config was not saved as a new version: $(cat "$WORK/config-save.html")"
-pass "new config version saved"
-# Poll the agent's own cache file for the new content: it is ground truth for
-# "the agent fetched, accepted and applied v2", unlike any single badge on the
-# config page (the history table shows "running" next to v1 until the agent
-# actually switches, so grepping the page for that text alone proves nothing).
-wait_for 120 "agent never applied the config edited in the UI" \
-	'grep -q "uptime:" "$WORK/agent2/managed-config.json" 2>/dev/null'
-pass "agent applied the config edited in the UI"
 
 echo "== all e2e checks passed"

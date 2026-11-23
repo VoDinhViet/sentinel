@@ -26,23 +26,10 @@ type Config struct {
 	Repositories      map[string]Repository `yaml:"repositories"`
 	Backups           []Backup              `yaml:"backups"`
 	RepoCheckSchedule string                `yaml:"repo_check_schedule"`
-	// Monitor is accepted for old config files and ignored: resource
-	// monitoring moved to Beszel (see ServerConfig.Beszel).
+	// Monitor is accepted for old config files and ignored: Sentinel no longer
+	// monitors server resources.
 	Monitor any           `yaml:"monitor"`
 	Uptime  []UptimeCheck `yaml:"uptime"`
-
-	// Central connects this agent to a sentinel server.
-	Central *Central `yaml:"central"`
-	// RestoreDir is the only place restores requested from the server may write.
-	RestoreDir string `yaml:"restore_dir"`
-}
-
-type Central struct {
-	URL   string `yaml:"url"`
-	Token string `yaml:"token"`
-	// Managed means backups, uptime and alert settings come from the
-	// server; this file then only needs server_name, store and central.
-	Managed bool `yaml:"managed"`
 }
 
 type Notifiers struct {
@@ -239,7 +226,7 @@ func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	}
 	if c.Monitor != nil {
 		warnMonitor.Do(func() {
-			slog.Warn("config: the monitor: section is ignored; server resources are now monitored with Beszel (see README)")
+			slog.Warn("config: the monitor: section is ignored; Sentinel no longer monitors server resources")
 		})
 	}
 	return &c, nil
@@ -283,9 +270,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Store == "" {
 		c.Store = "/var/lib/sentinel/state.db"
-	}
-	if c.RestoreDir == "" {
-		c.RestoreDir = "/var/lib/sentinel/restore"
 	}
 	if c.Alert.Cooldown == 0 {
 		c.Alert.Cooldown = time.Hour
@@ -462,14 +446,6 @@ func (c *Config) validate() error {
 	}
 	if s := c.Notifiers.Slack; s != nil && s.Webhook == "" {
 		add("notifiers.slack: webhook is required")
-	}
-	if ct := c.Central; ct != nil {
-		if !strings.HasPrefix(ct.URL, "http://") && !strings.HasPrefix(ct.URL, "https://") {
-			add("central.url must start with http:// or https://")
-		}
-		if ct.Token == "" {
-			add("central.token is required")
-		}
 	}
 	return errors.Join(errs...)
 }

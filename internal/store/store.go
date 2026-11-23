@@ -58,7 +58,7 @@ var migrations = []string{
 		last_notified INTEGER NOT NULL,
 		message TEXT NOT NULL
 	);`,
-	// Resource metrics now come from Beszel.
+	// Resource metrics are no longer collected.
 	`DROP TABLE metrics;`,
 }
 

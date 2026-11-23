@@ -50,6 +50,23 @@ backups:
     repositories: [s3main, gdrive]
     retention: { daily: 7, weekly: 4, monthly: 6 }
 
+  # MySQL / MariaDB: needs mariadb-dump or mysqldump. The password never goes on
+  # the command line (a 0600 temp file is used). Set tls: disabled if the server has no TLS.
+  # - name: shopdb
+  #   type: mysql
+  #   schedule: "15 2 * * *"
+  #   mysql: { host: localhost, port: 3306, user: root, password: "${MYSQL_PWD}", database: shop }
+  #   repositories: [s3main]
+  #   retention: { daily: 7, weekly: 4 }
+
+  # MongoDB: needs mongodump (mongodb-database-tools); dumps one database as a gzip archive.
+  # - name: crm
+  #   type: mongodb
+  #   schedule: "30 2 * * *"
+  #   mongodb: { host: localhost, port: 27017, user: backup, password: "${MONGO_PWD}", auth_database: admin, database: crm }
+  #   repositories: [s3main]
+  #   retention: { daily: 7, weekly: 4 }
+
   - name: uploads
     type: files
     schedule: "30 2 * * *"
@@ -59,14 +76,6 @@ backups:
     retention: { daily: 7, weekly: 4 }
 
 repo_check_schedule: "0 4 * * 0"         # weekly `restic check` of every repository
-
-monitor:
-  interval: 60s
-  thresholds:                            # "value%" or "value%/duration" (must last that long)
-    cpu: 90%/5m
-    memory: 90%/5m
-    disk: 85%
-    load_per_core: 2.0/5m
 
 uptime:
   - name: website

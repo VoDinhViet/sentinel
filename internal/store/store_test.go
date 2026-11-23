@@ -99,7 +99,7 @@ func TestAlerts(t *testing.T) {
 	}
 }
 
-func TestChecksMetricsPrune(t *testing.T) {
+func TestChecksPrune(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	old := time.Unix(1_600_000_000, 0)
@@ -113,20 +113,10 @@ func TestChecksMetricsPrune(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.RecordMetrics(ctx, Metrics{At: old, CPU: 10}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordMetrics(ctx, Metrics{At: recent, CPU: 55.5, DiskMax: 70}); err != nil {
-		t.Fatal(err)
-	}
 
 	checks, err := s.LatestChecks(ctx)
 	if err != nil || len(checks) != 1 || !checks[0].OK || checks[0].Latency != 42*time.Millisecond {
 		t.Fatalf("latest checks = %+v, %v", checks, err)
-	}
-	m, ok, err := s.LatestMetrics(ctx)
-	if err != nil || !ok || m.CPU != 55.5 {
-		t.Fatalf("latest metrics = %+v, %v, %v", m, ok, err)
 	}
 
 	if err := s.Prune(ctx, recent.Add(-time.Hour)); err != nil {
@@ -137,10 +127,6 @@ func TestChecksMetricsPrune(t *testing.T) {
 	if n != 1 {
 		t.Errorf("checks after prune = %d, want 1", n)
 	}
-	s.db.QueryRow(`SELECT COUNT(*) FROM metrics`).Scan(&n)
-	if n != 1 {
-		t.Errorf("metrics after prune = %d, want 1", n)
-	}
 }
 
 func TestSinceCursors(t *testing.T) {
@@ -150,7 +136,6 @@ func TestSinceCursors(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		s.RecordBackup(ctx, BackupRun{Job: "j", Repository: "r", StartedAt: at, FinishedAt: at, Success: true})
 		s.RecordCheck(ctx, CheckResult{Name: "c", At: at, OK: true})
-		s.RecordMetrics(ctx, Metrics{At: at.Add(time.Duration(i) * time.Minute), CPU: float64(i)})
 	}
 
 	runs, err := s.BackupRunsSince(ctx, 0, 3)
@@ -168,9 +153,5 @@ func TestSinceCursors(t *testing.T) {
 	checks, err := s.ChecksSince(ctx, 2, 10)
 	if err != nil || len(checks) != 3 || checks[0].ID != 3 {
 		t.Fatalf("checks = %+v, %v", checks, err)
-	}
-	ms, err := s.MetricsSince(ctx, 4, 10)
-	if err != nil || len(ms) != 1 || ms[0].ID != 5 || ms[0].CPU != 4 {
-		t.Fatalf("metrics = %+v, %v", ms, err)
 	}
 }

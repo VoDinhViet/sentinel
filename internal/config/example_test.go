@@ -19,7 +19,7 @@ func TestExampleConfigParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Backups) != 2 || len(c.Uptime) != 3 || c.Monitor == nil {
+	if len(c.Backups) != 2 || len(c.Uptime) != 3 {
 		t.Errorf("example not fully parsed: %+v", c)
 	}
 }

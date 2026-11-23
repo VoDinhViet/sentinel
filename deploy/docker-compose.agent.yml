@@ -1,0 +1,29 @@
+# Sentinel agent (backups, uptime checks, alerts) in Docker.
+#
+#   1. Build the image on a machine with Go:   make docker
+#      then ship it:  docker save sentinel | ssh vps docker load
+#      (or push it to your registry and set SENTINEL_IMAGE).
+#   2. Put the secrets your config references in sentinel.env,
+#      and the config (see config.example.yaml) in ./config.yaml.
+#   3. docker compose -f docker-compose.agent.yml up -d
+services:
+  sentinel:
+    image: ${SENTINEL_IMAGE:-sentinel:latest}
+    command: ["run", "--config", "/etc/sentinel/config.yaml"]
+    restart: unless-stopped
+    user: "0"
+    # Host networking lets uptime checks and pg_dump reach services on the VPS
+    # (127.0.0.1 is then the VPS itself).
+    network_mode: host
+    cap_add: [NET_RAW]   # ping checks
+    env_file: ./sentinel.env
+    volumes:
+      - ./config.yaml:/etc/sentinel/config.yaml:ro
+      - sentinel_state:/var/lib/sentinel
+      # Paths to back up, read-only, at the same place as in config.yaml, e.g.:
+      # - /var/www:/var/www:ro
+      # - /etc/nginx:/etc/nginx:ro
+      # Restore targets, e.g. `docker compose run --rm sentinel backup restore <job> latest --target /restore`:
+      # - ./restore:/restore
+volumes:
+  sentinel_state:
