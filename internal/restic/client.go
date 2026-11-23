@@ -41,6 +41,12 @@ func IsLocked(err error) bool {
 	return errors.As(err, &exitErr) && exitErr.Code == exitLocked
 }
 
+// IsNoRepo reports whether err is restic finding no repository at the location.
+func IsNoRepo(err error) bool {
+	var exitErr *ExitError
+	return errors.As(err, &exitErr) && exitErr.Code == exitNoRepository
+}
+
 // IsWrongPass reports whether err is restic rejecting the repository password.
 func IsWrongPass(err error) bool {
 	var exitErr *ExitError

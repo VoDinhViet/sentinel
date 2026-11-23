@@ -510,8 +510,8 @@ func TestStoreAtCreatesTheRepositoryAndTicksItForTheJob(t *testing.T) {
 	if len(configFile.repositories) != 1 || configFile.repositories[0].Name != "orders" || !strings.HasSuffix(configFile.repositories[0].URL, "/dumps") || configFile.repositories[0].PasswordEnv != "RESTIC_PW" {
 		t.Errorf("repository saved = %+v", configFile.repositories)
 	}
-	if !strings.Contains(screen.notice, "sentinel backup init orders") {
-		t.Errorf("notice = %q, want the init command", screen.notice)
+	if !strings.Contains(screen.notice, "created at the first backup") {
+		t.Errorf("notice = %q, want to hear the repository is created by the first backup", screen.notice)
 	}
 }
 
@@ -560,7 +560,7 @@ func TestDatabaseJobWithoutARepositoryGetsAnAutomaticFolder(t *testing.T) {
 	if len(configFile.repositories) != 1 || configFile.repositories[0].URL != autoStoreBase()+"/ordersdb" {
 		t.Errorf("repository saved = %+v", configFile.repositories)
 	}
-	if !strings.Contains(screen.notice, autoStoreBase()+"/ordersdb") || !strings.Contains(screen.notice, "sentinel backup init ordersdb") {
+	if !strings.Contains(screen.notice, autoStoreBase()+"/ordersdb") || !strings.Contains(screen.notice, "created at the first backup") {
 		t.Errorf("notice = %q", screen.notice)
 	}
 }

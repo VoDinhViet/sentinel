@@ -113,6 +113,17 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 	}
 
 	sum, err := client.Backup(ctx, opts)
+	if restic.IsNoRepo(err) {
+		// The first backup into a folder of this machine creates the repository there.
+		created, initErr := initLocalRepo(ctx, client)
+		if initErr != nil {
+			return fail(initErr)
+		}
+		if created {
+			logger.Info("repository created", "url", client.Repo.URL)
+			sum, err = client.Backup(ctx, opts)
+		}
+	}
 	for attempt := 0; restic.IsLocked(err) && attempt < r.LockRetries; attempt++ {
 		logger.Warn("repository locked, retrying", "in", r.LockRetryDelay)
 		select {

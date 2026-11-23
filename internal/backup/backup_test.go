@@ -344,3 +344,70 @@ func TestRestoreLatestPrefixAndForeign(t *testing.T) {
 		t.Errorf("another job's snapshot: err = %v, want ErrForeignSnapshot", err)
 	}
 }
+
+func TestFirstBackupCreatesALocalRepository(t *testing.T) {
+	needRestic(t)
+	ctx := context.Background()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := testRunner(t,
+		config.Job{Name: "docs", Type: config.JobFiles, Timeout: time.Minute, Paths: []string{source}, Repositories: []string{"local"}},
+		config.Job{Name: "empty", Type: config.JobFiles, Timeout: time.Minute, Paths: []string{source}, Repositories: []string{"local2"}},
+	)
+	if err := os.MkdirAll(r.Config.Repositories["local2"].URL, 0o755); err != nil { // an empty folder is fine too
+		t.Fatal(err)
+	}
+	for i := range r.Config.Jobs {
+		job := &r.Config.Jobs[i]
+		if runs := r.Run(ctx, job); !runs[0].Success {
+			t.Fatalf("%s: the first backup must create the repository and succeed: %+v", job.Name, runs[0])
+		}
+		client, _ := r.Restic(job.Repositories[0])
+		if ok, err := client.Exists(ctx); !ok || err != nil {
+			t.Errorf("%s: repository not created: %v %v", job.Name, ok, err)
+		}
+		if runs := r.Run(ctx, job); !runs[0].Success {
+			t.Errorf("%s: the second backup: %+v", job.Name, runs[0])
+		}
+	}
+}
+
+func TestLocalRepoDir(t *testing.T) {
+	for url, want := range map[string]string{"/var/backups/x": "/var/backups/x", "local:/srv/r": "/srv/r"} {
+		if got, ok := localRepoDir(url); !ok || got != want {
+			t.Errorf("localRepoDir(%q) = %q, %v", url, got, ok)
+		}
+	}
+	for _, url := range []string{"s3:https://host/bucket", "sftp:me@host:/srv", "rclone:gdrive:backups", "rest:https://x", "relative/dir", ""} {
+		if _, ok := localRepoDir(url); ok {
+			t.Errorf("%q is not a folder of this machine", url)
+		}
+	}
+}
+
+func TestBackupDoesNotTurnAFolderWithOtherFilesIntoARepository(t *testing.T) {
+	needRestic(t)
+	ctx := context.Background()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := testRunner(t, config.Job{Name: "docs", Type: config.JobFiles, Timeout: time.Minute, Paths: []string{source}, Repositories: []string{"local"}})
+	repoDir := r.Config.Repositories["local"].URL
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(repoDir, "other.txt")
+	if err := os.WriteFile(other, []byte("not a repository"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runs := r.Run(ctx, &r.Config.Jobs[0])
+	if runs[0].Success || !strings.Contains(runs[0].Error, "not empty") {
+		t.Fatalf("the backup must fail and say why: %+v", runs[0])
+	}
+	if entries, _ := os.ReadDir(repoDir); len(entries) != 1 {
+		t.Errorf("the folder was touched: %v", entries)
+	}
+}

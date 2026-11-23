@@ -259,7 +259,12 @@ func (f form) apply(actions manageActions) (string, error) {
 		if err := actions.saveRepository("", repo); err != nil {
 			return label, err
 		}
-		label += " with its backups in " + repo.URL + " (create the repository once with: sentinel backup init " + job.Name + ")"
+		label += " with its backups in " + repo.URL
+		if strings.Contains(repo.URL, ":") { // a remote location: the repository is not created behind anyone's back
+			label += " (create the repository once with: sentinel backup init " + job.Name + ")"
+		} else {
+			label += " (the repository is created at the first backup)"
+		}
 	}
 	if err := actions.saveJob(f.original, job); err != nil {
 		if repo.URL != "" {
