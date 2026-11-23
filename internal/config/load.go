@@ -57,6 +57,32 @@ func MissingVars(raw []byte) ([]string, error) {
 	return slices.Sorted(maps.Keys(missingVars)), nil
 }
 
+// RefVars lists every variable the config document refers to with ${VAR}, set or not.
+func RefVars(raw []byte) ([]string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	names := map[string]bool{}
+	var walk func(node *yaml.Node)
+	walk = func(node *yaml.Node) {
+		if node.Kind == yaml.ScalarNode {
+			for _, match := range envRef.FindAllStringSubmatch(node.Value, -1) {
+				names[match[1]] = true
+			}
+			return
+		}
+		for i, child := range node.Content {
+			if node.Kind == yaml.MappingNode && i%2 == 0 {
+				continue
+			}
+			walk(child)
+		}
+	}
+	walk(&doc)
+	return slices.Sorted(maps.Keys(names)), nil
+}
+
 // wholeEnvRef matches a value that is exactly one ${VAR}.
 var wholeEnvRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -74,19 +75,22 @@ func (a *app) load(mayAsk bool) (*config.Config, error) {
 		return nil, a.configErr
 	}
 	envFile := filepath.Join(filepath.Dir(a.configPath), config.EnvFileName)
-	warnIfOpen(envFile)
-	if _, err := config.LoadEnvFile(envFile); err != nil {
-		return nil, fmt.Errorf("read %s: %w", envFile, err)
-	}
 	raw, err := os.ReadFile(a.configPath)
 	if err != nil {
+		return nil, err
+	}
+	referenced, err := config.RefVars(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := loadEnvFile(envFile, referenced); err != nil {
 		return nil, err
 	}
 	missing, err := config.MissingVars(raw)
 	if err != nil {
 		return nil, err
 	}
-	var asked map[string]string
+	var asked, unverified map[string]string
 	if len(missing) > 0 {
 		if !mayAsk || !a.term.isTerminal() {
 			return nil, fmt.Errorf("unset environment variables: %v (set them in the environment or in %s)", missing, envFile)
@@ -100,8 +104,11 @@ func (a *app) load(mayAsk bool) (*config.Config, error) {
 		return nil, err
 	}
 	if len(asked) > 0 {
-		if cfg, err = a.verifyAsked(raw, cfg, asked); err != nil {
+		if cfg, unverified, err = a.verifyAsked(raw, cfg, asked); err != nil {
 			return nil, err
+		}
+		for name := range unverified {
+			delete(asked, name) // never offer to keep a password that was not checked
 		}
 		a.offerSave(envFile, asked)
 	}
@@ -146,12 +153,13 @@ func (a *app) askMissing(raw []byte, missing []string) (map[string]string, error
 // verifyAsked checks each repository password that was just typed: a wrong one is asked for
 // again, and a repository that does not exist yet needs the password typed twice, because it
 // becomes the repository's password at `sentinel backup init`.
-func (a *app) verifyAsked(raw []byte, cfg *config.Config, asked map[string]string) (*config.Config, error) {
+func (a *app) verifyAsked(raw []byte, cfg *config.Config, asked map[string]string) (*config.Config, map[string]string, error) {
 	passwordVars, err := config.PasswordVars(raw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ctx := context.Background()
+	unverified := map[string]string{}
 	for _, repoName := range slices.Sorted(maps.Keys(passwordVars)) {
 		name := passwordVars[repoName]
 		if _, wasAsked := asked[name]; !wasAsked {
@@ -162,43 +170,51 @@ func (a *app) verifyAsked(raw []byte, cfg *config.Config, asked map[string]strin
 			problem := ""
 			switch {
 			case err == nil && exists:
-			case err == nil:
-				again, readErr := a.term.readSecret(fmt.Sprintf("Repository %s is new: type the password of %s again: ", repoName, name))
+			case err == nil || !restic.IsWrongPass(err):
+				// A new repository, or one that could not be checked: nothing proves the password
+				// is the right one, so it has to be typed twice and is not offered for saving.
+				if err != nil {
+					slog.Warn("could not check the repository password", "repository", repoName, "err", err)
+					unverified[name] = asked[name]
+				}
+				prompt := fmt.Sprintf("Repository %s is new: type the password of %s again: ", repoName, name)
+				if err != nil {
+					prompt = fmt.Sprintf("Repository %s could not be checked: type the password of %s again: ", repoName, name)
+				}
+				again, readErr := a.term.readSecret(prompt)
 				if readErr != nil {
-					return nil, readErr
+					return nil, nil, readErr
 				}
 				if again != os.Getenv(name) {
 					problem = "the two passwords differ"
 				}
-			case restic.IsWrongPass(err):
-				problem = "wrong password for repository " + repoName
 			default:
-				slog.Warn("could not check the repository password", "repository", repoName, "err", err)
+				problem = "wrong password for repository " + repoName
 			}
 			if problem == "" {
 				break
 			}
 			if try >= maxPasswordTries {
-				return nil, errors.New(problem)
+				return nil, nil, errors.New(problem)
 			}
 			fmt.Fprintln(os.Stderr, problem+", try again")
 			value, err := a.term.readSecret(name + ": ")
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if value == "" {
-				return nil, fmt.Errorf("%s is empty", name)
+				return nil, nil, fmt.Errorf("%s is empty", name)
 			}
 			if err := os.Setenv(name, value); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			asked[name] = value
 			if cfg, err = config.Parse(raw); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
-	return cfg, nil
+	return cfg, unverified, nil
 }
 
 // offerSave keeps the typed values in the env file beside the config when the user agrees.
@@ -215,9 +231,32 @@ func (a *app) offerSave(envFile string, asked map[string]string) {
 	fmt.Fprintf(os.Stderr, "Saved. Keep a copy of the repository password somewhere else: losing it means losing every backup.\n")
 }
 
-// warnIfOpen warns when other users can read the env file; it never prints a value.
-func warnIfOpen(envFile string) {
-	if fileInfo, err := os.Stat(envFile); err == nil && fileInfo.Mode().Perm()&0o077 != 0 {
-		slog.Warn("the env file is readable by other users", "file", envFile, "fix", "chmod 600 "+envFile)
+// loadEnvFile reads the env file beside the config for the variables the config refers to. It
+// refuses a file other users can write (or that belongs to someone else), and warns about one
+// they can read. A file this user cannot read is skipped: the variables may already be set.
+func loadEnvFile(envFile string, referenced []string) error {
+	info, err := os.Stat(envFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", envFile, err)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%s can be written by other users: run chmod 600 %s", envFile, envFile)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != 0 && int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("%s belongs to another user", envFile)
+	}
+	if info.Mode().Perm()&0o004 != 0 {
+		slog.Warn("the env file can be read by every user", "file", envFile, "fix", "chmod 600 "+envFile)
+	}
+	if _, err := config.LoadEnvFile(envFile, referenced); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			slog.Warn("cannot read the env file; using the environment only", "file", envFile)
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", envFile, err)
+	}
+	return nil
 }

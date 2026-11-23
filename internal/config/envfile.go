@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -15,8 +16,10 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // LoadEnvFile sets the variables of an env file (KEY=value lines, # comments, an optional
 // "export " prefix, values bare or in '…' or "…") that the environment does not define yet, so
-// the environment always wins. A missing file is not an error. It returns the names it set.
-func LoadEnvFile(path string) ([]string, error) {
+// the environment always wins. Only the names in wanted are read (the ${VAR}s the config
+// refers to): other lines are skipped, so the file cannot set PATH or LD_PRELOAD for the
+// tools Sentinel starts. A missing file is not an error. It returns the names it set.
+func LoadEnvFile(path string, wanted []string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -39,7 +42,7 @@ func LoadEnvFile(path string) ([]string, error) {
 		if !found || !envName.MatchString(name) {
 			return loaded, fmt.Errorf("%s:%d: want NAME=value", path, lineNum)
 		}
-		if _, set := os.LookupEnv(name); set {
+		if _, set := os.LookupEnv(name); set || !slices.Contains(wanted, name) {
 			continue
 		}
 		parsed, err := parseEnvValue(strings.TrimSpace(value))

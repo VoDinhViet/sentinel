@@ -193,3 +193,52 @@ func TestLoadConfigOldFormatFailsBeforeAsking(t *testing.T) {
 		t.Errorf("asked before the config was valid: %q", script.prompts)
 	}
 }
+
+func TestUnverifiedPasswordIsTypedTwiceAndNeverOfferedForSaving(t *testing.T) {
+	script := &terminalScript{replies: []string{"pw1", "pw1"}, saveAnswer: true, existsFor: func(string) (bool, error) { return false, errors.New("network down") }}
+	cli, envFile := secretsApp(t, script, true)
+	cfg, err := cli.loadConfig()
+	if err != nil || cfg.Repositories["local"].Password != "pw1" {
+		t.Fatalf("cfg %v, err %v", cfg, err)
+	}
+	if len(script.prompts) != 2 || !strings.Contains(script.prompts[1], "could not be checked") {
+		t.Errorf("prompts = %q", script.prompts)
+	}
+	if _, err := os.Stat(envFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an unchecked password must not be saved: %v", err)
+	}
+	mismatch := &terminalScript{replies: []string{"a", "b", "c", "c"}, existsFor: func(string) (bool, error) { return false, errors.New("timeout") }}
+	cli, _ = secretsApp(t, mismatch, true)
+	if cfg, err = cli.loadConfig(); err != nil || cfg.Repositories["local"].Password != "c" {
+		t.Errorf("a mistyped confirmation asks again: cfg %v, err %v", cfg, err)
+	}
+}
+
+func TestEnvFileOthersCanWriteIsRefused(t *testing.T) {
+	script := &terminalScript{existsFor: func(string) (bool, error) { return true, nil }}
+	cli, envFile := secretsApp(t, script, false)
+	if err := os.WriteFile(envFile, []byte("SECRET_TEST_PW=x\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(envFile, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.readConfig(); err == nil || !strings.Contains(err.Error(), "written by other users") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestEnvFileOnlySetsWhatTheConfigUses(t *testing.T) {
+	script := &terminalScript{existsFor: func(string) (bool, error) { return true, nil }}
+	cli, envFile := secretsApp(t, script, false)
+	if err := os.WriteFile(envFile, []byte("SECRET_TEST_PW=x\nSENTINEL_TEST_UNRELATED=bad\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("SENTINEL_TEST_UNRELATED")
+	if _, err := cli.readConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if v, set := os.LookupEnv("SENTINEL_TEST_UNRELATED"); set {
+		t.Errorf("an unrelated variable was loaded: %q", v)
+	}
+}

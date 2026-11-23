@@ -19,7 +19,7 @@ func TestLoadEnvFile(t *testing.T) {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
 	}
-	loaded, err := LoadEnvFile(path)
+	loaded, err := LoadEnvFile(path, []string{"PLAIN", "EXPORTED", "SINGLE", "DOUBLE", "KEPT"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestLoadEnvFile(t *testing.T) {
 }
 
 func TestLoadEnvFileMissingAndBad(t *testing.T) {
-	if loaded, err := LoadEnvFile(filepath.Join(t.TempDir(), "none.env")); err != nil || loaded != nil {
+	if loaded, err := LoadEnvFile(filepath.Join(t.TempDir(), "none.env"), nil); err != nil || loaded != nil {
 		t.Errorf("missing file: %v %v", loaded, err)
 	}
 	for name, body := range map[string]string{"no equals": "JUSTNAME\n", "bad name": "1BAD=x\n", "open quote": "A=\"x\n"} {
@@ -42,7 +42,7 @@ func TestLoadEnvFileMissingAndBad(t *testing.T) {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LoadEnvFile(path); err == nil {
+		if _, err := LoadEnvFile(path, []string{"A", "JUSTNAME"}); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
 	}
@@ -75,5 +75,29 @@ func TestMissingVarsRejectsAnOldConfigFirst(t *testing.T) {
 	_, err := MissingVars([]byte("repositories:\n  local: {url: /r, password: \"${OLD_FORMAT_PW}\"}\nbackups:\n  - name: documents\n"))
 	if err == nil || !strings.Contains(err.Error(), `"backups" was renamed to "jobs"`) {
 		t.Errorf("err = %v, want the rename hint", err)
+	}
+}
+
+func TestLoadEnvFileIgnoresNamesTheConfigDoesNotUse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sentinel.env")
+	if err := os.WriteFile(path, []byte("WANTED_PW=ok\nLD_PRELOAD=/evil.so\nPATH=/evil\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("WANTED_PW")
+	t.Cleanup(func() { os.Unsetenv("WANTED_PW") })
+	origPath := os.Getenv("PATH")
+	loaded, err := LoadEnvFile(path, []string{"WANTED_PW"})
+	if err != nil || !slices.Equal(loaded, []string{"WANTED_PW"}) {
+		t.Fatalf("loaded %v, err %v", loaded, err)
+	}
+	if os.Getenv("PATH") != origPath || os.Getenv("LD_PRELOAD") == "/evil.so" {
+		t.Error("a name the config does not refer to was loaded")
+	}
+}
+
+func TestRefVars(t *testing.T) {
+	names, err := RefVars([]byte("a: ${ONE}\nb: [\"x-${TWO}\", \"${ONE}\"]\n\"${KEY}\": plain\n"))
+	if err != nil || !slices.Equal(names, []string{"ONE", "TWO"}) {
+		t.Errorf("names = %v, err %v (a key is not expanded)", names, err)
 	}
 }
