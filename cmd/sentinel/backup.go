@@ -93,7 +93,7 @@ func (a *app) backupCmd() *cobra.Command {
 			fmt.Fprintln(w, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 			failed := 0
 			for _, r := range runs {
-				result := runResult(r)
+				result := r.Summary()
 				if !r.Success {
 					failed++
 				}

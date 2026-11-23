@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"sentinel/internal/status"
 )
 
 func (a *app) statusCmd() *cobra.Command {
@@ -29,7 +31,7 @@ func (a *app) statusCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			report, err := buildStatusReport(cmd.Context(), cfg, st, time.Now())
+			report, err := status.Build(cmd.Context(), cfg, st, time.Now())
 			if err != nil {
 				return err
 			}
@@ -66,7 +68,7 @@ func relativeAgo(t, now time.Time) string {
 	return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
 }
 
-func printStatus(out io.Writer, report statusReport) error {
+func printStatus(out io.Writer, report status.Report) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	now := report.GeneratedAt
 
@@ -79,10 +81,10 @@ func printStatus(out io.Writer, report statusReport) error {
 	w.Flush()
 
 	fmt.Fprintln(out, "\nLast backups:")
-	if len(report.Backups) == 0 {
+	if len(report.Jobs) == 0 {
 		fmt.Fprintln(out, "  none yet")
 	}
-	for _, backup := range report.Backups {
+	for _, backup := range report.Jobs {
 		result := backup.Result
 		if backup.Success {
 			result += fmt.Sprintf("  %.8s", backup.SnapshotID)

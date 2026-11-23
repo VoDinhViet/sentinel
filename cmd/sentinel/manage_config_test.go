@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"sentinel/internal/status"
 )
 
 // configScreen is the formModel screen opened on the Config tab.
@@ -279,7 +281,7 @@ func TestConfigTabMouseSecondClickEditsAndAddsFromTheSection(t *testing.T) {
 }
 
 func TestConfigTabWithoutAConfigFileSaysSo(t *testing.T) {
-	model, _ := newManageModel(t.Context(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(t.Context(), func() (status.Report, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
 	screen := model.(manageModel)
 	model, _ = screen.Update(tea5())
 	if view := plain(model.(manageModel).render()); !strings.Contains(view, "5 Config") {

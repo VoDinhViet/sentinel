@@ -207,3 +207,23 @@ func TestRecentBackups(t *testing.T) {
 		t.Errorf("empty store: %v, %v", none, err)
 	}
 }
+
+func TestBackupRunOutcomeAndSummary(t *testing.T) {
+	for name, tc := range map[string]struct {
+		run                      BackupRun
+		wantOutcome, wantSummary string
+	}{
+		"success":              {BackupRun{Success: true}, "ok", "ok"},
+		"success with warning": {BackupRun{Success: true, Error: "retention failed: locked"}, "warning", "ok (warning: retention failed: locked)"},
+		"failure":              {BackupRun{Error: "disk on fire"}, "failed", "FAILED: disk on fire"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.run.Outcome(); got != tc.wantOutcome {
+				t.Errorf("Outcome = %q, want %q", got, tc.wantOutcome)
+			}
+			if got := tc.run.Summary(); got != tc.wantSummary {
+				t.Errorf("Summary = %q, want %q", got, tc.wantSummary)
+			}
+		})
+	}
+}

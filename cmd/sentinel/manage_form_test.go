@@ -8,6 +8,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
 
 type fakeConfig struct {
@@ -78,7 +79,7 @@ func formModel(t *testing.T) (manageModel, *fakeConfig) {
 	}}
 	actions := (&fakeActions{}).actions()
 	configFile.attach(&actions)
-	screen := newManageModel(t.Context(), func() (statusReport, error) { return sampleReport(), nil }, actions, jobRepositoriesOf(configFile.listing))
+	screen := newManageModel(t.Context(), func() (status.Report, error) { return sampleReport(), nil }, actions, jobRepositoriesOf(configFile.listing))
 	model, _ := screen.Update(reportMsg{report: sampleReport()})
 	return model.(manageModel), configFile
 }

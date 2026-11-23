@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"sentinel/internal/status"
 )
 
 func doctorFindings() []finding {
@@ -25,7 +27,7 @@ func doctorModel(t *testing.T) (manageModel, *int) {
 		*runs++
 		return doctorFindings()
 	}}
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, actions, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, actions, nil).Update(reportMsg{report: sampleReport()})
 	return model.(manageModel), runs
 }
 
@@ -117,7 +119,7 @@ func TestDoctorTabAlarmsOnlyOnFailures(t *testing.T) {
 }
 
 func TestDoctorTabWithoutAnActionStaysIdle(t *testing.T) {
-	model, _ := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
+	model, _ := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, manageActions{}, nil).Update(reportMsg{report: sampleReport()})
 	screen, cmd := send(t, model.(manageModel), "4")
 	if cmd != nil || screen.doctor.running {
 		t.Error("nothing to run without a doctor action")

@@ -14,6 +14,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
 
 // initOutcome is what a finished init tells the user.
@@ -76,7 +77,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		return nil
 	}}
-	model := newManageModel(ctx, func() (statusReport, error) { return statusReport{Server: hostname}, nil }, actions, nil)
+	model := newManageModel(ctx, func() (status.Report, error) { return status.Report{Server: hostname}, nil }, actions, nil)
 	model.loaded = true
 	model.report.Server = hostname
 	model = model.openEntryForm(newInitForm(path, root, hostname))

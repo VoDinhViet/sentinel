@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"sentinel/internal/restic"
+	"sentinel/internal/status"
 	"sentinel/internal/store"
 )
 
@@ -92,7 +93,7 @@ func (f *fakeActions) actions() manageActions {
 
 func modelWith(t *testing.T, fake *fakeActions) manageModel {
 	t.Helper()
-	screen := newManageModel(context.Background(), func() (statusReport, error) { return sampleReport(), nil }, fake.actions(),
+	screen := newManageModel(context.Background(), func() (status.Report, error) { return sampleReport(), nil }, fake.actions(),
 		[]jobRepository{{"appdb", "s3"}, {"newjob", "local"}})
 	model, _ := screen.Update(reportMsg{report: sampleReport()})
 	return model.(manageModel)

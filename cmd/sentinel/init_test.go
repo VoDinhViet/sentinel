@@ -6,6 +6,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/status"
 )
 
 // initScreen is the init form hosted the way `sentinel init` hosts it, with a fake writer.
@@ -16,7 +17,7 @@ func initScreen(t *testing.T, root bool) (initProgram, *[]configedit.Initial) {
 		written = append(written, initial)
 		return nil
 	}}
-	model := newManageModel(t.Context(), func() (statusReport, error) { return statusReport{Server: "web-01"}, nil }, actions, nil)
+	model := newManageModel(t.Context(), func() (status.Report, error) { return status.Report{Server: "web-01"}, nil }, actions, nil)
 	model.loaded = true
 	return initProgram{manageModel: model.openEntryForm(newInitForm("/home/me/.config/sentinel/config.yaml", root, "web-01"))}, &written
 }
