@@ -74,7 +74,6 @@ func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, version int64)
 		s.current.Store(&running{d, version})
 		if applied != nil {
 			go applied()
-			applied = nil
 		}
 		dctx, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)

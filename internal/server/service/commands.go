@@ -38,15 +38,15 @@ func (c CommandRecord) Describe() string {
 	switch c.Type {
 	case api.CmdBackupRun:
 		var a api.BackupRunArgs
-		json.Unmarshal(c.Args, &a)
+		_ = json.Unmarshal(c.Args, &a) // display only; the arguments were validated when queued
 		return "Backup " + a.Job
 	case api.CmdSnapshots:
 		var a api.SnapshotsArgs
-		json.Unmarshal(c.Args, &a)
+		_ = json.Unmarshal(c.Args, &a) // display only; the arguments were validated when queued
 		return fmt.Sprintf("List snapshots of %s in %s", a.Job, a.Repository)
 	case api.CmdRestore:
 		var a api.RestoreArgs
-		json.Unmarshal(c.Args, &a)
+		_ = json.Unmarshal(c.Args, &a) // display only; the arguments were validated when queued
 		return fmt.Sprintf("Restore %s snapshot %.8s from %s", a.Job, a.Snapshot, a.Repository)
 	}
 	return c.Type

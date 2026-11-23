@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -100,7 +101,9 @@ func (s *Service) ListAudit(ctx context.Context, f AuditFilter) ([]AuditEntry, e
 			return nil, err
 		}
 		e.At = time.Unix(at, 0)
-		json.Unmarshal([]byte(details), &e.Details)
+		if err := json.Unmarshal([]byte(details), &e.Details); err != nil {
+			slog.Warn("audit entry has unreadable details", "entry", e.ID, "error", err)
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()

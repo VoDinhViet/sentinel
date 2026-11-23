@@ -114,7 +114,7 @@ func (r *Runner) runOne(ctx context.Context, job *config.Backup, repoName string
 		log.Warn("repository locked, retrying", "in", r.LockRetryDelay)
 		select {
 		case <-ctx.Done():
-			return fail(fmt.Errorf("%w (gave up waiting for lock: %v)", err, ctx.Err()))
+			return fail(fmt.Errorf("%w (gave up waiting for lock: %w)", err, ctx.Err()))
 		case <-time.After(r.LockRetryDelay):
 		}
 		sum, err = rc.Backup(ctx, opts)

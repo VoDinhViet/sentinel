@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint       # %w and errors.Is/As instead of == and type assertions on errors
+  exclusions:
+    rules:
+      # Closing a read-only handle or rolling back after a commit has nothing to act on.
+      - linters: [errcheck]
+        text: "Error return value of `.*\\.(Close|Rollback)` is not checked"
+      # Best effort by nature: output to the terminal or an HTTP response whose
+      # client may be gone, deadlines on a connection that fails on its next use,
+      # removing a temp file, and cobra flag registration on flags defined above it.
+      - linters: [errcheck]
+        text: "Error return value of `(fmt\\.Fprint(f|ln)?|\\(\\*encoding/json\\.Encoder\\)\\.Encode|\\(\\*encoding/csv\\.Writer\\)\\.Write|[A-Za-z]+\\.(Write|Flush|SetDeadline|MarkFlagRequired)|os\\.Remove)` is not checked"
+      # Tests set up and tear down fixtures; assertions cover the behaviour.
+      - linters: [errcheck]
+        path: _test\.go
+      - linters: [staticcheck]
+        text: "ST1011" # errorCacheMs in internal/beszel

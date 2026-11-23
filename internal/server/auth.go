@@ -163,7 +163,9 @@ func (s *Server) auditLogin(r *http.Request, actor service.Actor, outcome string
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.Service.DeleteSession(r.Context(), c.Value)
+		if err := s.Service.DeleteSession(r.Context(), c.Value); err != nil {
+			slog.Warn("session not deleted on logout", "error", err)
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: *s.Config.SecureCookies, SameSite: http.SameSiteStrictMode})
