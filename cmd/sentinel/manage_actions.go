@@ -53,6 +53,8 @@ type manageActions struct {
 	saveNotifier     func(notifier configedit.Notifier) error
 	deleteNotifier   func(kind string) error
 	saveSettings     func(settings configedit.Settings) error
+	// initialize writes a first config file (`sentinel init`).
+	initialize func(initial configedit.Initial) error
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {

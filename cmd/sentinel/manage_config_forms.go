@@ -323,23 +323,9 @@ func (f form) settings() (configedit.Settings, error) {
 func (f form) checkEntries() []error {
 	switch f.kind {
 	case formRepository:
-		kind := f.field("kind").value
-		var problems []error
-		for _, problem := range configedit.RepositoryProblems(f.repository()) {
-			switch problem.Field {
-			case "url": // the form has no such field: the missing parts are reported below
-			case "env":
-				problems = append(problems, formProblem("access_key_env", "%s", problem.Message))
-			default:
-				problems = append(problems, problem)
-			}
-		}
-		for _, key := range map[string][]string{"local": {"path"}, "s3": {"bucket"}, "rclone": {"remote", "path"}, "sftp": {"target", "path"}, "custom": {"url"}}[kind] {
-			if strings.TrimSpace(f.field(key).value) == "" {
-				problems = append(problems, formProblem(key, "%s is required", strings.ToLower(f.field(key).label)))
-			}
-		}
-		return problems
+		return f.repositoryProblems(f.repository())
+	case formInit:
+		return f.initProblems()
 	case formUptime:
 		check := f.uptime()
 		return []error{configedit.ValidateUptime(&check)}
@@ -353,6 +339,28 @@ func (f form) checkEntries() []error {
 		return []error{configedit.ValidateSettings(settings)}
 	}
 	return nil
+}
+
+// repositoryProblems checks a repository built from the form's fields: the entry itself and the
+// parts of its location the chosen kind needs.
+func (f form) repositoryProblems(repo configedit.Repository) []error {
+	var problems []error
+	for _, problem := range configedit.RepositoryProblems(repo) {
+		switch problem.Field {
+		case "url": // the form has no such field: the missing parts are reported below
+		case "env":
+			problems = append(problems, formProblem("access_key_env", "%s", problem.Message))
+		default:
+			problems = append(problems, problem)
+		}
+	}
+	required := map[string][]string{"local": {"path"}, "s3": {"bucket"}, "rclone": {"remote", "path"}, "sftp": {"target", "path"}, "custom": {"url"}}
+	for _, key := range required[f.field("kind").value] {
+		if strings.TrimSpace(f.field(key).value) == "" {
+			problems = append(problems, formProblem(key, "%s is required", strings.ToLower(f.field(key).label)))
+		}
+	}
+	return problems
 }
 
 // prefixNotifierField maps a problem of a channel field ("token") to the form's key ("telegram.token").
@@ -384,6 +392,9 @@ func (f form) applyEntry(actions manageActions) (string, error) {
 	case formSettings:
 		settings, _ := f.settings()
 		return "settings", actions.saveSettings(settings)
+	case formInit:
+		initial, _ := f.initial()
+		return "config", actions.initialize(initial)
 	}
 	return "", errors.New("unknown form")
 }

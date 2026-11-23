@@ -189,6 +189,8 @@ cat <<'EOF'
 
 Next steps:
   1. Edit /etc/sentinel/config.yaml and /etc/sentinel/sentinel.env
+     (or start over with `sudo sentinel init --force`: a form that writes a short config
+     and a random repository password into sentinel.env)
   2. For Google Drive: rclone config  (as root, so the service can read ~/.config/rclone)
   3. set -a; . /etc/sentinel/sentinel.env; set +a
      sentinel backup init <job>     # once per job

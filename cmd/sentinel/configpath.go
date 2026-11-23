@@ -53,7 +53,7 @@ func (l configLocations) resolve() (string, error) {
 
 func missingConfigMessage(tried []string) string {
 	return fmt.Sprintf("no config file found (looked in %s)\n"+
-		"create one from deploy/config.user.example.yaml (per user) or deploy/config.example.yaml (server),\n"+
-		"or point to it with --config or the SENTINEL_CONFIG environment variable",
+		"run `sentinel init` to create one by answering a form (or copy deploy/config.user.example.yaml / deploy/config.example.yaml),\n"+
+		"or point to an existing one with --config or the SENTINEL_CONFIG environment variable",
 		strings.Join(tried, ", "))
 }

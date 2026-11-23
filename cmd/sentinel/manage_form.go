@@ -68,6 +68,7 @@ const (
 	formUptime
 	formNotifier
 	formSettings
+	formInit // the first-run form of `sentinel init`
 )
 
 // form edits one entry of the config: a job (a database dump or a set of files), a
@@ -672,6 +673,9 @@ func inFuture(d time.Duration) string {
 
 // refreshPairs re-reads the config so new jobs show up (and removed ones go).
 func (m manageModel) refreshJobRepositories() manageModel {
+	if m.actions.listJobs == nil {
+		return m
+	}
 	if listing, err := m.actions.listJobs(); err == nil {
 		m.jobRepositories = jobRepositoriesOf(listing)
 	}

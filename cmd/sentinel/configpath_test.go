@@ -50,7 +50,7 @@ func TestResolveConfigPathExplainsWhatToDoWhenNothingExists(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error when no file exists")
 	}
-	for _, want := range []string{"a.yaml", "b.yaml", "config.user.example.yaml", "--config", "SENTINEL_CONFIG"} {
+	for _, want := range []string{"a.yaml", "b.yaml", "sentinel init", "config.user.example.yaml", "--config", "SENTINEL_CONFIG"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
 		}
