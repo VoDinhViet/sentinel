@@ -4,10 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
-
-	"charm.land/lipgloss/v2"
 
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
@@ -125,93 +121,4 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			return loadHint, err
 		},
 	}
-}
-
-// renderBusy, renderSnapshots, renderTarget, renderConfirm and renderResult are the
-// screens other than the three tabs.
-
-func (m manageModel) renderBusy() []string {
-	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	elapsed := time.Since(m.busyStart).Round(time.Second)
-	return []string{
-		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
-		"",
-		m.keyBar(2, "ctrl+c", "cancel"),
-	}
-}
-
-func (m manageModel) renderSnapshots() []string {
-	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots of %s in %s", m.snapshotJob, m.snapshotRepo)), ""}
-	if len(m.snapshots) == 0 {
-		return append(screenLines, dimStyle.Render("No snapshots for this job in this repository yet."), "", m.keyBar(len(screenLines)+2, "esc", "back"))
-	}
-	visible := max(m.height-8, 3)
-	first := firstVisible(m.snapshotCursor, visible)
-	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "TIME", "SIZE")))
-	for i := first; i < min(first+visible, len(m.snapshots)); i++ {
-		snapshot := m.snapshots[i]
-		size := ""
-		if snapshot.Summary != nil {
-			size = humanBytes(snapshot.Summary.TotalBytes)
-		}
-		line := fmt.Sprintf("%-10s %-17s %s", shortID(snapshot.ID), snapshot.Time.Local().Format("2006-01-02 15:04"), size)
-		m.hits.add(len(screenLines), 0, m.width, fmt.Sprintf("snap:%d", i))
-		if i == m.snapshotCursor {
-			text := "› " + line
-			screenLines = append(screenLines, selectedStyle.Render(text+strings.Repeat(" ", max(m.width-lipgloss.Width(text), 0))))
-		} else {
-			screenLines = append(screenLines, "  "+line)
-		}
-	}
-	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … %d more", hidden)))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "select", "enter", "restore…", "esc", "back"))
-}
-
-func (m manageModel) renderTarget() []string {
-	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
-		"",
-		"Directory to restore into (absolute path):",
-		"  " + m.target + lipglossAccent("▏"),
-	}
-	if m.inputError != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "continue", "esc", "back"))
-}
-
-func (m manageModel) renderConfirm() []string {
-	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s of %s", shortID(m.chosen.ID), m.snapshotJob)),
-		"",
-		wrap(fmt.Sprintf("Snapshot %s (%s) from %s will be restored into %s.",
-			shortID(m.chosen.ID), m.chosen.Time.Local().Format("2006-01-02 15:04"), m.snapshotRepo, m.target), m.width-2),
-	}
-	if m.target == "/" {
-		screenLines = append(screenLines, "", severityStyle(sevWarn).Render("Target is / : files are restored in place and overwrite what is there."))
-	}
-	screenLines = append(screenLines, "", "Type the job name ("+m.snapshotJob+") to confirm:", "  "+m.confirm+lipglossAccent("▏"))
-	if m.inputError != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "restore", "esc", "cancel"))
-}
-
-func (m manageModel) renderResult() []string {
-	style := severityStyle(sevOK)
-	if m.resultBad {
-		style = severityStyle(sevBad)
-	}
-	first, rest, _ := strings.Cut(m.resultText, "\n")
-	screenLines := []string{style.Render(wrap(first, m.width-2))}
-	if rest != "" {
-		screenLines = append(screenLines, rest)
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "any key", "continue"))
-}
-
-func lipglossAccent(text string) string {
-	return lipglossStyleAccent.Render(text)
 }
