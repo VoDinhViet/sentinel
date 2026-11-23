@@ -75,6 +75,8 @@ TG_TOKEN=123456:ABC...
 | `every 6h` | mỗi 6 giờ (tối thiểu 1m) |
 | `manual` hoặc để trống | chỉ chạy tay |
 
+Các dạng trên được đọc khá thoải mái: `daily at 2:30pm`, `every day 02:00`, `weekly monday 3am`, `monthly on the 1st at 4am`, `every 6 hours`, `every 30 minutes` đều dùng được (file config vẫn giữ nguyên chữ bạn viết).
+
 Khối `defaults:` cho các job không ghi riêng `schedule`, `repositories` hoặc `retention`, nên file không phải lặp lại:
 
 ```yaml
@@ -153,7 +155,11 @@ Tab **Doctor** chạy các kiểm tra của `sentinel doctor` (config, restic/rc
 
 Tab **Config** liệt kê mọi thứ trong file config: kho (repositories), job, uptime check, kênh cảnh báo và thiết lập chung. `a` thêm vào nhóm của dòng đang chọn, `e` hoặc `enter` sửa, `d` xóa (gõ lại tên để xác nhận; kho đang có job dùng thì không xóa được và màn hình nêu tên các job đó).
 
-Các form giúp nhập đúng ngay từ đầu: kho chọn bằng ô tick, kiểu kho (thư mục, S3, rclone, sftp) tự ghép thành `url`, lịch có các mẫu có sẵn (`←` `→`) kèm dòng giải thích bằng chữ và lần chạy kế tiếp (`→ every day at 02:00 · next Tue 02:00 (in 13h)`), retention là năm ô số, đường dẫn của job files được báo nếu không thấy trên máy này. Lỗi hiện ngay dưới ô sai.
+Các form giúp nhập đúng ngay từ đầu: kho chọn bằng ô tick, kiểu kho (thư mục, S3, rclone, sftp) tự ghép thành `url`, lịch chỉnh bằng phím thay vì gõ cú pháp: `←` `→` đổi tần suất (manual, mỗi 15 phút, mỗi giờ, mỗi 6 giờ, hằng ngày, hằng tuần, hằng tháng; giữ nguyên giờ đang có), `alt+↑` `alt+↓` đổi giờ ±30 phút, `alt+←` `alt+→` đổi thứ trong tuần hoặc ngày trong tháng; dưới ô có dòng giải thích bằng chữ và ba lần chạy kế tiếp (`→ every day at 02:00 · next Tue 24 Nov 02:00 (in 13h)` rồi `then 25 Nov, 26 Nov`). Vẫn gõ tay được, kể cả cron, retention là năm ô số, đường dẫn của job files được báo nếu không thấy trên máy này. Lỗi hiện ngay dưới ô sai.
+
+**`Tab` hoàn thành đường dẫn** như trong shell ở mọi ô đường dẫn: Paths của job, Folder của kho kiểu thư mục, ô `Store at` và ô thư mục khôi phục khi restore. Gõ `/h` rồi `Tab` ra `/home/`; nhiều kết quả thì điền phần chung và liệt kê gợi ý ngay dưới ô; hết gì để điền thì `Tab` chuyển sang ô kế tiếp như cũ. `${HOME}/` và `~/` giữ nguyên như bạn gõ. Với danh sách ngăn bằng dấu phẩy, `Tab` chỉ hoàn thành mục cuối.
+
+Job database không có `paths` vì dump được đẩy thẳng vào kho restic (tên file `<db>.dump`, `.sql` hoặc `.archive.gz`), không ghi file ra đĩa. Nơi lưu là *kho*: tick kho có sẵn ở ô **Repositories**, hoặc gõ một thư mục vào ô **Store at** để tạo luôn một kho cùng tên job (dùng lại biến mật khẩu của kho đầu tiên, hoặc `RESTIC_PASSWORD`). Kho mới cần `sentinel backup init <job>` một lần. Kho từ xa (S3, sftp, rclone) vẫn tạo ở tab Config.
 
 Ô **Paths** của job files (cả trong `sentinel init`) giúp chọn folder trên chính máy đang chạy Sentinel: dòng `add:` dưới ô liệt kê vài folder phổ biến có thật (`/etc`, `/var/www`, `/srv`, `/opt`, `/root`, mỗi thư mục trong `/home`), bấm hoặc `alt+1`...`alt+9` để thêm. `ctrl+o` hoặc `[ Browse ]` mở trình duyệt folder: `↑` `↓` chọn, `enter`/`→` vào folder, `←`/`backspace` lên một cấp, gõ chữ để lọc theo tên (từ 2 ký tự còn tìm sâu tới 4 cấp bên dưới, mục `also found deeper`), `space` đánh dấu (giữ nguyên khi đi sang folder khác), `ctrl+s` thêm các folder đã đánh dấu vào ô Paths, `esc` hủy. Mỗi dòng hiện dung lượng ước lượng (đếm ngầm, tối đa 20000 file; vượt thì hiện `> 2.1 GiB`) và `✗ no access` nếu tài khoản đang chạy không đọc được. Trình duyệt chỉ đọc, không ghi hay xóa gì, và không đi theo symlink khi tìm sâu.
 
