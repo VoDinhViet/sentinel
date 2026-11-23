@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -26,16 +25,7 @@ func (a *app) checkCmd() *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "no uptime checks configured")
 				return nil
 			}
-			results := make([]uptime.Result, len(cfg.UptimeChecks))
-			var wg sync.WaitGroup
-			for i, c := range cfg.UptimeChecks {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					results[i] = uptime.Probe(cmd.Context(), c)
-				}()
-			}
-			wg.Wait()
+			results := uptime.ProbeAll(cmd.Context(), cfg.UptimeChecks)
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tTARGET\tSTATUS\tLATENCY\tDETAIL")

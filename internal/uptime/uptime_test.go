@@ -98,3 +98,25 @@ func TestPingLocalhost(t *testing.T) {
 		t.Errorf("ping localhost = %+v", result)
 	}
 }
+
+func TestProbeAllKeepsTheOrderOfTheChecks(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAddr := closed.Addr().String()
+	closed.Close()
+	checks := []config.UptimeCheck{
+		{Name: "up", Type: config.CheckTCP, Address: ln.Addr().String(), Timeout: time.Second},
+		{Name: "down", Type: config.CheckTCP, Address: closedAddr, Timeout: time.Second},
+	}
+	results := ProbeAll(context.Background(), checks)
+	if len(results) != 2 || !results[0].OK || results[1].OK {
+		t.Fatalf("results = %+v, want [up, down]", results)
+	}
+}

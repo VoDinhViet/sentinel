@@ -77,3 +77,20 @@ func (t *UptimeTracker) Observe(ctx context.Context, check config.UptimeCheck, r
 		}
 	}
 }
+
+// uptimeTasks returns one interval task per uptime check: probe it, then let the tracker
+// record the result and raise or resolve its alert.
+func uptimeTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) []Task {
+	var tasks []Task
+	tracker := &UptimeTracker{Alerts: alerts, Store: st}
+	for _, check := range cfg.UptimeChecks {
+		tasks = append(tasks, Task{
+			Name:  "uptime:" + check.Name,
+			Every: check.Interval,
+			Run: func(ctx context.Context) {
+				tracker.Observe(ctx, check, uptime.Probe(ctx, check))
+			},
+		})
+	}
+	return tasks
+}

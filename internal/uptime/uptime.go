@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	probing "github.com/prometheus-community/pro-bing"
@@ -52,6 +53,21 @@ func Probe(ctx context.Context, check config.UptimeCheck) Result {
 		result.OK = true
 	}
 	return result
+}
+
+// ProbeAll runs every check at once and returns the results in the order of checks.
+func ProbeAll(ctx context.Context, checks []config.UptimeCheck) []Result {
+	results := make([]Result, len(checks))
+	var wg sync.WaitGroup
+	for i, check := range checks {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = Probe(ctx, check)
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 var httpTransport = &http.Transport{

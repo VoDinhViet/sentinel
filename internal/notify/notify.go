@@ -88,6 +88,11 @@ type Multi struct {
 	Timeout   time.Duration // per attempt, default 15s
 }
 
+// NewMulti fans messages out to every notifier configured in settings.
+func NewMulti(settings config.Notifiers) *Multi {
+	return &Multi{Notifiers: FromConfig(settings)}
+}
+
 func (m *Multi) Send(ctx context.Context, msg Message) error {
 	return errors.Join(m.SendEach(ctx, msg)...)
 }
