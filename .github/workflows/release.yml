@@ -1,0 +1,27 @@
+name: release
+
+# Pushing a tag like v1.2.0 builds linux/amd64 and linux/arm64 and publishes
+# sentinel_linux_<arch>.tar.gz plus checksums.txt, which deploy/install.sh downloads.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
