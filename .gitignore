@@ -7,3 +7,6 @@
 
 # Claude Code: personal settings stay local
 .claude/settings.local.json
+
+# Operational notes of another project: kept on this machine only
+/gm/
