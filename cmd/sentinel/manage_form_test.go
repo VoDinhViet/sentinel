@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,7 +65,7 @@ func openAddForm(t *testing.T, screen manageModel) manageModel {
 func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Add a database job") {
+	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Add a job") {
 		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen = keys(t, screen, "right") // type: postgres -> mysql
@@ -228,6 +229,16 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 	}
 }
 
+// fieldIndex is the position of a form field, for the click actions that name it.
+func fieldIndex(screen manageModel, key string) int {
+	for i, field := range screen.form.fields {
+		if field.key == key {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestMouseOperatesTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
@@ -236,15 +247,15 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	if screen.form.field("type").value != config.BackupMySQL {
 		t.Errorf("clicking › chooses the next type: %q", screen.form.field("type").value)
 	}
-	screen, _ = clickOn(t, screen, "toggle:8:1") // tick s3
+	screen, _ = clickOn(t, screen, fmt.Sprintf("toggle:%d:1", fieldIndex(screen, "repositories"))) // tick s3
 	if !screen.form.field("repositories").ticked[1] {
 		t.Error("clicking a repository ticks it")
 	}
-	screen, _ = clickOn(t, screen, "toggle:8:1")
+	screen, _ = clickOn(t, screen, fmt.Sprintf("toggle:%d:1", fieldIndex(screen, "repositories")))
 	if screen.form.field("repositories").ticked[1] {
 		t.Error("clicking again unticks it")
 	}
-	screen, _ = clickOn(t, screen, "focus:9:3") // the monthly count
+	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d:3", fieldIndex(screen, "retention"))) // the monthly count
 	if screen.form.fields[screen.form.focus].key != "retention" || screen.form.field("retention").sub != 3 {
 		t.Errorf("clicking a count focuses it: %+v", screen.form.field("retention"))
 	}
@@ -270,18 +281,40 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	}
 }
 
-func TestFilesJobsCannotBeEditedOrRemovedHere(t *testing.T) {
+func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 	screen, configFile := formModel(t)
-	screen.cursor = 1 // the files line of the report ("files" job failed run)
-	model, _ := screen.onKey("e", "")
-	screen = model.(manageModel)
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "only database jobs") {
-		t.Errorf("edit files job: mode %d notice %q", screen.mode, screen.notice)
+	screen.cursor = 1 // the "files" job
+	screen = keys(t, screen, "e")
+	if screen.mode != modeForm || screen.form.original != "files" {
+		t.Fatalf("edit files job: mode %d notice %q", screen.mode, screen.notice)
 	}
-	model, _ = screen.onKey("d", "")
-	screen = model.(manageModel)
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "only those can be removed") || len(configFile.deleted) != 0 {
-		t.Errorf("delete files job: mode %d notice %q", screen.mode, screen.notice)
+	view := plain(screen.render())
+	if !strings.Contains(view, "Paths") || !strings.Contains(view, "Exclude") || strings.Contains(view, "Database") || strings.Contains(view, "Password env var") {
+		t.Errorf("a files job shows its own fields only:\n%s", view)
+	}
+	screen = keys(t, screen, "tab", "tab") // paths
+	screen = typeText(t, screen, "/tmp, /nonexistent-sentinel-dir")
+	if view := plain(screen.render()); !strings.Contains(view, "▲ not found here: /nonexistent-sentinel-dir") {
+		t.Errorf("a missing path is called out:\n%s", view)
+	}
+	screen = keys(t, screen, "ctrl+s")
+	if len(configFile.saved) != 1 || strings.Join(configFile.saved[0].Paths, "|") != "/tmp|/nonexistent-sentinel-dir" || configFile.saved[0].Type != config.BackupFiles {
+		t.Errorf("saved = %+v", configFile.saved)
+	}
+}
+
+func TestNewFilesJobNeedsAPath(t *testing.T) {
+	screen, configFile := formModel(t)
+	screen = openAddForm(t, screen)
+	screen.form.field("type").value = config.BackupFiles
+	screen.form.field("name").value = "docs"
+	screen.form.field("repositories").ticked[0] = true
+	screen = keys(t, screen, "ctrl+s")
+	if screen.mode != modeForm || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "paths" {
+		t.Fatalf("a files job without a path must stay in the form on the paths (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
+	}
+	if !strings.Contains(plain(screen.render()), "✗ give at least one path") {
+		t.Errorf("the problem is shown under Paths:\n%s", plain(screen.render()))
 	}
 }
 

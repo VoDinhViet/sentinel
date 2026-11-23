@@ -53,8 +53,8 @@ func TestListShowsAllJobsAndFlagsLiteralPasswords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listing.Jobs) != 2 || listing.Jobs[0].Editable() || !listing.Jobs[1].Editable() {
-		t.Fatalf("jobs = %+v (the files job is listed but not editable)", listing.Jobs)
+	if len(listing.Jobs) != 2 || !listing.Jobs[0].Editable() || !listing.Jobs[1].Editable() {
+		t.Fatalf("jobs = %+v (files and database jobs are editable)", listing.Jobs)
 	}
 	legacy := listing.Jobs[1]
 	if legacy.Port != 5433 || legacy.PasswordEnv != "" || !legacy.PasswordLiteral {
@@ -151,20 +151,60 @@ func TestRenameAndDuplicateNames(t *testing.T) {
 	}
 }
 
-func TestFileJobsAndTypeChangesAreRefused(t *testing.T) {
+func TestTypeChangesAreRefused(t *testing.T) {
 	path := writeConfig(t, baseConfig)
 	var invalidErr *InvalidError
 	if err := Save(path, "site", Job{Name: "site", Type: config.BackupPostgres, Database: "x", Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
-		t.Errorf("editing a files job = %v, want InvalidError", err)
+		t.Errorf("turning a files job into a database job = %v, want InvalidError", err)
 	}
-	if err := Save(path, "legacy", Job{Name: "legacy", Type: config.BackupMongoDB, Database: "x", Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
+	if err := Save(path, "legacy", Job{Name: "legacy", Type: config.BackupFiles, Paths: []string{"/x"}, Repositories: []string{"s3"}}); !errors.As(err, &invalidErr) {
 		t.Errorf("changing the type = %v, want InvalidError", err)
-	}
-	if err := Delete(path, "site"); !errors.As(err, &invalidErr) {
-		t.Errorf("deleting a files job = %v, want InvalidError", err)
 	}
 	if readFile(t, path) != baseConfig {
 		t.Error("a refused change must not touch the file")
+	}
+}
+
+func TestFilesJobsAreListedEditedAndRemoved(t *testing.T) {
+	path := writeConfig(t, baseConfig)
+	listing, err := List(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	site := listing.Jobs[0]
+	if !site.Editable() || strings.Join(site.Paths, ",") != "/srv/www" {
+		t.Fatalf("files job as listed: %+v", site)
+	}
+	site.Paths = []string{"/srv/www", "/etc/nginx"}
+	site.Exclude = []string{"*.tmp"}
+	site.Schedule = "weekly sun 03:00"
+	site.Retention = config.Retention{Daily: 3}
+	if err := Save(path, "site", site); err != nil {
+		t.Fatal(err)
+	}
+	saved := readFile(t, path)
+	for _, want := range []string{"# managed by hand", "# old database", "paths: [/srv/www, /etc/nginx]", `exclude: ['*.tmp']`, `schedule: "weekly sun 03:00"`, "retention: {daily: 3}", "password: hunter2"} {
+		if !strings.Contains(saved, want) {
+			t.Errorf("saved config lacks %q:\n%s", want, saved)
+		}
+	}
+	site.Exclude = nil
+	if err := Save(path, "site", site); err != nil || strings.Contains(readFile(t, path), "exclude") {
+		t.Errorf("clearing exclude removes the key: %v\n%s", err, readFile(t, path))
+	}
+
+	fresh := Job{Name: "photos", Type: config.BackupFiles, Paths: []string{"/home/me/Pictures"}, Repositories: []string{"local"}}
+	if err := Save(path, "", fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, "", Job{Name: "empty", Type: config.BackupFiles, Repositories: []string{"local"}}); err == nil {
+		t.Error("a files job needs a path")
+	}
+	if err := Delete(path, "site"); err != nil {
+		t.Fatal(err)
+	}
+	if after := readFile(t, path); strings.Contains(after, "name: site") || !strings.Contains(after, "name: photos") {
+		t.Errorf("after delete:\n%s", after)
 	}
 }
 
@@ -186,6 +226,8 @@ func TestValidate(t *testing.T) {
 		"negative":         func(j *Job) { j.Retention.Daily = -1 },
 		"unknown type":     func(j *Job) { j.Type = "oracle" },
 		"bad mysql tls":    func(j *Job) { j.Type, j.TLS = config.BackupMySQL, "maybe" },
+		"files no path":    func(j *Job) { j.Type, j.Database = config.BackupFiles, "" },
+		"files line break": func(j *Job) { j.Type, j.Paths = config.BackupFiles, []string{"/a\nb"} },
 	} {
 		job := good()
 		change(&job)

@@ -216,7 +216,7 @@ func TestHelpOpensFromTheJobsAndSnapshotsAndClosesOnAnyKey(t *testing.T) {
 	model, _ := m.onKey("?", "?")
 	m = model.(manageModel)
 	view := plain(m.render())
-	for _, want := range []string{"Keys", "back up the selected job now", "add a database job", "click"} {
+	for _, want := range []string{"Keys", "back up the selected job now", "add a job", "click"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("help lacks %q:\n%s", want, view)
 		}

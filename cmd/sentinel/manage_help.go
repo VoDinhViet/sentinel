@@ -33,9 +33,9 @@ func (m manageModel) helpFor() (title string, keys []keyHelp) {
 	return "Keys", append([]keyHelp{
 		{"b", "back up the selected job now (ctrl+c cancels it)"},
 		{"s  enter", "list the job's snapshots, then restore one"},
-		{"a", "add a database job (postgres, mysql, mongodb) to the config"},
-		{"e", "edit the selected database job"},
-		{"d", "remove the selected database job from the config"},
+		{"a", "add a job (files, postgres, mysql, mongodb) to the config"},
+		{"e", "edit the selected job"},
+		{"d", "remove the selected job from the config"},
 	}, common...)
 }
 

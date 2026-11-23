@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,7 +56,7 @@ type formDefaults struct {
 	retention    config.Retention
 }
 
-// jobForm edits one database job. original is the job's name when editing, "" when adding.
+// jobForm edits one job: a database dump or a set of files. original is the job's name when editing, "" when adding.
 type jobForm struct {
 	original     string
 	passwordKept bool // the file holds a literal password that stays unless an env var is entered
@@ -110,8 +112,10 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		}
 	}
 	form.fields = []formField{
-		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.DatabaseTypes, fixed: original != ""},
+		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != ""},
 		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name},
+		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works", value: strings.Join(job.Paths, ", ")},
+		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", ")},
 		{key: "database", label: "Database", hint: "the database to dump", value: job.Database},
 		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost"},
 		{key: "port", label: "Port", hint: "default 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "default"},
@@ -126,19 +130,41 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 	return form
 }
 
+// fieldsOf are the field keys that apply to one job type only; the others apply to all.
+var fieldsOf = map[string][]string{
+	"paths":         {config.BackupFiles},
+	"exclude":       {config.BackupFiles},
+	"database":      configedit.DatabaseTypes,
+	"host":          configedit.DatabaseTypes,
+	"port":          configedit.DatabaseTypes,
+	"user":          configedit.DatabaseTypes,
+	"password_env":  configedit.DatabaseTypes,
+	"tls":           {config.BackupMySQL},
+	"auth_database": {config.BackupMongoDB},
+}
+
 // visible are the fields that apply to the chosen type.
 func (f jobForm) visible() []int {
 	jobType := f.field("type").value
 	var shown []int
 	for i, field := range f.fields {
-		switch {
-		case field.key == "tls" && jobType != config.BackupMySQL:
-		case field.key == "auth_database" && jobType != config.BackupMongoDB:
-		default:
-			shown = append(shown, i)
+		if types, restricted := fieldsOf[field.key]; restricted && !slices.Contains(types, jobType) {
+			continue
 		}
+		shown = append(shown, i)
 	}
 	return shown
+}
+
+// splitList splits a comma separated list, dropping blanks.
+func splitList(text string) []string {
+	var items []string
+	for _, item := range strings.Split(text, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func (f jobForm) field(key string) *formField {
@@ -168,6 +194,8 @@ func (f jobForm) job() (configedit.Job, error) {
 		TLS:          strings.TrimSpace(f.field("tls").value),
 		AuthDatabase: strings.TrimSpace(f.field("auth_database").value),
 
+		Paths:           splitList(f.field("paths").value),
+		Exclude:         splitList(f.field("exclude").value),
 		PasswordLiteral: f.passwordKept,
 	}
 	if portText := strings.TrimSpace(f.field("port").value); portText != "" {
@@ -423,7 +451,7 @@ func inputStyle(focused bool, text string, width int) string {
 }
 
 func (m manageModel) renderForm() []string {
-	title := "Add a database job"
+	title := "Add a job"
 	if m.form.original != "" {
 		title = "Edit " + m.form.original
 	}
@@ -500,6 +528,10 @@ func (m manageModel) renderForm() []string {
 		screenLines = append(screenLines, marker+label+" "+value)
 		if message, bad := problems[field.key]; bad {
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+severityStyle(sevBad).Render("✗ "+truncate(message, max(m.width-formLabelWidth-6, 10))))
+		} else if field.key == "paths" {
+			if note := pathsNote(field.value); note != "" {
+				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
+			}
 		} else if field.kind == fieldSchedule {
 			if preview := m.schedulePreview(field.value); preview != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
@@ -521,6 +553,24 @@ func (m manageModel) renderForm() []string {
 	m.hits.add(buttonRow, lipgloss.Width(saveButton)+2, lipgloss.Width("[ Cancel ]"), "esc")
 	screenLines = append(screenLines, "", buttons)
 	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "next", "space", "tick", "ctrl+s", "save", "esc", "cancel"))
+}
+
+// pathsNote says whether the listed paths exist on this machine.
+func pathsNote(list string) string {
+	var missing []string
+	paths := splitList(list)
+	for _, path := range paths {
+		if _, err := os.Stat(os.ExpandEnv(path)); err != nil {
+			missing = append(missing, path)
+		}
+	}
+	switch {
+	case len(paths) == 0:
+		return ""
+	case len(missing) == 0:
+		return severityStyle(sevOK).Render(fmt.Sprintf("✓ found on this machine (%d)", len(paths)))
+	}
+	return severityStyle(sevWarn).Render("▲ not found here: " + strings.Join(missing, ", "))
 }
 
 func slicesAny(flags []bool) bool {
@@ -618,7 +668,7 @@ func (m manageModel) startEdit() manageModel {
 			continue
 		}
 		if !job.Editable() {
-			m.notice, m.noticeBad = fmt.Sprintf("%s is a %s job; only database jobs can be edited here. Edit the config file.", job.Name, job.Type), true
+			m.notice, m.noticeBad = fmt.Sprintf("%s is a %s job, which this screen cannot edit. Edit the config file.", job.Name, job.Type), true
 			return m
 		}
 		return m.openForm(job, job.Name, listing)
@@ -627,7 +677,7 @@ func (m manageModel) startEdit() manageModel {
 	return m
 }
 
-// startDelete asks for the job name before removing a database job.
+// startDelete asks for the job name before removing a job.
 func (m manageModel) startDelete() manageModel {
 	line, ok := m.selectedBackup()
 	if !ok {
@@ -644,7 +694,7 @@ func (m manageModel) startDelete() manageModel {
 			return m
 		}
 	}
-	m.notice, m.noticeBad = line.job+" is not a database job in the config; only those can be removed here.", true
+	m.notice, m.noticeBad = line.job+" is not a job this screen can remove (it is not in the config file, or has another type).", true
 	return m
 }
 

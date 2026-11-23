@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -42,11 +43,14 @@ func invalid(format string, args ...any) error {
 	return &InvalidError{Message: fmt.Sprintf(format, args...)}
 }
 
-// DatabaseTypes are the job types this package edits.
-var DatabaseTypes = []string{config.BackupPostgres, config.BackupMySQL, config.BackupMongoDB}
+// DatabaseTypes are the database job types; JobTypes are all the types this package edits.
+var (
+	DatabaseTypes = []string{config.BackupPostgres, config.BackupMySQL, config.BackupMongoDB}
+	JobTypes      = append(slices.Clone(DatabaseTypes), config.BackupFiles)
+)
 
-// Job is one backup job as the editor sees it. For file jobs only Name, Type,
-// Schedule and Repositories are filled and the job cannot be edited here.
+// Job is one backup job as the editor sees it. A files job fills Paths and Exclude and none
+// of the database fields.
 type Job struct {
 	Name     string
 	Type     string
@@ -64,14 +68,16 @@ type Job struct {
 	Retention       config.Retention
 	TLS             string // mysql: "", "disabled" or "required"
 	AuthDatabase    string // mongodb
+	Paths           []string
+	Exclude         []string
 
 	// Inherited says which of Schedule, Repositories and Retention are not in the job's own
 	// entry: they are left empty here and the config's defaults apply.
 	Inherited config.Inherited
 }
 
-// Editable reports whether the job is a database job this package can change.
-func (j Job) Editable() bool { return slices.Contains(DatabaseTypes, j.Type) }
+// Editable reports whether the job is of a type this package can change.
+func (j Job) Editable() bool { return slices.Contains(JobTypes, j.Type) }
 
 // Listing is what the editor shows: every backup job and the repository names jobs may use.
 type Listing struct {
@@ -142,7 +148,8 @@ func inheritedRepositories(cfg *config.Config) []string {
 }
 
 func jobFromConfig(backup config.Backup) Job {
-	job := Job{Name: backup.Name, Type: backup.Type, Schedule: backup.Schedule, Repositories: backup.Repositories, Retention: backup.Retention, Inherited: backup.Inherited}
+	job := Job{Name: backup.Name, Type: backup.Type, Schedule: backup.Schedule, Repositories: backup.Repositories, Retention: backup.Retention, Inherited: backup.Inherited,
+		Paths: backup.Paths, Exclude: backup.Exclude}
 	if backup.Inherited.Schedule {
 		job.Schedule = ""
 	}
@@ -187,11 +194,14 @@ func Problems(job *Job, known Known) []*InvalidError {
 	add := func(field, format string, args ...any) {
 		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
 	}
-	if !slices.Contains(DatabaseTypes, job.Type) {
-		add("type", "type must be one of %v", DatabaseTypes)
+	if !slices.Contains(JobTypes, job.Type) {
+		add("type", "type must be one of %v", JobTypes)
 	}
 	if !jobName.MatchString(job.Name) {
 		add("name", "invalid job name %q: use letters, digits, '.', '_' or '-'", job.Name)
+	}
+	if job.Type == config.BackupFiles {
+		return append(problems, append(filesProblems(job), commonProblems(job, known)...)...)
 	}
 	if !identifier.MatchString(job.Database) {
 		add("database", "database name is required")
@@ -224,6 +234,23 @@ func Problems(job *Job, known Known) []*InvalidError {
 		job.AuthDatabase = ""
 	}
 	return append(problems, commonProblems(job, known)...)
+}
+
+// filesProblems checks the paths of a files job.
+func filesProblems(job *Job) []*InvalidError {
+	var problems []*InvalidError
+	paths := slices.DeleteFunc(slices.Clone(job.Paths), func(path string) bool { return path == "" })
+	if len(paths) == 0 {
+		problems = append(problems, &InvalidError{Message: "give at least one path to back up", Field: "paths"})
+	}
+	for _, path := range append(slices.Clone(paths), job.Exclude...) {
+		if strings.ContainsAny(path, "\x00\n\r") {
+			problems = append(problems, &InvalidError{Message: "a path cannot contain line breaks", Field: "paths"})
+			break
+		}
+	}
+	job.Paths = paths
+	return problems
 }
 
 // commonProblems checks what every job type shares: schedule, repositories and retention.
@@ -404,9 +431,18 @@ func findBackup(sequence *yaml.Node, name string) int {
 	return -1
 }
 
-func isDatabaseJob(item *yaml.Node) bool {
+func isEditableJob(item *yaml.Node) bool {
 	typeNode := mapGet(item, "type")
-	return typeNode != nil && slices.Contains(DatabaseTypes, typeNode.Value)
+	return typeNode != nil && slices.Contains(JobTypes, typeNode.Value)
+}
+
+// stringList is a flow-style YAML list of the strings.
+func stringList(values []string) *yaml.Node {
+	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+	for _, value := range values {
+		list.Content = append(list.Content, scalar(value, 0))
+	}
+	return list
 }
 
 func editBackup(root *yaml.Node, original string, job Job) error {
@@ -425,8 +461,8 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 			return fmt.Errorf("job %q: %w", original, ErrNotFound)
 		}
 		item = sequence.Content[i]
-		if !isDatabaseJob(item) {
-			return invalid("job %q is not a database job", original)
+		if !isEditableJob(item) {
+			return invalid("job %q has a type this editor does not handle", original)
 		}
 		if typeNode := mapGet(item, "type"); typeNode.Value != job.Type {
 			return invalid("the type of an existing job cannot be changed (remove it and add a new one)")
@@ -448,31 +484,16 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 		mapSet(item, "schedule", scalar(job.Schedule, yaml.DoubleQuotedStyle))
 	}
 
-	block := mapGet(item, job.Type)
-	if block == nil || block.Kind != yaml.MappingNode {
-		block = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		block.Style = yaml.FlowStyle
-	}
-	mapSet(block, "host", scalar(job.Host, 0))
-	mapSet(block, "port", intNode(job.Port))
-	if job.User == "" {
-		mapDelete(block, "user")
+	if job.Type == config.BackupFiles {
+		mapSet(item, "paths", stringList(job.Paths))
+		if len(job.Exclude) == 0 {
+			mapDelete(item, "exclude")
+		} else {
+			mapSet(item, "exclude", stringList(job.Exclude))
+		}
 	} else {
-		mapSet(block, "user", scalar(job.User, 0))
+		editDatabaseBlock(item, job)
 	}
-	if job.PasswordEnv != "" {
-		mapSet(block, "password", scalar("${"+job.PasswordEnv+"}", yaml.DoubleQuotedStyle))
-	} else if !job.PasswordLiteral {
-		mapDelete(block, "password")
-	}
-	mapSet(block, "database", scalar(job.Database, 0))
-	switch job.Type {
-	case config.BackupMySQL:
-		setOrDelete(block, "tls", job.TLS)
-	case config.BackupMongoDB:
-		setOrDelete(block, "auth_database", job.AuthDatabase)
-	}
-	mapSet(item, job.Type, block)
 
 	repositories := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
 	for _, name := range job.Repositories {
@@ -501,6 +522,35 @@ func editBackup(root *yaml.Node, original string, job Job) error {
 	return nil
 }
 
+// editDatabaseBlock writes the job's <type>: { host, port, ... } mapping.
+func editDatabaseBlock(item *yaml.Node, job Job) {
+	block := mapGet(item, job.Type)
+	if block == nil || block.Kind != yaml.MappingNode {
+		block = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		block.Style = yaml.FlowStyle
+	}
+	mapSet(block, "host", scalar(job.Host, 0))
+	mapSet(block, "port", intNode(job.Port))
+	if job.User == "" {
+		mapDelete(block, "user")
+	} else {
+		mapSet(block, "user", scalar(job.User, 0))
+	}
+	if job.PasswordEnv != "" {
+		mapSet(block, "password", scalar("${"+job.PasswordEnv+"}", yaml.DoubleQuotedStyle))
+	} else if !job.PasswordLiteral {
+		mapDelete(block, "password")
+	}
+	mapSet(block, "database", scalar(job.Database, 0))
+	switch job.Type {
+	case config.BackupMySQL:
+		setOrDelete(block, "tls", job.TLS)
+	case config.BackupMongoDB:
+		setOrDelete(block, "auth_database", job.AuthDatabase)
+	}
+	mapSet(item, job.Type, block)
+}
+
 func setOrDelete(mapping *yaml.Node, key, value string) {
 	if value == "" {
 		mapDelete(mapping, key)
@@ -518,8 +568,8 @@ func removeBackup(root *yaml.Node, name string) error {
 	if i < 0 {
 		return fmt.Errorf("job %q: %w", name, ErrNotFound)
 	}
-	if !isDatabaseJob(sequence.Content[i]) {
-		return invalid("job %q is not a database job", name)
+	if !isEditableJob(sequence.Content[i]) {
+		return invalid("job %q has a type this editor does not handle", name)
 	}
 	sequence.Content = append(sequence.Content[:i], sequence.Content[i+1:]...)
 	if len(sequence.Content) == 0 {
