@@ -44,7 +44,6 @@ pass "databases seeded"
 cat >"$WORK/config.yaml" <<YAML
 server_name: e2e
 store: /work/state.db
-restore_dir: /work/restore
 repositories:
   local: { url: /work/repo, password: e2e-restic-pass }
 backups:
