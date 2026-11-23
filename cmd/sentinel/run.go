@@ -17,7 +17,7 @@ func (a *app) runCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
-			cfg, err := a.loadConfig()
+			cfg, err := a.readConfig()
 			if err != nil {
 				return err
 			}

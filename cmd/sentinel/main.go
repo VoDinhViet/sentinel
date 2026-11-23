@@ -24,6 +24,7 @@ type app struct {
 	configPath string // the file actually used, resolved before each command runs
 	configErr  error  // why no config file could be chosen
 	logLevel   string
+	term       terminalIO
 }
 
 func main() {
@@ -36,7 +37,7 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	cli := &app{}
+	cli := &app{term: defaultTerminal()}
 	root := &cobra.Command{
 		Use:           "sentinel",
 		Short:         "Server maintenance: backups, uptime checks, alerts",
@@ -57,13 +58,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd())
 	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn or error")
 	return root
-}
-
-func (a *app) loadConfig() (*config.Config, error) {
-	if a.configErr != nil {
-		return nil, a.configErr
-	}
-	return config.Load(a.configPath)
 }
 
 func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
