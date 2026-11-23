@@ -28,8 +28,9 @@ You refactor without changing behaviour. The goal and the target area come from 
 
 ## Naming
 
-Name variables after what they hold (`snapshots`, `jobByName`, `agentIds`), not their shape (`data`, `result`, `list`, `rows`);
+Name variables after what they hold (`snapshots`, `jobByName`, `jobNames`), not their shape (`data`, `result`, `list`, `rows`);
 a callback parameter is the singular entity; an id parameter says which entity it identifies once a function handles several.
+Keep names short and use the terms in `.claude/rules/naming-domain.md` (job, repo, snapshot, notifier, verify, daemon).
 
 ## Report
 
