@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -30,6 +31,26 @@ type Finding struct {
 	Info string
 	Warn bool   // Err is a warning: reported, but doctor still passes
 	Hint string // how to fix it, shown by the interactive screen
+}
+
+// Locale warns when the character set of the environment is not UTF-8: the screens of
+// `sentinel manage` are Vietnamese and draw frames, so on a server with the POSIX locale
+// (the default of many VPS images) the text and the lines come out broken. The terminal
+// program's font matters too, but only the client can fix that.
+func Locale(getenv func(string) string) Finding {
+	finding := Finding{Name: "locale"}
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} { // the first one that is set wins
+		if value := getenv(name); value != "" {
+			finding.Info = name + "=" + value
+			if lower := strings.ToLower(value); strings.Contains(lower, "utf-8") || strings.Contains(lower, "utf8") {
+				return finding
+			}
+			break
+		}
+	}
+	finding.Err, finding.Warn = errors.New("the locale is not UTF-8: Vietnamese text and frames may be shown broken"), true
+	finding.Hint = "run: export LANG=C.UTF-8 (or en_US.UTF-8), and use a terminal font with Vietnamese letters, e.g. JetBrains Mono"
+	return finding
 }
 
 // Tools verifies the external tools the config needs are installed.
@@ -87,7 +108,7 @@ func versionLess(a, b [3]int) bool {
 
 // Run checks the config's tools, store, repositories and notifiers.
 func Run(ctx context.Context, cfg *config.Config, configPath string, openStore func(*config.Config) (*store.Store, error)) []Finding {
-	findings := []Finding{{Name: "config", Info: configPath}}
+	findings := []Finding{{Name: "config", Info: configPath}, Locale(os.Getenv)}
 	findings = append(findings, Tools(ctx, cfg)...)
 
 	st, err := openStore(cfg)

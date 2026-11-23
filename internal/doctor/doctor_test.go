@@ -50,3 +50,26 @@ func TestRunStoreFailureHasAHint(t *testing.T) {
 	}
 	t.Error("no store finding")
 }
+
+func TestLocaleWarnsUnlessUTF8(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		warn bool
+	}{
+		{"unset", map[string]string{}, true},
+		{"posix", map[string]string{"LANG": "C"}, true},
+		{"utf8", map[string]string{"LANG": "en_US.UTF-8"}, false},
+		{"lowercase spelling", map[string]string{"LANG": "C.utf8"}, false},
+		{"LC_ALL wins over LANG", map[string]string{"LC_ALL": "C", "LANG": "en_US.UTF-8"}, true},
+		{"LC_ALL utf8 wins", map[string]string{"LC_ALL": "C.UTF-8", "LANG": "C"}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			finding := Locale(func(name string) string { return test.env[name] })
+			if (finding.Err != nil) != test.warn || (test.warn && (!finding.Warn || finding.Hint == "")) {
+				t.Errorf("Locale(%v) = %+v, want warn %v", test.env, finding, test.warn)
+			}
+		})
+	}
+}

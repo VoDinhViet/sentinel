@@ -143,6 +143,13 @@ Form sửa giữ nguyên comment và thứ tự trong `config.yaml`; bản cũ �
 
 `make docker` build image `sentinel:latest` (đã gồm restic, rclone, pg_dump), rồi dùng [deploy/docker-compose.yml](deploy/docker-compose.yml). Mount các đường dẫn cần backup (chỉ đọc) vào đúng đường dẫn trong config; `network_mode: host` để uptime check và `pg_dump` tới được dịch vụ trên server.
 
+### Font và locale khi chạy trên VPS
+
+Màn hình `sentinel manage` có chữ tiếng Việt và vẽ khung, nên cần hai thứ, cả hai nằm ngoài Sentinel:
+
+- **Font của terminal phía máy bạn** (nơi mở SSH) phải có chữ Việt. Font như `MesloLGS NF` thiếu nhiều chữ có dấu (ả, ấ, ầ, ố, ế, ỗ...), nên "lỗi", "cảnh báo" chỉ còn dấu. Dùng `JetBrains Mono` hoặc `Cascadia Mono`. Trong VS Code: `"terminal.integrated.fontFamily": "JetBrains Mono, MesloLGS NF, monospace"`, để font Nerd phía sau chỉ lo icon.
+- **Locale UTF-8 trên server.** Nhiều image VPS để locale `POSIX`. Chạy `export LANG=C.UTF-8` (thêm vào `~/.profile`). Trong `tmux` thêm `-u`. `sentinel doctor` cảnh báo `locale` khi locale không phải UTF-8.
+
 ## Lưu ý
 
 - Kho từ xa (S3, sftp, rclone) phải tạo bằng `sentinel backup init <job>` một lần. Kho là thư mục trên chính máy này thì tự tạo ở lần backup đầu, nếu thư mục chưa có hoặc đang trống.
