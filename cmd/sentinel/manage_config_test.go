@@ -40,12 +40,12 @@ func TestConfigTabListsEveryPartOfTheConfig(t *testing.T) {
 	model, _ := screen.Update(wideScreen())
 	view := plain(model.(manageModel).render())
 	for _, want := range []string{
-		"5 Config", "Repository", "local", "/var/backups/repo", "password ${RESTIC_PW}", "not used by any job",
-		"written in the file", "used by appdb",
-		"Job", "appdb", "postgres", "→ s3", "keep daily 7",
-		"Uptime", "web", "http https://example.com", "every 30s",
+		"5 Config", "Repository", "local", "/var/backups/repo", "mật khẩu ${RESTIC_PW}", "chưa job nào dùng",
+		"ghi thẳng trong file", "dùng bởi appdb",
+		"Job", "appdb", "postgres", "→ s3", "giữ daily 7",
+		"Uptime", "web", "http https://example.com", "mỗi 30s",
 		"Notifier", "telegram", "token ${TG_TOKEN}", "chat_id -100",
-		"Settings", "server web-01", "defaults: daily 02:00",
+		"Cài đặt", "server web-01", "mặc định: daily 02:00",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Config tab lacks %q:\n%s", want, view)
@@ -91,11 +91,11 @@ func TestAddAnS3RepositoryFromTheConfigTab(t *testing.T) {
 	screen, configFile := configScreen(t)
 	screen = goTo(t, screen, secRepository, "local")
 	screen = keys(t, screen, "a")
-	if screen.mode != modeForm || screen.form.kind != formRepository || screen.form.title != "Add a repository" {
+	if screen.mode != modeForm || screen.form.kind != formRepository || screen.form.title != "Thêm repository" {
 		t.Fatalf("mode %d form %+v", screen.mode, screen.form.title)
 	}
 	screen = keys(t, screen, "tab", "right") // kind: local -> s3
-	if view := plain(screen.render()); !strings.Contains(view, "Bucket") || strings.Contains(view, "Folder  ") && strings.Contains(view, "rclone remote") {
+	if view := plain(screen.render()); !strings.Contains(view, "Bucket") || strings.Contains(view, "Thư mục  ") && strings.Contains(view, "rclone remote") {
 		t.Errorf("the s3 fields:\n%s", view)
 	}
 	set := func(key, value string) { screen.form.field(key).value = value }
@@ -127,7 +127,7 @@ func TestRepositoryFormShowsEveryMissingPartAtOnce(t *testing.T) {
 	screen.form.field("password_env").value = ""
 	screen = keys(t, screen, "ctrl+s")
 	view := plain(screen.render())
-	for _, want := range []string{"✗ invalid repository name", "✗ folder is required", "✗ name the environment variable"} {
+	for _, want := range []string{"✗ invalid repository name", "✗ cần nhập thư mục", "✗ name the environment variable"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the form lacks %q after a save attempt:\n%s", want, view)
 		}
@@ -162,7 +162,7 @@ func TestRemoveRepositoryRefusesOneInUse(t *testing.T) {
 	screen, configFile := configScreen(t)
 	screen = goTo(t, screen, secRepository, "s3")
 	screen = keys(t, screen, "d")
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "used by appdb") || len(configFile.removed) != 0 {
+	if screen.mode != modeTable || !strings.Contains(screen.notice, "dùng bởi appdb") || len(configFile.removed) != 0 {
 		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
 	}
 	screen = goTo(t, screen, secRepository, "local")
@@ -182,12 +182,12 @@ func TestUptimeFormHidesWhatTheTypeDoesNotUse(t *testing.T) {
 	screen = goTo(t, screen, secUptime, "web")
 	screen = keys(t, screen, "a")
 	view := plain(screen.render())
-	if !strings.Contains(view, "Address") || strings.Contains(view, "Host:port") || !strings.Contains(view, "Expect status") {
+	if !strings.Contains(view, "Địa chỉ") || strings.Contains(view, "Host:port") || !strings.Contains(view, "Status mong đợi") {
 		t.Errorf("http fields:\n%s", view)
 	}
 	screen = keys(t, screen, "tab", "right") // type: http -> tcp
 	view = plain(screen.render())
-	if !strings.Contains(view, "Host:port") || strings.Contains(view, "Expect status") || strings.Contains(view, "Must contain") {
+	if !strings.Contains(view, "Host:port") || strings.Contains(view, "Status mong đợi") || strings.Contains(view, "Phải chứa") {
 		t.Errorf("tcp fields:\n%s", view)
 	}
 	screen.form.field("name").value = "db"

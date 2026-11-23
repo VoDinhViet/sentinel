@@ -64,7 +64,7 @@ func (m manageModel) doctorProblems() int {
 }
 
 func (m manageModel) buildDoctorTab() manageTab {
-	tab := manageTab{title: "Doctor", headers: []string{"CHECK", "STATUS", "DETAIL"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0}
+	tab := manageTab{title: "Doctor", headers: []string{"KIỂM TRA", "TRẠNG THÁI", "CHI TIẾT"}, statusCol: 1, historyCol: -1, alarm: m.doctorProblems() > 0}
 	for _, finding := range m.doctor.findings {
 		level := doctorSeverity(finding)
 		status, message := "ok", finding.Info
@@ -89,7 +89,7 @@ func (m manageModel) buildDoctorTab() manageTab {
 
 func (m manageModel) doctorWaitText() string {
 	if m.doctor.running {
-		return "Checking tools, the store and the repositories… (a repository that does not answer can take a while)"
+		return "Đang kiểm tra công cụ, file trạng thái và các repository… (repository không phản hồi có thể mất một lúc)"
 	}
-	return "Press r to run the checks."
+	return "Bấm r để chạy kiểm tra."
 }

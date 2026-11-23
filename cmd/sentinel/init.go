@@ -22,14 +22,14 @@ func (a *app) runInitForm(cmd *cobra.Command, force bool) error {
 	root := os.Geteuid() == 0
 	path := config.DefaultLocations(a.configFlag).WritePath(root)
 	if _, err := os.Stat(path); err == nil && !force {
-		return fmt.Errorf("%s already exists: edit it with `sentinel manage`, or use --force to replace it (the old one is kept as %s.old)", path, path)
+		return fmt.Errorf("%s đã có: sửa bằng `sentinel manage`, hoặc dùng --force để thay (file cũ được giữ thành %s.old)", path, path)
 	}
 	outcome, err := runInit(cmd.Context(), path, root, force)
 	if err != nil {
 		return err
 	}
 	if outcome == nil {
-		fmt.Fprintln(cmd.OutOrStdout(), "Nothing written.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Chưa ghi gì cả.")
 		return nil
 	}
 	printInitOutcome(cmd.OutOrStdout(), outcome)
@@ -74,7 +74,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 			outcome.envFile = filepath.Join(filepath.Dir(path), "sentinel.env")
 			written, err := configedit.EnsureSecret(outcome.envFile, initial.Repository.PasswordEnv)
 			if err != nil {
-				return fmt.Errorf("the config was written, but not the repository password: %w", err)
+				return fmt.Errorf("đã ghi config, nhưng chưa ghi được mật khẩu repository: %w", err)
 			}
 			outcome.secretWritten = written
 		}
@@ -121,23 +121,23 @@ func (p initProgram) after(model tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 }
 
 func printInitOutcome(w io.Writer, outcome *initOutcome) {
-	fmt.Fprintf(w, "Wrote %s\n\n", outcome.path)
+	fmt.Fprintf(w, "Đã ghi %s\n\n", outcome.path)
 	switch {
 	case outcome.secretWritten:
-		fmt.Fprintf(w, "A random repository password was written to %s (mode 0600) as %s.\n"+
-			"Keep a copy somewhere else: losing it means losing every backup.\n\n", outcome.envFile, outcome.passwordEnv)
-		fmt.Fprintf(w, "Next:\n  set -a; . %s; set +a\n", outcome.envFile)
+		fmt.Fprintf(w, "Đã ghi mật khẩu repository ngẫu nhiên vào %s (mode 0600) với tên %s.\n"+
+			"Hãy giữ một bản sao ở nơi khác: mất mật khẩu là mất mọi backup.\n\n", outcome.envFile, outcome.passwordEnv)
+		fmt.Fprintf(w, "Tiếp:\n  set -a; . %s; set +a\n", outcome.envFile)
 	case os.Getenv(outcome.passwordEnv) == "":
-		fmt.Fprintf(w, "Next: sentinel asks for %s the first time it needs it, and can keep it in %s.\n"+
-			"Use a long passphrase and keep a copy somewhere else: losing it means losing the backups.\n",
+		fmt.Fprintf(w, "Tiếp: sentinel sẽ hỏi %s lần đầu cần dùng, và có thể lưu vào %s.\n"+
+			"Dùng passphrase dài và giữ một bản sao ở nơi khác: mất mật khẩu là mất backup.\n",
 			outcome.passwordEnv, filepath.Join(filepath.Dir(outcome.path), config.EnvFileName))
 	default:
-		fmt.Fprintln(w, "Next:")
+		fmt.Fprintln(w, "Tiếp:")
 	}
-	fmt.Fprintf(w, "  sentinel backup init %s     # creates the repository, once\n", outcome.jobName)
-	fmt.Fprintf(w, "  sentinel backup run %s      # backs up now\n", outcome.jobName)
+	fmt.Fprintf(w, "  sentinel backup init %s     # tạo repository, chỉ một lần\n", outcome.jobName)
+	fmt.Fprintf(w, "  sentinel backup run %s      # backup ngay\n", outcome.jobName)
 	fmt.Fprintln(w, "  sentinel doctor")
-	fmt.Fprintln(w, "  sentinel manage             # edit everything from the terminal")
+	fmt.Fprintln(w, "  sentinel manage             # sửa mọi thứ ngay trong terminal")
 }
 
 // ---- the form
@@ -163,25 +163,25 @@ func newInitForm(path string, root bool, hostname string) form {
 		return field
 	}
 	fields := append([]formField{
-		{key: "server_name", label: "Server name", hint: "shown in alerts and on the screen", value: hostname},
-		{key: "store", label: "State database", hint: "where run history and job locks are kept (a file path)", value: store, placeholder: "/var/lib/sentinel/state.db"},
+		{key: "server_name", label: "Tên server", hint: "hiện trong cảnh báo và trên màn hình", value: hostname},
+		{key: "store", label: "File trạng thái", hint: "nơi lưu lịch sử chạy và khoá job (đường dẫn file)", value: store, placeholder: "/var/lib/sentinel/state.db"},
 	}, repo.fields...)
 	for i := range fields {
 		switch fields[i].key {
 		case "name":
-			fields[i].label, fields[i].hint = "Repository name", "letters, digits, . _ - ; the first backup repository"
+			fields[i].label, fields[i].hint = "Tên repository", "chữ, số, . _ - ; repository backup đầu tiên"
 		case "kind":
-			fields[i].label, fields[i].hint = "Store backups", "← → to choose where the backups go; you can add more repositories later"
+			fields[i].label, fields[i].hint = "Nơi lưu backup", "← → chọn nơi lưu backup; có thể thêm repository khác sau"
 		}
 	}
 	fields = append(fields,
-		formField{key: "job_type", label: "Back up", hint: "← → files and folders, or a database dump", kind: fieldChoice, value: config.JobFiles, choices: initJobTypes},
-		jobField("job_name", "Job name", "letters, digits, . _ -", "documents"),
-		jobField("job_paths", "Paths", "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder, ctrl+o browses the server", jobPaths, config.JobFiles),
-		jobField("job_database", "Database", "the database to dump", "", configedit.DatabaseTypes...),
-		jobField("job_password_env", "DB password var", "name of the environment variable holding the database password; empty if none", "", configedit.DatabaseTypes...),
+		formField{key: "job_type", label: "Backup gì", hint: "← → file và thư mục, hoặc dump database", kind: fieldChoice, value: config.JobFiles, choices: initJobTypes},
+		jobField("job_name", "Tên job", "chữ, số, . _ -", "documents"),
+		jobField("job_paths", "Đường dẫn", "file và thư mục cần backup, cách nhau bằng dấu phẩy; dùng được ${HOME}; alt+1.. hoặc click để thêm thư mục gợi ý, ctrl+o để duyệt trên server", jobPaths, config.JobFiles),
+		jobField("job_database", "Database", "database cần dump", "", configedit.DatabaseTypes...),
+		jobField("job_password_env", "Env var mật khẩu DB", "tên env var chứa mật khẩu database; để trống nếu không có", "", configedit.DatabaseTypes...),
 		formField{key: "job_schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: "daily 02:00"},
-		formField{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
+		formField{key: "retention", label: "Giữ", hint: "số snapshot giữ lại: N cái mới nhất, rồi mỗi ngày, tuần, tháng, năm một cái", kind: fieldRetention, counts: [5]string{"", "7", "4", "6", ""}},
 	)
 	for i := range fields {
 		if fields[i].key == "job_paths" {
@@ -191,7 +191,7 @@ func newInitForm(path string, root bool, hostname string) form {
 			fields[i].onField, fields[i].only = "job_type", configedit.DatabaseTypes
 		}
 	}
-	return form{kind: formInit, title: "Create " + path, touched: map[string]bool{}, fields: fields}
+	return form{kind: formInit, title: "Tạo " + path, touched: map[string]bool{}, fields: fields}
 }
 
 // initial turns the form into what configedit.Create needs.
@@ -209,7 +209,7 @@ func (f form) initial() (configedit.Initial, error) {
 	for i, target := range []*int{&retention.Last, &retention.Daily, &retention.Weekly, &retention.Monthly, &retention.Yearly} {
 		if text := f.field("retention").counts[i]; text != "" {
 			if _, err := fmt.Sscan(text, target); err != nil {
-				return configedit.Initial{}, formProblem("retention", "retention: %q is not a number", text)
+				return configedit.Initial{}, formProblem("retention", "retention: %q không phải là số", text)
 			}
 		}
 	}

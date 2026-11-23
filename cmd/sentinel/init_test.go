@@ -31,7 +31,7 @@ func pressInit(t *testing.T, program initProgram, key string) initProgram {
 func TestInitFormStartsValidAndWritesTheDefaults(t *testing.T) {
 	program, written := initScreen(t, false)
 	view := plain(program.render())
-	for _, want := range []string{"Create /home/me/.config/sentinel/config.yaml", "Repository name", "local", "Store backups", "${HOME}/.local/share/sentinel/repo", "RESTIC_PASSWORD", "Back up", "documents", "${HOME}/Documents", "daily 02:00"} {
+	for _, want := range []string{"Tạo /home/me/.config/sentinel/config.yaml", "Tên repository", "local", "Nơi lưu backup", "${HOME}/.local/share/sentinel/repo", "RESTIC_PASSWORD", "Backup gì", "documents", "${HOME}/Documents", "daily 02:00"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("init form lacks %q:\n%s", want, view)
 		}
@@ -71,7 +71,7 @@ func TestInitFormAsksForADatabaseWhenTheJobIsOne(t *testing.T) {
 	}
 	program.form.field("job_type").value = config.JobPostgres
 	view := plain(program.render())
-	if !strings.Contains(view, "DB password var") || strings.Contains(view, "Paths") {
+	if !strings.Contains(view, "Env var mật khẩu DB") || strings.Contains(view, "Đường dẫn") {
 		t.Errorf("postgres fields:\n%s", view)
 	}
 	program = pressInit(t, program, "ctrl+s")
@@ -96,7 +96,7 @@ func TestInitFormShowsEveryProblemOnItsOwnField(t *testing.T) {
 	program.form.field("job_name").value = ""
 	program = pressInit(t, program, "ctrl+s")
 	view := plain(program.render())
-	for _, want := range []string{"✗ invalid repository name", "✗ folder is required", "✗ invalid schedule", "✗ invalid job name"} {
+	for _, want := range []string{"✗ invalid repository name", "✗ cần nhập thư mục", "✗ invalid schedule", "✗ invalid job name"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("init form lacks %q:\n%s", want, view)
 		}
@@ -115,14 +115,14 @@ func TestPrintInitOutcomeTellsWhatToDoNext(t *testing.T) {
 	t.Setenv("RESTIC_PASSWORD", "")
 	var output strings.Builder
 	printInitOutcome(&output, &initOutcome{path: "/home/me/.config/sentinel/config.yaml", passwordEnv: "RESTIC_PASSWORD", jobName: "documents"})
-	for _, want := range []string{"Wrote /home/me/.config/sentinel/config.yaml", "asks for RESTIC_PASSWORD", "sentinel backup init documents", "sentinel doctor", "sentinel manage"} {
+	for _, want := range []string{"Đã ghi /home/me/.config/sentinel/config.yaml", "sẽ hỏi RESTIC_PASSWORD", "sentinel backup init documents", "sentinel doctor", "sentinel manage"} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, output.String())
 		}
 	}
 	output.Reset()
 	printInitOutcome(&output, &initOutcome{path: "/etc/sentinel/config.yaml", envFile: "/etc/sentinel/sentinel.env", passwordEnv: "RESTIC_PASSWORD", secretWritten: true, jobName: "documents"})
-	if !strings.Contains(output.String(), "random repository password") || !strings.Contains(output.String(), ". /etc/sentinel/sentinel.env") || strings.Contains(output.String(), "export RESTIC_PASSWORD") {
+	if !strings.Contains(output.String(), "mật khẩu repository ngẫu nhiên") || !strings.Contains(output.String(), ". /etc/sentinel/sentinel.env") || strings.Contains(output.String(), "export RESTIC_PASSWORD") {
 		t.Errorf("root output:\n%s", output.String())
 	}
 }
