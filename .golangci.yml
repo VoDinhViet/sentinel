@@ -49,8 +49,8 @@ linters:
       - linters: [gosec]
         path: internal/configedit/create\.go
         text: "G306"
-      # gosec G204: restic is started with an argv slice and a context, never through a shell (see the
-      # go-backend rules); the arguments are built by Sentinel, and the binary is the one on PATH.
+      # gosec G204: restic and the dump tools are started with an argv slice and a context, never through a
+      # shell (see the go-backend rules); the arguments are built by Sentinel, and the binary is the one on PATH.
       - linters: [gosec]
-        path: internal/restic/client\.go
+        path: internal/(restic/client|engine/probe)\.go
         text: "G204"
