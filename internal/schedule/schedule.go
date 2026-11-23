@@ -9,6 +9,9 @@
 //	weekly sun 03:00        every Sunday at 03:00
 //	monthly 1 04:00         on the 1st of every month at 04:00 (day 1 to 28)
 //	every 6h                every 6 hours (at least 1m)
+//
+// The plain forms are read loosely: "daily at 2:30pm", "every day 02:00", "weekly monday 3am",
+// "monthly on the 1st at 4am", "every 6 hours" and "every 30 minutes" all work.
 package schedule
 
 import (
@@ -63,7 +66,7 @@ func Describe(spec string) string {
 
 // translate returns the cron expression of a spec and a description of it.
 func translate(spec string) (expression, description string, err error) {
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(spec)))
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(friendly(spec))))
 	invalid := func(format string, args ...any) (string, string, error) {
 		return "", "", fmt.Errorf("schedule %q: %s", spec, fmt.Sprintf(format, args...))
 	}
