@@ -81,8 +81,8 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 	if !left {
 		return m, nil
 	}
-	m.render() // rebuild the targets for what is on screen now
-	action, ok := m.hits.at(col, row)
+	m.render()                              // rebuild the targets for what is on screen now
+	action, ok := m.hits.at(col-1-1, row-1) // inside the frame: its border and the space after it, and the top border
 	if !ok {
 		return m, nil
 	}

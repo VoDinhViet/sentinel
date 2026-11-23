@@ -45,19 +45,53 @@ func (m manageModel) render() string {
 	default:
 		screenLines = append(screenLines, m.renderTabs()...)
 	}
-	return strings.Join(screenLines, "\n")
+	return m.frame(screenLines)
 }
 
 func (m manageModel) renderHeader() []string {
+	if m.mode != modeTable || !m.loaded {
+		return []string{""}
+	}
+	return []string{m.summary(), ""}
+}
+
+// frameCols and frameRows are what the frame around the screen takes: the border and one
+// space on each side, and the top and bottom border lines. m.width and m.height are the room inside.
+const (
+	frameCols = 4
+	frameRows = 2
+)
+
+// frame draws the rounded border around the screen's lines, with the title and the time of the
+// last update in the top border. Until the terminal size is known the lines are returned as they are.
+func (m manageModel) frame(lines []string) string {
+	if m.width <= 0 {
+		return strings.Join(lines, "\n")
+	}
 	updated := "loading…"
 	if m.loaded {
 		updated = "updated " + m.report.GeneratedAt.Local().Format("15:04:05")
 	}
-	title := lipglossStyleAccent.Render("◆ ") + titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server+"  ·  "+updated)
-	if m.mode != modeTable || !m.loaded {
-		return []string{title, ""}
+	left := lipglossStyleAccent.Render("◆ ") + titleStyle.Render("Sentinel") + dimStyle.Render("  "+m.report.Server)
+	right := dimStyle.Render(updated)
+	total := m.width + frameCols
+	line := borderStyle.Render
+	room := total - 8 - lipgloss.Width(left) - lipgloss.Width(right)
+	var top string
+	if room >= 1 {
+		top = line("╭─ ") + left + line(" "+strings.Repeat("─", room)+" ") + right + line(" ─╮")
+	} else {
+		top = line("╭─ ") + left + line(" "+strings.Repeat("─", max(total-5-lipgloss.Width(left), 0))+"╮")
 	}
-	return []string{title, m.summary(), ""}
+	out := []string{top}
+	for len(lines) < m.height {
+		lines = append(lines, "")
+	}
+	for _, text := range lines {
+		out = append(out, line("│ ")+text+strings.Repeat(" ", max(m.width-lipgloss.Width(text), 0))+line(" │"))
+	}
+	out = append(out, line("╰"+strings.Repeat("─", total-2)+"╯"))
+	return strings.Join(out, "\n")
 }
 
 func (m manageModel) renderTabs() []string {
@@ -66,6 +100,7 @@ func (m manageModel) renderTabs() []string {
 	var tabBar []string
 	column := 0
 	for i, label := range m.tabLabels() {
+		label = " " + label + " " // the active tab is a filled pill, so every tab has room for it
 		m.hits.add(0, column, lipgloss.Width(label), fmt.Sprintf("tab:%d", i))
 		column += lipgloss.Width(label) + lipgloss.Width(m.tabGap())
 		switch {
@@ -77,7 +112,7 @@ func (m manageModel) renderTabs() []string {
 			tabBar = append(tabBar, dimStyle.Render(label))
 		}
 	}
-	rule := dimStyle.Render(strings.Repeat("─", m.width))
+	rule := borderStyle.Render(strings.Repeat("─", m.width))
 	screenLines = append(screenLines, strings.Join(tabBar, m.tabGap()), rule)
 
 	if m.loadErr != nil {
@@ -136,7 +171,7 @@ func (m manageModel) tabLabels() []string {
 	fits := func(labels []string) bool {
 		total := lipgloss.Width(m.tabGap()) * (len(labels) - 1)
 		for _, label := range labels {
-			total += lipgloss.Width(label)
+			total += lipgloss.Width(label) + 2 // the pill's padding
 		}
 		return total <= m.width
 	}
@@ -151,9 +186,9 @@ func (m manageModel) tabLabels() []string {
 // tabGap separates the tab labels; a narrow screen packs them closer.
 func (m manageModel) tabGap() string {
 	if m.width < 60 {
-		return " "
+		return ""
 	}
-	return "   "
+	return " "
 }
 
 // visibleRows is how many table lines fit: the screen minus title, summary, tabs,
@@ -191,6 +226,9 @@ func (m manageModel) renderTable(tab manageTab, visible, base int) []string {
 			widths[tab.historyCol] = max(widths[tab.historyCol], len(line.history))
 		}
 	}
+	if tab.statusCol >= 0 && tab.statusCol < len(widths) {
+		widths[tab.statusCol] += 2 // the status is a badge with a space on each side
+	}
 	const gap = 2
 	const prefix = 4 // the selection marker and the status dot
 	// Columns are ordered by importance: on a narrow screen the last ones are dropped.
@@ -227,7 +265,8 @@ func (m manageModel) renderTable(tab manageTab, visible, base int) []string {
 		text := truncate(line.cells[col], widths[col])
 		text += strings.Repeat(" ", max(widths[col]-lipgloss.Width(text), 0))
 		if col == tab.statusCol {
-			return levelStyle(line.severity).Render(text)
+			word := strings.TrimSpace(truncate(line.cells[col], max(widths[col]-2, 1)))
+			return badge(line.severity, word) + plainStyle(strings.Repeat(" ", max(widths[col]-lipgloss.Width(word)-2, 0)))
 		}
 		return plainStyle(text)
 	}

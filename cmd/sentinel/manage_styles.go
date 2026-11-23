@@ -1,26 +1,57 @@
 package main
 
 import (
+	"image/color"
+	"os"
+
 	"charm.land/lipgloss/v2"
 )
 
+// The palette has a dark and a light variant; applyPalette picks one from the terminal's
+// background. The terminal downsamples the colours itself when it has fewer than 24 bits.
 var (
-	colourOK   = lipgloss.Color("2")
-	colourWarn = lipgloss.Color("3")
-	colourBad  = lipgloss.Color("1")
-	colourAcc  = lipgloss.Color("4")
+	colourOK, colourWarn, colourBad, colourAcc color.Color
+	colourSelected, colourBorder, colourMuted  color.Color
+	colourOnAccent, colourOnSelected           color.Color
 
-	titleStyle  = lipgloss.NewStyle().Bold(true)
-	dimStyle    = lipgloss.NewStyle().Faint(true)
-	headerStyle = lipgloss.NewStyle().Bold(true).Faint(true)
-	// The selected line is painted with a background; the severity colours on it are the
-	// bright ones so that red, green and yellow stay readable on that background.
-	colourSelected      = lipgloss.Color("18")
-	selectedStyle       = lipgloss.NewStyle().Background(colourSelected).Foreground(lipgloss.Color("15"))
-	activeTab           = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
-	keyStyle            = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
-	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
+	titleStyle, dimStyle, headerStyle, borderStyle lipgloss.Style
+	// The selected line is painted with a background.
+	selectedStyle       lipgloss.Style
+	activeTab           lipgloss.Style
+	keyStyle            lipgloss.Style
+	lipglossStyleAccent lipgloss.Style
 )
+
+func init() { applyPalette(true) }
+
+// detectDarkBackground asks the terminal for its background colour; dark when it cannot tell.
+func detectDarkBackground() bool {
+	return lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
+}
+
+// applyPalette sets every colour and style of the screens for a dark or a light background.
+func applyPalette(dark bool) {
+	pick := lipgloss.LightDark(dark)
+	hex := lipgloss.Color
+	colourAcc = pick(hex("#2e59d9"), hex("#7aa2f7"))
+	colourOK = pick(hex("#1f7a35"), hex("#9ece6a"))
+	colourWarn = pick(hex("#946200"), hex("#e0af68"))
+	colourBad = pick(hex("#c62828"), hex("#f7768e"))
+	colourMuted = pick(hex("#5c6384"), hex("#8089b3"))
+	colourBorder = pick(hex("#8a94c4"), hex("#3f4768"))
+	colourSelected = pick(hex("#d6e0ff"), hex("#283057"))
+	colourOnSelected = pick(hex("#16182a"), hex("#e3e8ff"))
+	colourOnAccent = pick(hex("#ffffff"), hex("#14162b"))
+
+	titleStyle = lipgloss.NewStyle().Bold(true)
+	dimStyle = lipgloss.NewStyle().Foreground(colourMuted)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(colourMuted)
+	borderStyle = lipgloss.NewStyle().Foreground(colourBorder)
+	selectedStyle = lipgloss.NewStyle().Background(colourSelected).Foreground(colourOnSelected)
+	activeTab = lipgloss.NewStyle().Bold(true).Foreground(colourOnAccent).Background(colourAcc)
+	keyStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAcc)
+	lipglossStyleAccent = lipgloss.NewStyle().Foreground(colourAcc)
+}
 
 func severityStyle(level severity) lipgloss.Style {
 	switch level {
@@ -34,6 +65,11 @@ func severityStyle(level severity) lipgloss.Style {
 
 // selectedSeverityStyle is severityStyle on the selected line's background.
 func selectedSeverityStyle(level severity) lipgloss.Style {
-	bright := map[severity]string{sevOK: "10", sevWarn: "11", sevBad: "9"}[level]
-	return selectedStyle.Foreground(lipgloss.Color(bright)).Bold(level != sevOK)
+	return severityStyle(level).Background(colourSelected)
+}
+
+// badge is a short status word on a coloured background, e.g. " FAILED ".
+func badge(level severity, text string) string {
+	background := map[severity]color.Color{sevOK: colourOK, sevWarn: colourWarn, sevBad: colourBad}[level]
+	return lipgloss.NewStyle().Bold(true).Foreground(colourOnAccent).Background(background).Render(" " + text + " ")
 }

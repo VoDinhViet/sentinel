@@ -9,7 +9,7 @@ import (
 
 func click(t *testing.T, screen manageModel, col, row int) (manageModel, tea.Cmd) {
 	t.Helper()
-	model, cmd := screen.Update(tea.MouseClickMsg{X: col, Y: row, Button: tea.MouseLeft})
+	model, cmd := screen.Update(tea.MouseClickMsg{X: col + 2, Y: row + 1, Button: tea.MouseLeft})
 	return model.(manageModel), cmd
 }
 
@@ -22,10 +22,11 @@ func wheel(t *testing.T, m manageModel, button tea.MouseButton) manageModel {
 // screenRow returns the text of one screen row, without colours.
 func screenRow(m manageModel, y int) string {
 	rows := strings.Split(plain(m.render()), "\n")
-	if y >= len(rows) {
+	if y+2 >= len(rows) { // the top and bottom border lines are not content rows
 		return ""
 	}
-	return rows[y]
+	text := []rune(rows[y+1])
+	return string(text[2 : len(text)-2]) // without the frame's side borders
 }
 
 // targetFor renders the screen and returns the click target with that action.
@@ -130,15 +131,15 @@ func TestMouseFooterChipsPressTheirKeys(t *testing.T) {
 func TestSelectedLineHasABackground(t *testing.T) {
 	m := loadedModel(t)
 	rows := strings.Split(m.render(), "\n")
-	selected := rows[targetFor(t, m, "row:0").row]
-	other := rows[targetFor(t, m, "row:1").row]
-	if !strings.Contains(selected, "48;5;18") {
+	selected := rows[targetFor(t, m, "row:0").row+1] // +1: the frame's top border
+	other := rows[targetFor(t, m, "row:1").row+1]
+	if !strings.Contains(selected, "48;2;40;48;87") { // the dark palette's selection colour
 		t.Errorf("the selected line has no background: %q", selected)
 	}
-	if strings.Contains(other, "48;5;18") {
+	if strings.Contains(other, "48;2;40;48;87") {
 		t.Errorf("only the selected line has the background: %q", other)
 	}
-	if width := len([]rune(plain(selected))); width != m.width {
+	if width := len([]rune(plain(selected))) - frameCols; width != m.width {
 		t.Errorf("the background covers %d of %d columns", width, m.width)
 	}
 }
@@ -187,7 +188,7 @@ func TestMouseWheelScrollsAndStaysInRange(t *testing.T) {
 func TestMouseIsIgnoredWhileTypingAndForOtherButtons(t *testing.T) {
 	m := loadedModel(t)
 	tabTarget := targetFor(t, m, "tab:1")
-	model, _ := m.Update(tea.MouseClickMsg{X: tabTarget.from, Y: tabTarget.row, Button: tea.MouseRight})
+	model, _ := m.Update(tea.MouseClickMsg{X: tabTarget.from + 2, Y: tabTarget.row + 1, Button: tea.MouseRight})
 	if model.(manageModel).tab != 0 {
 		t.Error("only the left button clicks")
 	}
@@ -195,7 +196,7 @@ func TestMouseIsIgnoredWhileTypingAndForOtherButtons(t *testing.T) {
 	form, _ := withConfig.onKey("a", "")
 	typing := form.(manageModel)
 	before := typing.form.focus
-	typing, _ = click(t, typing, 5, 4)
+	typing, _ = click(t, typing, 5, 0) // the blank line under the frame
 	if typing.mode != modeForm || typing.form.focus != before {
 		t.Error("a click must not touch the form fields")
 	}

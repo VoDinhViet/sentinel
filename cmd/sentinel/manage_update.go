@@ -42,7 +42,7 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		m.width, m.height = max(msg.Width-frameCols, 1), max(msg.Height-frameRows, 1)
 	case reportMsg:
 		m.loaded, m.loadErr = true, msg.err
 		if msg.err == nil {

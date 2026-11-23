@@ -23,7 +23,7 @@ func (a *app) manageCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "manage",
 		Aliases: []string{"tui"},
-		Short:   "Interactive terminal manager: backups, snapshots, restore, uptime checks and alerts",
+		Short:   "Giao diện terminal: backup, snapshot, khôi phục, uptime check và cảnh báo",
 		Args:    cobra.NoArgs,
 		RunE:    func(cmd *cobra.Command, _ []string) error { return a.runManage(cmd) },
 	}
@@ -43,6 +43,7 @@ func (a *app) runManage(cmd *cobra.Command) error {
 		return err
 	}
 	defer st.Close()
+	applyPalette(detectDarkBackground())
 	ctx := cmd.Context()
 	load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
 	model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))

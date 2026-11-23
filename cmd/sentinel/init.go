@@ -49,14 +49,14 @@ func (a *app) initCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create a first config file by answering a form",
-		Long: "Asks where to keep the backups and what to back up, then writes a short config file.\n" +
-			"Root writes /etc/sentinel/config.yaml (and a random repository password into sentinel.env);\n" +
-			"anyone else writes ~/.config/sentinel/config.yaml. --config or $SENTINEL_CONFIG choose another file.",
+		Short: "Tạo file config đầu tiên bằng cách điền một form",
+		Long: "Hỏi nơi lưu backup và cần backup gì, rồi ghi một file config ngắn.\n" +
+			"Root ghi /etc/sentinel/config.yaml (và mật khẩu kho ngẫu nhiên vào sentinel.env);\n" +
+			"người dùng thường ghi ~/.config/sentinel/config.yaml. Dùng --config hoặc $SENTINEL_CONFIG để chọn file khác.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.runInitForm(cmd, force) },
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "replace an existing config file (the old one is kept as .old)")
+	cmd.Flags().BoolVar(&force, "force", false, "ghi đè file config đã có (file cũ được giữ thành .old)")
 	return cmd
 }
 
@@ -80,6 +80,7 @@ func runInit(ctx context.Context, path string, root, force bool) (*initOutcome, 
 		}
 		return nil
 	}}
+	applyPalette(detectDarkBackground())
 	model := newManageModel(ctx, func() (status.Report, error) { return status.Report{Server: hostname}, nil }, actions, nil)
 	model.loaded = true
 	model.report.Server = hostname
