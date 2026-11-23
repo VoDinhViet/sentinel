@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -53,6 +54,16 @@ type Daemon struct {
 // scheduling, cancels running jobs (restic gets SIGINT so it can release its
 // lock) and waits for them to exit.
 func (d *Daemon) Run(ctx context.Context) error {
+	if d.Runner != nil {
+		held, release, err := d.Runner.LockDaemon()
+		if err != nil {
+			return err
+		}
+		defer release()
+		if !held {
+			return errors.New("another sentinel daemon is already running with this state directory")
+		}
+	}
 	d.started = time.Now()
 	d.sweepStaleSecretFiles()
 	jobCtx, cancelJobs := context.WithCancel(context.WithoutCancel(ctx))
@@ -155,6 +166,20 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 	return runs
 }
 
+// verifyTimeout bounds one `restic check`. restic retries a failing backend for a long time and keeps the
+// repository locked meanwhile, which blocks the prune of every job that uses it, so a check that hangs must end
+// and be reported. It may take as long as the slowest backup is allowed to, since both read the repository.
+func (d *Daemon) verifyTimeout() time.Duration {
+	longest := time.Duration(0)
+	for _, job := range d.Config.Jobs {
+		longest = max(longest, job.Timeout)
+	}
+	if longest == 0 {
+		return 6 * time.Hour // the default job timeout
+	}
+	return longest
+}
+
 // CheckRepositories runs `restic check` on every repository used by a job.
 func (d *Daemon) CheckRepositories(ctx context.Context) {
 	usedRepos := map[string]bool{}
@@ -166,7 +191,9 @@ func (d *Daemon) CheckRepositories(ctx context.Context) {
 	for _, repoName := range slices.Sorted(maps.Keys(usedRepos)) {
 		resticClient, err := d.Runner.Restic(repoName)
 		if err == nil {
-			err = resticClient.Verify(ctx)
+			verifyCtx, cancel := context.WithTimeout(ctx, d.verifyTimeout())
+			err = resticClient.Verify(verifyCtx)
+			cancel()
 		}
 		if ctx.Err() != nil {
 			return

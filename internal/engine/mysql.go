@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"sentinel/internal/config"
 )
@@ -16,11 +18,16 @@ import (
 // mysql backs up MySQL and MariaDB with mariadb-dump or mysqldump.
 type mysql struct{}
 
+// clientVersionTimeout bounds `<client> --version`, which runs before every dump and probe.
+var clientVersionTimeout = 10 * time.Second
+
 // Seams for tests: where to look for a binary and how to read a client's version.
 var (
 	lookPath      = exec.LookPath
 	clientVersion = func(bin string) string {
-		versionOutput, _ := exec.Command(bin, "--version").Output()
+		ctx, cancel := context.WithTimeout(context.Background(), clientVersionTimeout)
+		defer cancel()
+		versionOutput, _ := exec.CommandContext(ctx, bin, "--version").Output()
 		return string(versionOutput)
 	}
 )
