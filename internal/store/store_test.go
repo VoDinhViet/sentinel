@@ -155,3 +155,55 @@ func TestSinceCursors(t *testing.T) {
 		t.Fatalf("checks = %+v, %v", checks, err)
 	}
 }
+
+func TestRecentBackups(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	at := time.Unix(1_700_000_000, 0)
+	record := func(job, repository string, success bool) {
+		t.Helper()
+		at = at.Add(time.Minute)
+		run := BackupRun{Job: job, Repository: repository, StartedAt: at, FinishedAt: at, Success: success}
+		if !success {
+			run.Error = "boom"
+		}
+		if err := s.RecordBackup(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, success := range []bool{true, true, false, true, true} {
+		record("appdb", "s3", success)
+	}
+	record("appdb", "local", false)
+	record("files", "local", true)
+
+	recent, err := s.RecentBackups(ctx, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary []string
+	for _, run := range recent {
+		outcome := "ok"
+		if !run.Success {
+			outcome = "fail"
+		}
+		summary = append(summary, run.Job+"/"+run.Repository+":"+outcome)
+	}
+	want := []string{
+		"appdb/local:fail",
+		"appdb/s3:fail", "appdb/s3:ok", "appdb/s3:ok", // the three newest, oldest first
+		"files/local:ok",
+	}
+	if len(summary) != len(want) {
+		t.Fatalf("got %v, want %v", summary, want)
+	}
+	for i := range want {
+		if summary[i] != want[i] {
+			t.Fatalf("got %v, want %v", summary, want)
+		}
+	}
+
+	if none, err := openTemp(t).RecentBackups(ctx, 3); err != nil || len(none) != 0 {
+		t.Errorf("empty store: %v, %v", none, err)
+	}
+}

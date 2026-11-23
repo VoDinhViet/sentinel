@@ -179,6 +179,14 @@ func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
 		ORDER BY job, repository`)
 }
 
+// RecentBackups returns up to perPair of the latest runs of each (job, repository)
+// pair, ordered by job and repository, and within a pair oldest first.
+func (s *Store) RecentBackups(ctx context.Context, perPair int) ([]BackupRun, error) {
+	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY job, repository ORDER BY id DESC) AS recency
+			FROM backup_runs) WHERE recency <= ? ORDER BY job, repository, id`, perPair)
+}
+
 // BackupRunsSince returns up to limit runs with id > afterID, oldest first.
 func (s *Store) BackupRunsSince(ctx context.Context, afterID int64, limit int) ([]BackupRun, error) {
 	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
