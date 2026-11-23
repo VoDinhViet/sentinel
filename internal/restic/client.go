@@ -86,13 +86,25 @@ func (c *Client) env() []string {
 // run executes restic and returns stdout. On failure the error carries
 // restic's exit code and the message from its JSON error output or stderr.
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	return c.runFiltered(ctx, nil, args...)
+}
+
+// runFiltered is run that also reads restic's progress while it works: each status line is
+// handed to onStatus and not kept, so a backup of many hours does not pile its progress up in
+// memory. Every other line (the summary, errors) is kept for the caller as usual. It is called
+// from the goroutine that copies restic's output, one line at a time.
+func (c *Client) runFiltered(ctx context.Context, onStatus func(Status), args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.bin(), args...)
 	cmd.Env = c.env()
+	if onStatus != nil {
+		cmd.Env = append(cmd.Env, "RESTIC_PROGRESS_FPS=0.5") // a status line every two seconds is plenty
+	}
 	// On cancel, ask restic to stop cleanly so it can release its lock.
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = 30 * time.Second
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout := &statusFilter{onStatus: onStatus}
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = stdout, &stderr
 	err := cmd.Run()
 	if err == nil {
 		return stdout.Bytes(), nil
@@ -112,6 +124,60 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), &ExitError{Code: exitErr.ExitCode(), Message: errorMessage(stdout.Bytes(), stderr.Bytes())}
 }
 
+// Status is how far a backup has got, from restic's own progress lines. For data piped in
+// (a database dump) restic does not know the total: TotalBytes is 0 and PercentDone is not
+// meaningful.
+type Status struct {
+	BytesDone, TotalBytes int64
+	FilesDone, TotalFiles int64
+	PercentDone           float64 // 0 to 1, only when TotalBytes is known
+	Elapsed               time.Duration
+}
+
+// statusFilter is the writer restic's output goes to: it passes status lines to onStatus and
+// keeps all the other lines.
+type statusFilter struct {
+	onStatus func(Status)
+	kept     bytes.Buffer
+	partial  []byte // the start of a line that has not ended yet
+}
+
+var statusLine = []byte(`"message_type":"status"`)
+
+func (f *statusFilter) Write(chunk []byte) (int, error) {
+	f.partial = append(f.partial, chunk...)
+	for {
+		end := bytes.IndexByte(f.partial, '\n')
+		if end < 0 {
+			break
+		}
+		f.line(f.partial[:end+1])
+		f.partial = f.partial[end+1:]
+	}
+	if len(f.partial) > 1<<20 { // a "line" this long is not JSON progress: keep it as it is
+		f.kept.Write(f.partial)
+		f.partial = nil
+	}
+	return len(chunk), nil
+}
+
+func (f *statusFilter) line(line []byte) {
+	if f.onStatus != nil && bytes.Contains(line, statusLine) {
+		var msg message
+		if json.Unmarshal(bytes.TrimSpace(line), &msg) == nil && msg.MessageType == "status" {
+			f.onStatus(Status{
+				BytesDone: msg.BytesDone, TotalBytes: msg.TotalBytes, FilesDone: msg.FilesDone, TotalFiles: msg.TotalFiles,
+				PercentDone: msg.PercentDone, Elapsed: time.Duration(msg.SecondsElapsed * float64(time.Second)),
+			})
+			return
+		}
+	}
+	f.kept.Write(line)
+}
+
+// Bytes is everything that was not a status line, including a last line without its newline.
+func (f *statusFilter) Bytes() []byte { return append(f.kept.Bytes(), f.partial...) }
+
 // message is one JSON line of restic's --json output.
 type message struct {
 	MessageType string `json:"message_type"`
@@ -127,6 +193,14 @@ type message struct {
 	DataAdded           int64  `json:"data_added"`
 	TotalBytesProcessed int64  `json:"total_bytes_processed"`
 	SnapshotID          string `json:"snapshot_id"`
+
+	// status fields
+	SecondsElapsed float64 `json:"seconds_elapsed"`
+	PercentDone    float64 `json:"percent_done"`
+	TotalFiles     int64   `json:"total_files"`
+	FilesDone      int64   `json:"files_done"`
+	TotalBytes     int64   `json:"total_bytes"`
+	BytesDone      int64   `json:"bytes_done"`
 }
 
 // errorMessage prefers restic's JSON exit_error, then per-item errors, then
@@ -185,6 +259,9 @@ type BackupOptions struct {
 	// StdinFilename. A non-zero exit fails the backup.
 	Command       []string
 	StdinFilename string
+	// OnStatus, when set, is called with restic's progress about every two seconds while the
+	// backup runs (from another goroutine).
+	OnStatus func(Status)
 }
 
 // ErrIncomplete means restic made a snapshot but could not read every file.
@@ -206,7 +283,7 @@ func (c *Client) Backup(ctx context.Context, opts BackupOptions) (Summary, error
 		args = append(args, opts.Paths...)
 	}
 
-	stdout, err := c.run(ctx, args...)
+	stdout, err := c.runFiltered(ctx, opts.OnStatus, args...)
 	var sum Summary
 	for _, msg := range parseMessages(stdout) {
 		if msg.MessageType == "summary" {

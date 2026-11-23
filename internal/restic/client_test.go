@@ -59,3 +59,54 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("Version = %v, %v", ver, err)
 	}
 }
+
+func TestBackupReportsProgressAndKeepsTheRest(t *testing.T) {
+	bin := fakeRestic(t, `{"message_type":"status","seconds_elapsed":1,"percent_done":0,"total_files":1,"bytes_done":1000}
+{"message_type":"status","seconds_elapsed":3,"percent_done":0.5,"total_files":4,"files_done":2,"total_bytes":4000,"bytes_done":2000}
+{"message_type":"error","error":{"message":"open /x: permission denied"},"item":"/x"}
+{"message_type":"summary","files_new":3,"snapshot_id":"abc123","total_bytes_processed":4000}`, 3)
+	client := &Client{Bin: bin, Host: "h"}
+	var seen []Status
+	sum, err := client.Backup(context.Background(), BackupOptions{Paths: []string{"/x"}, OnStatus: func(status Status) { seen = append(seen, status) }})
+	if len(seen) != 2 || seen[0].BytesDone != 1000 || seen[0].TotalBytes != 0 || seen[1].BytesDone != 2000 || seen[1].TotalBytes != 4000 ||
+		seen[1].PercentDone != 0.5 || seen[1].FilesDone != 2 || seen[1].Elapsed.Seconds() != 3 {
+		t.Errorf("progress = %+v", seen)
+	}
+	if !errors.Is(err, ErrIncomplete) || !strings.Contains(err.Error(), "permission denied") || sum.SnapshotID != "abc123" {
+		t.Errorf("the error and the summary are still read: %v, %+v", err, sum)
+	}
+}
+
+func TestBackupWithoutAProgressHandlerKeepsEveryLine(t *testing.T) {
+	bin := fakeRestic(t, `{"message_type":"status","bytes_done":1000}
+{"message_type":"summary","files_new":1,"snapshot_id":"abc123"}`, 0)
+	if sum, err := (&Client{Bin: bin, Host: "h"}).Backup(context.Background(), BackupOptions{Paths: []string{"/x"}}); err != nil || sum.SnapshotID != "abc123" {
+		t.Errorf("%+v, %v", sum, err)
+	}
+}
+
+func TestStatusFilterHandlesLinesSplitAcrossWrites(t *testing.T) {
+	var seen []Status
+	filter := &statusFilter{onStatus: func(status Status) { seen = append(seen, status) }}
+	for _, piece := range []string{`{"message_type":"sta`, `tus","bytes_done":7}` + "\n" + `{"message_type":"summary","snap`, `shot_id":"x"}`} {
+		if _, err := filter.Write([]byte(piece)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(seen) != 1 || seen[0].BytesDone != 7 {
+		t.Errorf("status = %+v", seen)
+	}
+	if got := string(filter.Bytes()); got != `{"message_type":"summary","snapshot_id":"x"}` {
+		t.Errorf("kept = %q (a last line without a newline is kept too)", got)
+	}
+}
+
+func TestStatusLinesAreNotKeptSoALongBackupDoesNotGrowMemory(t *testing.T) {
+	filter := &statusFilter{onStatus: func(Status) {}}
+	for range 10000 {
+		filter.Write([]byte(`{"message_type":"status","bytes_done":1}` + "\n"))
+	}
+	if len(filter.Bytes()) != 0 {
+		t.Errorf("%d bytes of status lines were kept", len(filter.Bytes()))
+	}
+}

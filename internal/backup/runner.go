@@ -24,6 +24,10 @@ type Runner struct {
 	// is locked by another restic process; LockRetryDelay is the wait between.
 	LockRetries    int
 	LockRetryDelay time.Duration
+	// OnProgress, when set, hears how far a running backup has got, about every two seconds
+	// (from another goroutine). The same progress is written to a file next to the state
+	// database for other processes to read: see ReadRunning.
+	OnProgress func(Progress)
 }
 
 func (r *Runner) now() time.Time {
@@ -112,6 +116,19 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 		client.ExtraEnv = append(client.ExtraEnv, dump.Env...)
 	}
 
+	var estimate int64
+	if r.Store != nil && job.Type != config.JobFiles {
+		// A dump's size is not known beforehand: the last one is the best guess.
+		estimate, _, _ = r.Store.LastBackupSize(ctx, job.Name, repoName)
+	}
+	progressDir := ""
+	if r.Config != nil && r.Config.StorePath != "" {
+		progressDir = ProgressDir(r.Config.StorePath)
+	}
+	progress := newTracker(progressDir, job.Name, repoName, estimate, job.Timeout, r.now, r.OnProgress)
+	defer progress.finish()
+	opts.OnStatus = progress.status
+
 	sum, err := client.Backup(ctx, opts)
 	if restic.IsNoRepo(err) {
 		// The first backup into a folder of this machine creates the repository there.
@@ -140,6 +157,7 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 	}
 
 	run.Success = true
+	progress.phase(PhaseRetention)
 	if err := client.Forget(ctx, JobTags(job), job.Retention); err != nil {
 		// The new snapshot is safe, so the backup counts as successful; Error
 		// carries the retention failure and retention catches up next run.

@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -174,6 +175,19 @@ func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (finishedA
 		return time.Time{}, false, err
 	}
 	return time.Unix(finishedUnix.Int64, 0), true, nil
+}
+
+// LastBackupSize is how much data the latest successful backup of the job into the repository
+// read (restic's total_bytes_processed; for a database, the size of the dump): the best guide
+// to how big the next one will be. ok is false when there is no such backup.
+func (s *Store) LastBackupSize(ctx context.Context, job, repository string) (size int64, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT total_bytes FROM backup_runs WHERE job = ? AND repository = ? AND success = 1 AND total_bytes > 0
+		 ORDER BY finished_at DESC, id DESC LIMIT 1`, job, repository).Scan(&size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return size, err == nil, err
 }
 
 const backupCols = `id, job, repository, started_at, finished_at, success,
