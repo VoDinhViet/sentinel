@@ -19,6 +19,8 @@ type ConfigVersion struct {
 	YAML      string
 	Comment   string
 	CreatedAt time.Time
+	// Author is who saved the version: a username, "agent" for an import, "" for old rows.
+	Author string
 }
 
 // ValidateConfig checks a managed config without expanding ${VAR}
@@ -55,8 +57,8 @@ func (s *Service) SaveConfig(ctx context.Context, agentID int64, yamlText, comme
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM configs WHERE agent_id = ?`, agentID).Scan(&version); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO configs (agent_id, version, yaml, comment, created_at) VALUES (?, ?, ?, ?, ?)`,
-		agentID, version, yamlText, comment, s.now().Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO configs (agent_id, version, yaml, comment, created_at, author) VALUES (?, ?, ?, ?, ?, ?)`,
+		agentID, version, yamlText, comment, s.now().Unix(), ActorFrom(ctx).Username); err != nil {
 		return 0, err
 	}
 	return version, tx.Commit()
@@ -68,7 +70,7 @@ func (s *Service) ImportConfig(ctx context.Context, agentID int64, yamlText stri
 	if _, ok, err := s.CurrentConfig(ctx, agentID); err != nil || ok {
 		return false, err
 	}
-	_, err := s.SaveConfig(ctx, agentID, yamlText, "imported from agent")
+	_, err := s.SaveConfig(WithActor(ctx, Actor{Username: "agent"}), agentID, yamlText, "imported from agent")
 	return err == nil, err
 }
 
@@ -85,8 +87,8 @@ func (s *Service) CurrentConfig(ctx context.Context, agentID int64) (doc api.Con
 func (s *Service) ConfigVersion(ctx context.Context, agentID, version int64) (ConfigVersion, error) {
 	var v ConfigVersion
 	var created int64
-	err := s.db.QueryRowContext(ctx, `SELECT version, yaml, comment, created_at FROM configs
-		WHERE agent_id = ? AND version = ?`, agentID, version).Scan(&v.Version, &v.YAML, &v.Comment, &created)
+	err := s.db.QueryRowContext(ctx, `SELECT version, yaml, comment, created_at, author FROM configs
+		WHERE agent_id = ? AND version = ?`, agentID, version).Scan(&v.Version, &v.YAML, &v.Comment, &created, &v.Author)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}
@@ -96,7 +98,7 @@ func (s *Service) ConfigVersion(ctx context.Context, agentID, version int64) (Co
 
 // ConfigHistory lists versions newest first (without YAML bodies).
 func (s *Service) ConfigHistory(ctx context.Context, agentID int64, limit int) ([]ConfigVersion, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT version, comment, created_at FROM configs WHERE agent_id = ?
+	rows, err := s.db.QueryContext(ctx, `SELECT version, comment, created_at, author FROM configs WHERE agent_id = ?
 		ORDER BY version DESC LIMIT ?`, agentID, limit)
 	if err != nil {
 		return nil, err
@@ -106,7 +108,7 @@ func (s *Service) ConfigHistory(ctx context.Context, agentID int64, limit int) (
 	for rows.Next() {
 		var v ConfigVersion
 		var created int64
-		if err := rows.Scan(&v.Version, &v.Comment, &created); err != nil {
+		if err := rows.Scan(&v.Version, &v.Comment, &created, &v.Author); err != nil {
 			return nil, err
 		}
 		v.CreatedAt = time.Unix(created, 0)

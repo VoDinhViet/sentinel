@@ -1,5 +1,5 @@
-// Package server is the HTTP layer of `sentinel server`: the agent API and
-// the web UI. Business rules live in package service.
+// Package server is the HTTP layer of `sentinel server`: the agent API, the
+// admin JSON API and the embedded single-page web UI. Business rules live in package service.
 package server
 
 import (
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"sentinel/internal/beszel"
 	"sentinel/internal/config"
 	"sentinel/internal/server/service"
 )
@@ -21,23 +22,46 @@ type Server struct {
 	// Version is shown in the UI footer.
 	Version string
 
+	// Beszel is nil unless the config has a beszel section.
+	Beszel Monitor
+
 	mux     *http.ServeMux
+	live    chan struct{} // one slot per open live stream
 	limiter *loginLimiter
 }
 
 func New(cfg *config.ServerConfig, svc *service.Service) *Server {
-	s := &Server{Config: cfg, Service: svc, mux: http.NewServeMux(), limiter: newLoginLimiter(5, time.Minute)}
+	s := &Server{Config: cfg, Service: svc, mux: http.NewServeMux(), live: make(chan struct{}, maxLive), limiter: newLoginLimiter(5, time.Minute)}
+	if b := cfg.Beszel; b != nil {
+		s.Beszel = beszel.New(beszel.Config{URL: b.URL, Email: b.Email, Password: b.Password, Poll: b.Poll, PublicURL: b.PublicURL})
+	}
 	s.routesAgent()
-	s.routesUI()
+	s.routesAPI()
+	s.routesUsers()
+	s.routesSPA()
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "same-origin")
+	h := w.Header()
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "same-origin")
+	h.Set("Content-Security-Policy", contentSecurityPolicy)
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cross-Origin-Resource-Policy", "same-origin")
+	if s.Config.SecureCookies == nil || *s.Config.SecureCookies {
+		h.Set("Strict-Transport-Security", "max-age=31536000")
+	}
 	s.mux.ServeHTTP(w, r)
 }
+
+// Scripts must come from this origin. Styles may be inline because the UI
+// libraries (toasts, popovers) set style attributes and inject small sheets.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
+	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 type ctxKey int
 
@@ -89,5 +113,5 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, v any) bool
 
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-	http.Error(w, "internal error", http.StatusInternalServerError)
+	jsonError(w, http.StatusInternalServerError, "internal error")
 }

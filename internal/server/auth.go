@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -21,22 +22,19 @@ const (
 
 const csrfKey ctxKey = iota + 100
 
-// requireLogin redirects anonymous users to /login and enforces CSRF tokens
-// on every state-changing request.
+// requireLogin answers anonymous requests with 401 and enforces the CSRF
+// header on every state-changing request. Responses are never cached.
 func (s *Server) requireLogin(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		c, err := r.Cookie(sessionCookie)
 		var csrf string
+		var actor service.Actor
 		if err == nil {
-			csrf, err = s.Service.Session(r.Context(), c.Value)
+			csrf, actor, err = s.Service.Session(r.Context(), c.Value)
 		}
 		if errors.Is(err, service.ErrUnauthorized) || errors.Is(err, http.ErrNoCookie) {
-			if r.Header.Get("HX-Request") == "true" {
-				w.Header().Set("HX-Redirect", "/login")
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			jsonError(w, http.StatusUnauthorized, "not logged in")
 			return
 		}
 		if err != nil {
@@ -44,17 +42,40 @@ func (s *Server) requireLogin(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			sent := r.Header.Get("X-CSRF-Token")
-			if sent == "" {
-				sent = r.PostFormValue("csrf_token")
-			}
-			if subtle.ConstantTimeCompare([]byte(sent), []byte(csrf)) != 1 {
-				http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf)) != 1 {
+				jsonError(w, http.StatusForbidden, "invalid CSRF token")
 				return
 			}
 		}
-		h(w, r.WithContext(context.WithValue(r.Context(), csrfKey, csrf)))
+		if actor.UserID == 0 && actor.Username == "" {
+			actor.Username = s.Config.Admin.Username // session from before users existed
+		}
+		ctx := context.WithValue(r.Context(), csrfKey, csrf)
+		h(w, r.WithContext(service.WithActor(ctx, actor)))
 	}
+}
+
+// requireRole answers 403 unless the logged-in user has at least role.
+// It must run inside requireLogin.
+func (s *Server) requireRole(role string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !service.RoleAtLeast(service.ActorFrom(r.Context()).Role, role) {
+			jsonError(w, http.StatusForbidden, "Your role does not allow this.")
+			return
+		}
+		h(w, r)
+	}
+}
+
+// ui registers a logged-in endpoint that needs at least role.
+func (s *Server) ui(role string, h http.HandlerFunc) http.HandlerFunc {
+	return s.requireLogin(s.requireRole(role, h))
+}
+
+// uiAudited is ui plus an audit log entry for every call, including denied
+// and failed ones.
+func (s *Server) uiAudited(role, action string, h http.HandlerFunc) http.HandlerFunc {
+	return s.requireLogin(s.audited(action, s.requireRole(role, h)))
 }
 
 func csrfFrom(r *http.Request) string {
@@ -62,38 +83,68 @@ func csrfFrom(r *http.Request) string {
 	return v
 }
 
-func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "login.html", map[string]any{"Error": ""})
+type sessionInfo struct {
+	CSRF     string `json:"csrf"`
+	Version  string `json:"version"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	actor := service.ActorFrom(r.Context())
+	writeJSON(w, http.StatusOK, sessionInfo{CSRF: csrfFrom(r), Version: s.Version, Username: actor.Username, Role: actor.Role})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	ip := clientIP(r)
 	if !s.limiter.allow(ip) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		s.render(w, r, "login.html", map[string]any{"Error": "Too many attempts. Wait a minute and try again."})
+		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Wait a minute and try again.")
 		return
 	}
-	user, pass := r.PostFormValue("username"), r.PostFormValue("password")
-	userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.Config.Admin.Username)) == 1
-	// Always run bcrypt so timing does not reveal whether the username exists.
-	passOK := bcrypt.CompareHashAndPassword([]byte(s.Config.Admin.PasswordHash), []byte(pass)) == nil
-	if !userOK || !passOK {
-		w.WriteHeader(http.StatusUnauthorized)
-		s.render(w, r, "login.html", map[string]any{"Error": "Wrong username or password."})
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, 4<<10, &in) {
 		return
+	}
+	// The admin from server.yaml is the bootstrap account; everyone else is in
+	// the users table. Always run bcrypt so timing does not reveal whether the
+	// username exists.
+	userOK := subtle.ConstantTimeCompare([]byte(in.Username), []byte(s.Config.Admin.Username)) == 1
+	passOK := bcrypt.CompareHashAndPassword([]byte(s.Config.Admin.PasswordHash), []byte(in.Password)) == nil
+	actor := service.Actor{Username: s.Config.Admin.Username, Role: service.RoleAdmin}
+	if !userOK || !passOK {
+		var err error
+		if actor, err = s.Service.VerifyUser(r.Context(), in.Username, in.Password); err != nil {
+			s.auditLogin(r, service.Actor{Username: in.Username}, service.OutcomeFailed)
+			jsonError(w, http.StatusUnauthorized, "Wrong username or password.")
+			return
+		}
 	}
 	s.limiter.reset(ip)
-	token, _, err := s.Service.CreateSession(r.Context(), sessionTTL)
+	token, csrf, err := s.Service.CreateSession(r.Context(), actor, sessionTTL)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
+	s.auditLogin(r, actor, service.OutcomeOK)
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/",
 		HttpOnly: true, Secure: *s.Config.SecureCookies, SameSite: http.SameSiteStrictMode,
 		MaxAge: int(sessionTTL.Seconds()),
 	})
-	http.Redirect(w, r, "/manage", http.StatusSeeOther)
+	writeJSON(w, http.StatusOK, sessionInfo{CSRF: csrf, Version: s.Version, Username: actor.Username, Role: actor.Role})
+}
+
+func (s *Server) auditLogin(r *http.Request, actor service.Actor, outcome string) {
+	err := s.Service.Audit(r.Context(), service.AuditEntry{
+		UserID: actor.UserID, Username: actor.Username, IP: clientIP(r), Action: "auth.login", Outcome: outcome,
+	})
+	if err != nil {
+		slog.Error("audit login", "error", err)
+	}
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +153,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: *s.Config.SecureCookies, SameSite: http.SameSiteStrictMode})
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // clientIP uses the TCP peer address. X-Forwarded-For is ignored because it

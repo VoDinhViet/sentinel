@@ -95,6 +95,40 @@ var migrations = []string{
 		csrf TEXT NOT NULL,
 		expires_at INTEGER NOT NULL
 	);`,
+	`ALTER TABLE agents ADD COLUMN beszel_system TEXT NOT NULL DEFAULT '';`,
+	`DROP TABLE metrics;`,
+	`ALTER TABLE agents ADD COLUMN beszel_owned INTEGER NOT NULL DEFAULT 0;`,
+	// Users, roles and the audit trail. user_id 0 is the bootstrap admin from server.yaml.
+	`CREATE TABLE users (
+		id INTEGER PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL CHECK (role IN ('admin', 'operator', 'viewer')),
+		disabled INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
+	ALTER TABLE sessions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE sessions ADD COLUMN username TEXT NOT NULL DEFAULT '';
+	ALTER TABLE commands ADD COLUMN requested_by TEXT NOT NULL DEFAULT '';
+	ALTER TABLE configs ADD COLUMN author TEXT NOT NULL DEFAULT '';
+	CREATE TABLE audit_log (
+		id INTEGER PRIMARY KEY,
+		at INTEGER NOT NULL,
+		user_id INTEGER NOT NULL DEFAULT 0,
+		username TEXT NOT NULL,
+		ip TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		agent_id INTEGER NOT NULL DEFAULT 0,
+		agent_name TEXT NOT NULL DEFAULT '',
+		job TEXT NOT NULL DEFAULT '',
+		details TEXT NOT NULL DEFAULT '{}',
+		outcome TEXT NOT NULL
+	);
+	CREATE INDEX audit_log_at ON audit_log (at);
+	CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log
+		BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+	CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
+		BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;`,
 }
 
 func openDB(path string) (*sql.DB, error) {

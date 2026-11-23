@@ -24,6 +24,8 @@ type CommandRecord struct {
 	FinishedAt time.Time
 	Output     json.RawMessage
 	Error      string
+	// RequestedBy is the user who issued the command ("" for older commands).
+	RequestedBy string
 }
 
 // Done reports whether the command reached a final state.
@@ -110,8 +112,8 @@ func (s *Service) Enqueue(ctx context.Context, agentID int64, args any) (int64, 
 		return 0, err
 	}
 	raw, _ := json.Marshal(args)
-	res, err := s.db.ExecContext(ctx, `INSERT INTO commands (agent_id, type, args, status, created_at)
-		VALUES (?, ?, ?, ?, ?)`, agentID, typ, string(raw), api.StatusPending, s.now().Unix())
+	res, err := s.db.ExecContext(ctx, `INSERT INTO commands (agent_id, type, args, status, created_at, requested_by)
+		VALUES (?, ?, ?, ?, ?, ?)`, agentID, typ, string(raw), api.StatusPending, s.now().Unix(), ActorFrom(ctx).Username)
 	if err != nil {
 		return 0, err
 	}
@@ -212,13 +214,13 @@ func (s *Service) Complete(ctx context.Context, agentID, cmdID int64, r api.Comm
 	return nil
 }
 
-const commandCols = `id, agent_id, type, args, status, created_at, started_at, finished_at, output, error`
+const commandCols = `id, agent_id, type, args, status, created_at, started_at, finished_at, output, error, requested_by`
 
 func scanCommand(row interface{ Scan(...any) error }) (CommandRecord, error) {
 	var c CommandRecord
 	var args, output string
 	var created, started, finished int64
-	if err := row.Scan(&c.ID, &c.AgentID, &c.Type, &args, &c.Status, &created, &started, &finished, &output, &c.Error); err != nil {
+	if err := row.Scan(&c.ID, &c.AgentID, &c.Type, &args, &c.Status, &created, &started, &finished, &output, &c.Error, &c.RequestedBy); err != nil {
 		return c, err
 	}
 	c.Args, c.CreatedAt = json.RawMessage(args), time.Unix(created, 0)
