@@ -174,7 +174,7 @@ func TestBareSentinelPrintsHelpWithoutATerminal(t *testing.T) {
 	if err := cli.runDefault(root); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "Available Commands") {
+	if !strings.Contains(output.String(), "Các lệnh:") {
 		t.Errorf("want the help, got %q", output.String())
 	}
 }

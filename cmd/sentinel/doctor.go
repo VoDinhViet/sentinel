@@ -28,7 +28,7 @@ func printFindings(w io.Writer, findings []doctor.Finding) (failed int) {
 func (a *app) doctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Check config, tools, repositories and storage",
+		Short: "Kiểm tra config, công cụ, kho backup và nơi lưu trữ",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			stdout := cmd.OutOrStdout()

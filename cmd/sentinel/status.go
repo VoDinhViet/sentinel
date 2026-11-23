@@ -16,7 +16,7 @@ func (a *app) statusCmd() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show last backups, open alerts, and checks",
+		Short: "Xem các backup gần nhất, cảnh báo đang mở và uptime check",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if output != "text" && output != "json" {
@@ -43,7 +43,7 @@ func (a *app) statusCmd() *cobra.Command {
 			return printStatus(cmd.OutOrStdout(), report)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "text or json")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "text hoặc json")
 	return cmd
 }
 

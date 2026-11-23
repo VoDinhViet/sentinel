@@ -11,10 +11,10 @@ import (
 )
 
 func (a *app) notifyCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "notify", Short: "Notifiers"}
+	cmd := &cobra.Command{Use: "notify", Short: "Kênh gửi thông báo"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "test",
-		Short: "Send a test message to every configured notifier",
+		Short: "Gửi tin nhắn thử tới mọi kênh thông báo đã cấu hình",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := a.loadConfig()

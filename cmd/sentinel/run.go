@@ -13,7 +13,7 @@ import (
 func (a *app) runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
-		Short: "Run the daemon: scheduled backups and uptime checks",
+		Short: "Chạy daemon: backup theo lịch và uptime check",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()

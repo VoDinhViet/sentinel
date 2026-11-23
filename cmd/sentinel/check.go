@@ -14,7 +14,7 @@ import (
 func (a *app) checkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
-		Short: "Run every uptime check once and print the results",
+		Short: "Chạy mọi uptime check một lần và in kết quả",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := a.loadConfig()

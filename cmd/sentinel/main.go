@@ -40,7 +40,7 @@ func newRootCmd() *cobra.Command {
 	cli := &app{term: defaultTerminal()}
 	root := &cobra.Command{
 		Use:           "sentinel",
-		Short:         "Server maintenance: backups, uptime checks, alerts",
+		Short:         "Bảo trì máy chủ: backup, uptime check, cảnh báo",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -56,9 +56,10 @@ func newRootCmd() *cobra.Command {
 			return nil
 		},
 	}
-	root.PersistentFlags().StringVarP(&cli.configFlag, "config", "c", "", "config file (default: $SENTINEL_CONFIG, /etc/sentinel/config.yaml or ~/.config/sentinel/config.yaml, the first that exists)")
+	root.PersistentFlags().StringVarP(&cli.configFlag, "config", "c", "", "file config (mặc định: $SENTINEL_CONFIG, /etc/sentinel/config.yaml hoặc ~/.config/sentinel/config.yaml, file nào có trước)")
 	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd())
-	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn or error")
+	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn hoặc error")
+	localizeHelp(root)
 	return root
 }
 

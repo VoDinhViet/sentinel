@@ -14,7 +14,7 @@ import (
 )
 
 func (a *app) backupCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "backup", Short: "Run and manage backups"}
+	cmd := &cobra.Command{Use: "backup", Short: "Chạy và quản lý backup"}
 	var repoFlag string
 
 	// pick returns the job a command should act on: all of its repositories, or only
@@ -32,7 +32,7 @@ func (a *app) backupCmd() *cobra.Command {
 
 	initCmd := &cobra.Command{
 		Use:   "init <job>",
-		Short: "Initialize the restic repositories used by a job",
+		Short: "Khởi tạo các kho restic mà job dùng",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := a.loadConfig()
@@ -64,7 +64,7 @@ func (a *app) backupCmd() *cobra.Command {
 
 	runCmd := &cobra.Command{
 		Use:   "run <job>",
-		Short: "Run a backup job now",
+		Short: "Chạy một job backup ngay",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := a.loadConfig()
@@ -103,7 +103,7 @@ func (a *app) backupCmd() *cobra.Command {
 
 	listCmd := &cobra.Command{
 		Use:   "list <job>",
-		Short: "List a job's snapshots",
+		Short: "Liệt kê các snapshot của job",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := a.loadConfig()
@@ -141,9 +141,9 @@ func (a *app) backupCmd() *cobra.Command {
 	var target string
 	restoreCmd := &cobra.Command{
 		Use:   "restore <job> <snapshot>",
-		Short: "Restore a snapshot into a directory",
-		Long: "Restore a snapshot into --target. Use \"latest\" for the newest snapshot.\n" +
-			"Database jobs restore a dump file; the command to load it is printed.",
+		Short: "Khôi phục một snapshot vào một thư mục",
+		Long: "Khôi phục snapshot vào --target. Dùng \"latest\" cho snapshot mới nhất.\n" +
+			"Job database khôi phục ra file dump; lệnh để nạp lại file đó sẽ được in ra.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := a.loadConfig()
@@ -170,11 +170,11 @@ func (a *app) backupCmd() *cobra.Command {
 			return nil
 		},
 	}
-	restoreCmd.Flags().StringVar(&target, "target", "", "directory to restore into (required)")
+	restoreCmd.Flags().StringVar(&target, "target", "", "thư mục khôi phục vào (bắt buộc)")
 	restoreCmd.MarkFlagRequired("target")
 
 	for _, sub := range []*cobra.Command{initCmd, runCmd, listCmd, restoreCmd} {
-		sub.Flags().StringVarP(&repoFlag, "repository", "r", "", "only this repository (default: all of the job's)")
+		sub.Flags().StringVarP(&repoFlag, "repository", "r", "", "chỉ kho này (mặc định: mọi kho của job)")
 		cmd.AddCommand(sub)
 	}
 	return cmd
