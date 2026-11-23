@@ -90,7 +90,7 @@ sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                      # chạy mọi uptime check một lần
 sentinel status                     # backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json             # như trên, dạng JSON cho script
-sentinel manage                     # màn hình quản lý tương tác (alias: tui): xem trạng thái, b backup ngay, s snapshot + restore, a/e/d thêm-sửa-xóa job database trong config.yaml, r làm mới, q thoát
+sentinel manage                     # màn hình quản lý tương tác (alias: tui): xem trạng thái, b backup ngay, s snapshot + restore, a/e/d thêm-sửa-xóa job database trong config.yaml, tab Doctor, ? trợ giúp, r làm mới, q thoát
 
 sudo systemctl enable --now sentinel
 journalctl -u sentinel -f
@@ -114,7 +114,11 @@ Sau mỗi lần `sentinel backup restore`, lệnh nạp lại tương ứng đư
 
 ### Màn hình quản lý (`sentinel manage`)
 
-Chạy trong terminal, ba tab: **Backups**, **Uptime**, **Alerts**. Trên tab Backups: `b` backup ngay job đang chọn (khóa job vẫn có hiệu lực nên không chạy chồng với daemon), `s` xem snapshot của job rồi restore (nhập thư mục đích tuyệt đối và gõ lại tên job để xác nhận), `ctrl+c` hủy tác vụ đang chạy.
+Chạy trong terminal, bốn tab: **Backups**, **Uptime**, **Alerts**, **Doctor**. Dòng tóm tắt dưới tiêu đề cho biết ngay cần chú ý gì (ví dụ `1 failed · 1 alert · 1 warning`) hoặc chỉ `all good`; mỗi dòng có chấm màu theo trạng thái, thời gian dạng tương đối (`1h ago`), và cột **HISTORY** là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải). Phím `?` hiện các phím của màn hình đang mở; dùng được cả chuột: bấm tab, bấm một dòng để chọn (bấm lần nữa trên tab Backups để mở snapshot), cuộn bằng con lăn. Màn hình tự làm mới mỗi 5 giây, `r` làm mới ngay.
+
+Tab **Doctor** chạy các kiểm tra của `sentinel doctor` (config, restic/rclone/dump tool, store, từng repository, kênh cảnh báo) ngầm ở lần mở đầu tiên: kho không trả lời có thể mất tới vài chục giây nên màn hình vẫn dùng được. `r` chạy lại; dòng đang chọn hiện gợi ý cách sửa, và nhãn tab đỏ khi có lỗi.
+
+Trên tab Backups: `b` backup ngay job đang chọn (khóa job vẫn có hiệu lực nên không chạy chồng với daemon), `s` xem snapshot của job rồi restore (nhập thư mục đích tuyệt đối và gõ lại tên job để xác nhận), `ctrl+c` hủy tác vụ đang chạy.
 
 `a` thêm, `e` sửa, `d` xóa job **database** (`postgres`, `mysql`, `mongodb`) ngay trong `config.yaml`: giữ nguyên comment, thứ tự và các khóa không quản lý; bản cũ được lưu ở `config.yaml.bak` cùng quyền truy cập. **Mật khẩu không bao giờ nhập vào màn hình này**: chỉ nhập *tên* biến môi trường (ví dụ `PG_APPDB_PASSWORD`), config ghi `${PG_APPDB_PASSWORD}` và giá trị thật nằm trong `/etc/sentinel/sentinel.env`. Job `files` chỉ sửa bằng tay trong file config. Sau khi sửa, daemon đang chạy phải được khởi động lại (`systemctl restart sentinel`) để nhận job mới.
 
