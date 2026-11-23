@@ -36,6 +36,17 @@ func (h *hitMap) add(screenRow, from, width int, action string) {
 	}
 }
 
+// shift moves the targets added since index from by cols columns to the right.
+func (h *hitMap) shift(from, cols int) {
+	if h == nil {
+		return
+	}
+	for i := from; i < len(h.targets); i++ {
+		h.targets[i].from += cols
+		h.targets[i].to += cols
+	}
+}
+
 func (h *hitMap) safeTargets() []clickTarget {
 	if h == nil {
 		return nil

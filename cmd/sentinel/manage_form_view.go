@@ -25,17 +25,49 @@ func inputStyle(focused bool, text string, width int) string {
 	return selectedStyle.Render(text + strings.Repeat(" ", max(width-lipgloss.Width(text), 0)))
 }
 
+// railWidth is what the left rail of a grouped form takes: a vertical bar and a space.
+const railWidth = 2
+
+// headerMark starts the lines of a grouped form that are drawn without the rail: the headings
+// of the sections and the advanced toggle.
+const headerMark = "\x00"
+
 func (m manageModel) renderForm() []string {
 	screenLines := []string{titleStyle.Render(m.form.title), ""}
 	problems := m.form.shownProblems()
 	valid := len(m.form.problems()) == 0
+	grouped := m.form.kind == formJob
+	if grouped {
+		m.width -= railWidth // the rail takes two columns of every field line
+	}
+	hitStart := len(m.hits.safeTargets())
+	bodyStart := len(screenLines)
 	valueColumn := 2 + formLabelWidth + 1
+	section := ""
 	for _, index := range m.form.visible() {
 		field := m.form.fields[index]
 		focused := index == m.form.focus
 		marker := "  "
 		if focused {
 			marker = lipglossAccent("› ")
+		}
+		if grouped && field.section != section {
+			section = field.section
+			if len(screenLines) > bodyStart { // a blank line between sections
+				screenLines = append(screenLines, headerMark)
+			}
+			if section != sectionAdvanced {
+				screenLines = append(screenLines, headerMark+lipglossStyleAccent.Bold(true).Render(section)+" "+borderStyle.Render(strings.Repeat("─", max(m.width+railWidth-lipgloss.Width(section)-1, 0))))
+			}
+		}
+		if field.kind == fieldToggle {
+			arrow := "▸"
+			if m.form.advancedOpen {
+				arrow = "▾"
+			}
+			m.hits.add(len(screenLines), 0, m.width, fmt.Sprintf("toggle:%d:0", index))
+			screenLines = append(screenLines, headerMark+marker+lipglossStyleAccent.Render(arrow+" ")+titleStyle.Render(field.label))
+			continue
 		}
 		label := fmt.Sprintf("%-*s", formLabelWidth, field.label)
 		if _, bad := problems[field.key]; bad {
@@ -125,6 +157,18 @@ func (m manageModel) renderForm() []string {
 		if field.kind == fieldPaths && focused {
 			screenLines = append(screenLines, m.suggestionLines(len(screenLines), index, field.value)...)
 		}
+	}
+	if grouped {
+		rail := borderStyle.Render("│") + " "
+		for i := bodyStart; i < len(screenLines); i++ {
+			if text, isHeader := strings.CutPrefix(screenLines[i], headerMark); isHeader {
+				screenLines[i] = text
+			} else {
+				screenLines[i] = rail + text
+			}
+		}
+		m.hits.shift(hitStart, railWidth)
+		m.width += railWidth
 	}
 	screenLines = append(screenLines, "", dimStyle.Render(wrap(m.form.fields[m.form.focus].hint, m.width-2)))
 	if m.form.problem != "" {

@@ -61,6 +61,10 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 			return next, cmd
 		}
 	case "enter":
+		if focused.kind == fieldToggle {
+			m.form.advancedOpen = !m.form.advancedOpen
+			break
+		}
 		if position == len(shown)-1 {
 			return m.saveForm()
 		}
@@ -76,6 +80,8 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 		m.form.step(m.form.focus, map[string]int{"left": -1, "right": 1}[key])
 	case " ":
 		switch focused.kind {
+		case fieldToggle:
+			m.form.advancedOpen = !m.form.advancedOpen
 		case fieldChecklist:
 			m.form.toggle(m.form.focus, focused.sub)
 		case fieldText, fieldSchedule, fieldPaths:
@@ -145,6 +151,10 @@ func (f *form) step(index, delta int) {
 
 func (f *form) toggle(index, sub int) {
 	field := &f.fields[index]
+	if field.kind == fieldToggle {
+		f.advancedOpen = !f.advancedOpen
+		return
+	}
 	if field.kind == fieldChecklist && sub >= 0 && sub < len(field.ticked) {
 		field.ticked[sub] = !field.ticked[sub]
 		field.sub = sub
@@ -226,6 +236,9 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		if errors.As(err, &invalid) && invalid.Field != "" {
 			for i, field := range m.form.fields {
 				if field.key == invalid.Field {
+					if field.section == sectionAdvanced {
+						m.form.advancedOpen = true // the field with the problem must be in view
+					}
 					m.form.focusOn(i)
 					break
 				}

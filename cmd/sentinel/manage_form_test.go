@@ -110,7 +110,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
 	}
 	screen = keys(t, screen, "right") // type: postgres -> mysql
-	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
+	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "Advanced options") || strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
 		t.Fatalf("type-specific fields wrong:\n%s", plain(screen.render()))
 	}
 	screen = keys(t, screen, "tab")
@@ -123,13 +123,14 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "MYSQL_PW")
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "daily 02:30")
-	screen = keys(t, screen, "tab", "tab")      // store at (left empty), then repositories: local, s3
-	screen = keys(t, screen, " ", "right", " ") // tick both
-	screen = keys(t, screen, "tab")             // retention: last, daily, weekly...
+	screen = keys(t, screen, "tab") // retention: last, daily, weekly...
 	screen = keys(t, screen, "right")
 	screen = typeText(t, screen, "7")
 	screen = keys(t, screen, "right")
 	screen = typeText(t, screen, "4")
+	screen = keys(t, screen, "tab", "tab")      // store at (left empty), then repositories: local, s3
+	screen = keys(t, screen, " ", "right", " ") // tick both
+	screen = keys(t, screen, "tab", "enter")    // the advanced line, opened
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "disabled") // TLS, the last visible field
 	screen = keys(t, screen, "enter")
@@ -335,7 +336,7 @@ func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 		t.Fatalf("edit files job: mode %d notice %q", screen.mode, screen.notice)
 	}
 	view := plain(screen.render())
-	if !strings.Contains(view, "Paths") || !strings.Contains(view, "Exclude") || strings.Contains(view, "Database") || strings.Contains(view, "Password env var") {
+	if !strings.Contains(view, "Paths") || !strings.Contains(view, "Advanced options") || strings.Contains(view, "Database") || strings.Contains(view, "Password env var") {
 		t.Errorf("a files job shows its own fields only:\n%s", view)
 	}
 	screen = keys(t, screen, "tab", "tab") // paths

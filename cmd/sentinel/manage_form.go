@@ -12,6 +12,15 @@ import (
 	"sentinel/internal/configedit"
 )
 
+// The sections of a job form, in the order they are drawn.
+const (
+	sectionBasic      = "BASIC"
+	sectionConnection = "CONNECTION"
+	sectionSchedule   = "SCHEDULE & RETENTION"
+	sectionStorage    = "STORAGE"
+	sectionAdvanced   = "ADVANCED"
+)
+
 type fieldKind int
 
 const (
@@ -22,6 +31,7 @@ const (
 	fieldSchedule            // text with presets on ← →, and a plain-words preview
 	fieldRetention           // five counts on one line
 	fieldPaths               // comma separated folders, with suggestions
+	fieldToggle              // a line that opens or closes the advanced fields below it
 )
 
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
@@ -47,6 +57,8 @@ type formField struct {
 	// options are the candidates the last Tab listed.
 	complete bool
 	options  []string
+	// section groups the fields of a job form under a heading ("" for no group).
+	section string
 	// onField and only show the field only while the field named onField holds one of only.
 	onField string
 	only    []string
@@ -82,6 +94,7 @@ type form struct {
 	defaults     formDefaults
 	fields       []formField
 	focus        int
+	advancedOpen bool            // the advanced section of a job form is unfolded
 	touched      map[string]bool // fields the user has been in: only those show their problem
 	attempted    bool            // a save was tried: every problem shows
 	problem      string          // a problem of the whole save, not of one field
@@ -137,22 +150,24 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		form.title = "Edit " + original
 	}
 	form.fields = []formField{
-		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != ""},
-		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name},
-		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; alt+1.. or a click adds a suggested folder, ctrl+o browses the server", kind: fieldPaths, value: strings.Join(job.Paths, ", ")},
-		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", ")},
-		{key: "database", label: "Database", hint: "the database to dump", value: job.Database},
-		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost"},
-		{key: "port", label: "Port", hint: "default 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "default"},
-		{key: "user", label: "User", hint: "optional", value: job.User},
-		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv},
-		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote},
-		{key: "store_at", label: "Store at", hint: "a folder for this job's backups (tab completes it); a repository named like the job is created for it. Empty = the repositories ticked below, or, for a database job with none, an automatic folder " + autoStoreBase() + "/<job name>", complete: true, placeholder: "automatic"},
-		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
-		{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year; all empty = keep everything", kind: fieldRetention, counts: retention},
-		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS},
-		{key: "auth_database", label: "Auth database", hint: "mongodb only: where the user is defined", value: job.AuthDatabase},
+		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != "", section: sectionBasic},
+		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name, section: sectionBasic},
+		{key: "paths", label: "Paths", hint: "files and folders to back up, separated by commas; ${HOME} works; Tab completes, alt+1.. or a click adds a suggested folder, ctrl+o browses the server", kind: fieldPaths, value: strings.Join(job.Paths, ", "), section: sectionBasic},
+		{key: "database", label: "Database", hint: "the database to dump", value: job.Database, section: sectionBasic},
+		{key: "host", label: "Host", hint: "default localhost", value: job.Host, placeholder: "localhost", section: sectionConnection},
+		{key: "port", label: "Port", hint: "default 5432 / 3306 / 27017", kind: fieldNumber, value: port, placeholder: "default", section: sectionConnection},
+		{key: "user", label: "User", hint: "optional", value: job.User, section: sectionConnection},
+		{key: "password_env", label: "Password env var", hint: passwordHint, value: job.PasswordEnv, section: sectionConnection},
+		{key: "schedule", label: "Schedule", hint: scheduleHint, kind: fieldSchedule, value: job.Schedule, placeholder: scheduleNote, section: sectionSchedule},
+		{key: "retention", label: "Keep", hint: "how many snapshots to keep: last N, then one per day, week, month, year; all empty = keep everything", kind: fieldRetention, counts: retention, section: sectionSchedule},
+		{key: "store_at", label: "Folder", hint: "a folder for this job's backups (tab completes it); a repository named like the job is created for it. Empty = the repositories ticked below, or, for a database job with none, an automatic folder " + autoStoreBase() + "/<job name>", complete: true, placeholder: "automatic", section: sectionStorage},
+		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionStorage},
+		{key: "advanced", label: "Advanced options", hint: "enter or space opens or closes the options below", kind: fieldToggle, section: sectionAdvanced},
+		{key: "exclude", label: "Exclude", hint: "patterns to skip, separated by commas, e.g. *.tmp, node_modules", value: strings.Join(job.Exclude, ", "), section: sectionAdvanced},
+		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS, section: sectionAdvanced},
+		{key: "auth_database", label: "Auth database", hint: "mongodb only: where the user is defined", value: job.AuthDatabase, section: sectionAdvanced},
 	}
+	form.advancedOpen = len(job.Exclude) > 0 || job.TLS != "" || job.AuthDatabase != "" // keep what is set in view
 	for i := range form.fields {
 		if types, restricted := jobFieldTypes[form.fields[i].key]; restricted {
 			form.fields[i].onField, form.fields[i].only = "type", types
@@ -165,6 +180,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 var jobFieldTypes = map[string][]string{
 	"paths":         {config.JobFiles},
 	"exclude":       {config.JobFiles},
+	"advanced":      {config.JobFiles, config.JobMySQL, config.JobMongoDB}, // postgres has nothing advanced
 	"database":      configedit.DatabaseTypes,
 	"host":          configedit.DatabaseTypes,
 	"port":          configedit.DatabaseTypes,
@@ -179,6 +195,9 @@ func (f form) visible() []int {
 	var shown []int
 	for i, field := range f.fields {
 		if field.onField != "" && !slices.Contains(field.only, f.field(field.onField).value) {
+			continue
+		}
+		if field.section == sectionAdvanced && field.kind != fieldToggle && !f.advancedOpen {
 			continue
 		}
 		shown = append(shown, i)
