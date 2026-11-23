@@ -10,15 +10,23 @@ Mọi thứ điều khiển bằng dòng lệnh (`sentinel backup run|list|resto
 
 ## Cài đặt
 
-Yêu cầu trên server: restic ≥ 0.17, rclone (nếu dùng Google Drive), công cụ dump của engine nếu backup DB: `pg_dump` (cùng major version với PostgreSQL), `mariadb-dump` hoặc `mysqldump` (MySQL/MariaDB), `mongodump` (MongoDB, gói `mongodb-database-tools`). `sentinel doctor` báo công cụ nào còn thiếu.
+Trên Ubuntu/Debian, một dòng lệnh (cần quyền root) cài Sentinel cùng mọi công cụ nó chạy: restic, rclone, `pg_dump`, `mariadb-dump`, `mongodump`, rồi tạo `/etc/sentinel/config.yaml`, `/etc/sentinel/sentinel.env` và systemd unit:
 
 ```sh
-make build                        # -> bin/sentinel (dùng Go nếu có, không thì build qua docker; hoặc tải bản release)
+curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/install.sh | sudo sh
+```
+
+Bản phát hành được tải về và kiểm tra SHA-256 trước khi cài. Chạy lại cùng lệnh để nâng cấp: binary được thay, `config.yaml` và `sentinel.env` giữ nguyên. Tùy chọn (thêm sau `sh -s --`): `--version v1.2.0` cài đúng một bản, `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB; biến `SENTINEL_REPO` đổi repo GitHub tải về. Client PostgreSQL lấy từ apt, nên cần cùng major version với PostgreSQL server (`sentinel doctor` báo khi thiếu).
+
+Bản phát hành do GitHub Actions tạo khi đẩy tag `v*` (`.github/workflows/release.yml`, goreleaser). Chưa có bản nào thì dòng lệnh trên báo "could not download" và dừng; khi đó build tay:
+
+```sh
+make build                        # -> bin/sentinel (dùng Go nếu có, không thì build qua docker)
 scp bin/sentinel deploy/* server:/tmp/sentinel/
 ssh server 'cd /tmp/sentinel && sudo sh install.sh ./sentinel'
 ```
 
-`install.sh` cài restic/rclone nếu chưa có, chép binary vào `/usr/local/bin`, tạo `/etc/sentinel/config.yaml` (từ [config.example.yaml](deploy/config.example.yaml)), file secret `/etc/sentinel/sentinel.env` và systemd unit.
+Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi `sentinel doctor`, `sentinel backup init <job>`, `systemctl enable --now sentinel`.
 
 ## Chạy trên terminal của bạn
 
