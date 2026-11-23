@@ -40,6 +40,8 @@ type manageActions struct {
 	listJobs  func() (configedit.Listing, error)
 	saveJob   func(original string, job configedit.Job) error
 	deleteJob func(name string) error
+	// doctor runs the same checks as `sentinel doctor`.
+	doctor func(ctx context.Context) []finding
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
@@ -55,6 +57,9 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		listJobs:  func() (configedit.Listing, error) { return configedit.List(configPath) },
 		saveJob:   func(original string, job configedit.Job) error { return configedit.Save(configPath, original, job) },
 		deleteJob: func(name string) error { return configedit.Delete(configPath, name) },
+		doctor: func(ctx context.Context) []finding {
+			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
+		},
 		runBackup: func(ctx context.Context, jobName, repository string) ([]store.BackupRun, error) {
 			job, err := cfg.FindBackup(jobName)
 			if err != nil {

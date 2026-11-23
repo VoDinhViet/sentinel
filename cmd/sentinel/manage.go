@@ -75,6 +75,8 @@ type manageTab struct {
 	lines   []manageLine
 	// statusCol is the column coloured by severity; historyCol (-1 = none) shows line.history.
 	statusCol, historyCol int
+	// alarm colours the tab label red.
+	alarm bool
 }
 
 type manageMode int
@@ -130,6 +132,8 @@ type manageModel struct {
 	deleteName string
 
 	helpReturn manageMode // the screen the key list was opened from
+
+	doctor doctorState
 }
 
 type (
@@ -175,6 +179,11 @@ func (m manageModel) scheduleRefresh() tea.Cmd {
 }
 
 func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	return model.(manageModel).startDoctorIfNeeded(cmd)
+}
+
+func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -183,6 +192,9 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.report = msg.report
 		}
+		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+	case doctorMsg:
+		m.doctor.running, m.doctor.findings = false, msg.findings
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case refreshMsg:
 		return m, tea.Batch(m.reload(), m.scheduleRefresh())
@@ -271,7 +283,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tab, m.cursor = (m.tab+1)%tabCount, 0
 	case "shift+tab", "left", "h":
 		m.tab, m.cursor = (m.tab+tabCount-1)%tabCount, 0
-	case "1", "2", "3":
+	case "1", "2", "3", "4":
 		m.tab, m.cursor = int(key[0]-'1'), 0
 	case "down", "j":
 		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
@@ -282,6 +294,10 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 	case "G", "end":
 		m.cursor = max(len(m.tabs()[m.tab].lines)-1, 0)
 	case "r":
+		if m.tab == doctorTab {
+			next, start := m.startDoctor()
+			return next, start
+		}
 		return m, m.reload()
 	case "b":
 		if line, ok := m.selectedBackup(); ok {
@@ -489,7 +505,7 @@ func (m manageModel) tabs() []manageTab {
 			detail:   alert.Key + ": " + alert.Message,
 		})
 	}
-	return []manageTab{backups, checks, alerts}
+	return []manageTab{backups, checks, alerts, m.buildDoctorTab()}
 }
 
 // summary is the one line under the title: what needs attention, or "all good".
@@ -654,14 +670,14 @@ func (m manageModel) renderTabs() []string {
 		switch {
 		case i == m.tab:
 			tabBar = append(tabBar, activeTab.Render(label))
-		case i == 2 && len(tabs[i].lines) > 0:
+		case (i == 2 && len(tabs[i].lines) > 0) || tabs[i].alarm:
 			tabBar = append(tabBar, severityStyle(sevBad).Render(label))
 		default:
 			tabBar = append(tabBar, dimStyle.Render(label))
 		}
 	}
 	rule := dimStyle.Render(strings.Repeat("─", m.width))
-	screenLines = append(screenLines, strings.Join(tabBar, tabGap), rule)
+	screenLines = append(screenLines, strings.Join(tabBar, m.tabGap()), rule)
 
 	if m.loadErr != nil {
 		screenLines = append(screenLines, severityStyle(sevBad).Render("could not read the store: "+m.loadErr.Error()), "")
@@ -676,7 +692,7 @@ func (m manageModel) renderTabs() []string {
 	if len(tab.lines) > 0 {
 		screenLines = append(screenLines, wrap(tab.lines[m.cursor].detail, m.width-2))
 	} else {
-		screenLines = append(screenLines, dimStyle.Render(emptyText(m.tab)))
+		screenLines = append(screenLines, dimStyle.Render(m.emptyText(m.tab)))
 	}
 	if m.notice != "" {
 		style := severityStyle(sevOK)
@@ -686,13 +702,16 @@ func (m manageModel) renderTabs() []string {
 		screenLines = append(screenLines, style.Render(wrap(m.notice, m.width-2)))
 	}
 	footer := m.keyBar("tab", "switch", "↑↓", "select", "r", "refresh", "?", "help", "q", "quit")
+	if m.tab == doctorTab {
+		footer = m.keyBar("tab", "switch", "↑↓", "select", "r", "run checks", "?", "help", "q", "quit")
+	}
 	if m.tab == 0 {
 		footer = m.keyBar("b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit")
 	}
 	return append(screenLines, "", footer)
 }
 
-// tabLabels are the tab bar's labels, e.g. "1 Backups 3"; the tab bar joins them with tabGap.
+// tabLabels are the tab bar's labels, e.g. "1 Backups 3"; the tab bar joins them with tabGap().
 func (m manageModel) tabLabels() []string {
 	var labels []string
 	for i, tab := range m.tabs() {
@@ -705,13 +724,22 @@ func (m manageModel) tabLabels() []string {
 	return labels
 }
 
-const tabGap = "   "
+// tabGap separates the tab labels; a narrow screen packs them closer.
+func (m manageModel) tabGap() string {
+	if m.width < 60 {
+		return " "
+	}
+	return "   "
+}
 
 // visibleRows is how many table lines fit: the screen minus title, summary, tabs,
 // rules, column header, detail, notice and footer.
 func (m manageModel) visibleRows() int { return max(m.height-13, 3) }
 
-func emptyText(tab int) string {
+func (m manageModel) emptyText(tab int) string {
+	if tab == doctorTab {
+		return m.doctorWaitText()
+	}
 	return [...]string{
 		"No backups recorded yet. Run `sentinel backup run <job>` or start the daemon.",
 		"No uptime checks recorded yet.",

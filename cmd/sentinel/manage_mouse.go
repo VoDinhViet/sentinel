@@ -31,7 +31,7 @@ func (m manageModel) tabAt(x int) int {
 		if x >= start && x < end {
 			return i
 		}
-		start = end + lipgloss.Width(tabGap)
+		start = end + lipgloss.Width(m.tabGap())
 	}
 	return -1
 }

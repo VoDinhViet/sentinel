@@ -17,12 +17,15 @@ func (m manageModel) helpFor() (title string, keys []keyHelp) {
 		}
 	}
 	common := []keyHelp{
-		{"tab  1 2 3", "switch between Backups, Uptime and Alerts"},
+		{"tab  1 2 3 4", "switch between Backups, Uptime, Alerts and Doctor"},
 		{"↑ ↓  j k", "select a line"},
 		{"g  G", "first and last line"},
 		{"r", "refresh now (the screen also refreshes every 5 seconds)"},
 		{"click  wheel", "click a tab or a line; scroll with the wheel"},
 		{"q  esc", "quit"},
+	}
+	if m.tab == doctorTab {
+		return "Keys", append([]keyHelp{{"r", "run the checks again"}}, common[:1]...)
 	}
 	if m.tab != 0 {
 		return "Keys", common
