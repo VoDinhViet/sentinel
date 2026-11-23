@@ -15,7 +15,12 @@ services:
     # Host networking lets uptime checks and pg_dump reach services on the VPS
     # (127.0.0.1 is then the VPS itself).
     network_mode: host
-    cap_add: [NET_RAW]   # ping checks
+    # Only what the daemon uses: read every file (DAC_READ_SEARCH), write a repository owned by another
+    # user (DAC_OVERRIDE, FOWNER, CHOWN) and ping checks (NET_RAW). A restore of device files would also
+    # need MKNOD.
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE, FOWNER, CHOWN, NET_RAW]
+    security_opt: ["no-new-privileges:true"]
     env_file: ./sentinel.env
     volumes:
       - ./config.yaml:/etc/sentinel/config.yaml:ro
