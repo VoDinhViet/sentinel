@@ -47,6 +47,9 @@ type formField struct {
 	// placeholder is what an empty field stands for, shown dimmed.
 	placeholder string
 	fixed       bool // a choice that cannot be changed
+	// onField and only show the field only while the field named onField holds one of only.
+	onField string
+	only    []string
 }
 
 // formDefaults are the config's defaults, shown on the fields they fill in.
@@ -56,8 +59,22 @@ type formDefaults struct {
 	retention    config.Retention
 }
 
-// jobForm edits one job: a database dump or a set of files. original is the job's name when editing, "" when adding.
-type jobForm struct {
+// formKind says what a form edits.
+type formKind int
+
+const (
+	formJob formKind = iota
+	formRepository
+	formUptime
+	formNotifier
+	formSettings
+)
+
+// form edits one entry of the config: a job (a database dump or a set of files), a
+// repository, an uptime check, a notifier channel or the general settings. original is the job's name when editing, "" when adding.
+type form struct {
+	kind         formKind
+	title        string
 	original     string
 	passwordKept bool // the file holds a literal password that stays unless an env var is entered
 	known        configedit.Known
@@ -67,10 +84,13 @@ type jobForm struct {
 	touched      map[string]bool // fields the user has been in: only those show their problem
 	attempted    bool            // a save was tried: every problem shows
 	problem      string          // a problem of the whole save, not of one field
+
+	// kept is what a repository form does not edit and must write back as it was.
+	kept map[string]string
 }
 
-func newJobForm(job configedit.Job, original string, listing configedit.Listing) jobForm {
-	form := jobForm{
+func newJobForm(job configedit.Job, original string, listing configedit.Listing) form {
+	form := form{
 		original:     original,
 		passwordKept: job.PasswordLiteral,
 		known:        configedit.Known{Repositories: listing.Repositories, InheritsRepositories: len(listing.InheritedRepositories) > 0},
@@ -111,6 +131,10 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 			retention[i] = strconv.Itoa(count)
 		}
 	}
+	form.kind, form.title = formJob, "Add a job"
+	if original != "" {
+		form.title = "Edit " + original
+	}
 	form.fields = []formField{
 		{key: "type", label: "Type", hint: typeHint, kind: fieldChoice, value: job.Type, choices: configedit.JobTypes, fixed: original != ""},
 		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: job.Name},
@@ -127,11 +151,16 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "tls", label: "TLS", hint: "mysql only: empty, disabled or required", value: job.TLS},
 		{key: "auth_database", label: "Auth database", hint: "mongodb only: where the user is defined", value: job.AuthDatabase},
 	}
+	for i := range form.fields {
+		if types, restricted := jobFieldTypes[form.fields[i].key]; restricted {
+			form.fields[i].onField, form.fields[i].only = "type", types
+		}
+	}
 	return form
 }
 
-// fieldsOf are the field keys that apply to one job type only; the others apply to all.
-var fieldsOf = map[string][]string{
+// jobFieldTypes are the job types each type-specific field applies to; the others apply to all.
+var jobFieldTypes = map[string][]string{
 	"paths":         {config.BackupFiles},
 	"exclude":       {config.BackupFiles},
 	"database":      configedit.DatabaseTypes,
@@ -143,12 +172,11 @@ var fieldsOf = map[string][]string{
 	"auth_database": {config.BackupMongoDB},
 }
 
-// visible are the fields that apply to the chosen type.
-func (f jobForm) visible() []int {
-	jobType := f.field("type").value
+// visible are the fields that apply right now (to the chosen type or kind).
+func (f form) visible() []int {
 	var shown []int
 	for i, field := range f.fields {
-		if types, restricted := fieldsOf[field.key]; restricted && !slices.Contains(types, jobType) {
+		if field.onField != "" && !slices.Contains(field.only, f.field(field.onField).value) {
 			continue
 		}
 		shown = append(shown, i)
@@ -167,7 +195,7 @@ func splitList(text string) []string {
 	return items
 }
 
-func (f jobForm) field(key string) *formField {
+func (f form) field(key string) *formField {
 	for i := range f.fields {
 		if f.fields[i].key == key {
 			return &f.fields[i]
@@ -182,7 +210,7 @@ func formProblem(field, format string, args ...any) error {
 }
 
 // job turns the form into a job, or says what is wrong with an input.
-func (f jobForm) job() (configedit.Job, error) {
+func (f form) job() (configedit.Job, error) {
 	job := configedit.Job{
 		Type:         f.field("type").value,
 		Name:         strings.TrimSpace(f.field("name").value),
@@ -226,23 +254,32 @@ func (f jobForm) job() (configedit.Job, error) {
 }
 
 // problems is what is wrong with the form right now, by field key ("" for no field).
-func (f jobForm) problems() map[string]string {
-	job, err := f.job()
+func (f form) problems() map[string]string {
 	found := map[string]string{}
-	var invalid *configedit.InvalidError
-	if errors.As(err, &invalid) {
-		found[invalid.Field] = invalid.Message
-	}
-	for _, problem := range configedit.Problems(&job, f.known) {
-		if _, seen := found[problem.Field]; !seen {
-			found[problem.Field] = problem.Message
+	add := func(err error) {
+		var invalid *configedit.InvalidError
+		if errors.As(err, &invalid) {
+			if _, seen := found[invalid.Field]; !seen {
+				found[invalid.Field] = invalid.Message
+			}
 		}
+	}
+	if f.kind != formJob {
+		for _, err := range f.checkEntries() {
+			add(err)
+		}
+		return found
+	}
+	job, err := f.job()
+	add(err)
+	for _, problem := range configedit.Problems(&job, f.known) {
+		add(problem)
 	}
 	return found
 }
 
 // shownProblems are the problems of the fields the user has been in (all after a failed save).
-func (f jobForm) shownProblems() map[string]string {
+func (f form) shownProblems() map[string]string {
 	shown := map[string]string{}
 	for field, message := range f.problems() {
 		if f.attempted || f.touched[field] {
@@ -253,13 +290,17 @@ func (f jobForm) shownProblems() map[string]string {
 }
 
 func (m manageModel) openForm(job configedit.Job, original string, listing configedit.Listing) manageModel {
-	m.form = newJobForm(job, original, listing)
+	return m.openEntryForm(newJobForm(job, original, listing))
+}
+
+func (m manageModel) openEntryForm(next form) manageModel {
+	m.form = next
 	m.mode = modeForm
 	return m
 }
 
 // focusOn moves the focus, remembering that the field it leaves has been visited.
-func (f *jobForm) focusOn(index int) {
+func (f *form) focusOn(index int) {
 	f.touched[f.fields[f.focus].key] = true
 	f.focus = index
 }
@@ -306,7 +347,10 @@ func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 }
 
 // typeInto applies a key press to the field's text.
-func (f *jobForm) typeInto(field *formField, key, text string) {
+func (f *form) typeInto(field *formField, key, text string) {
+	if field.fixed {
+		return
+	}
 	digits := text != "" && strings.Trim(text, "0123456789") == ""
 	switch field.kind {
 	case fieldText, fieldSchedule:
@@ -323,7 +367,7 @@ func (f *jobForm) typeInto(field *formField, key, text string) {
 }
 
 // step is ← or →: the previous or next choice, preset, tick position or count.
-func (f *jobForm) step(index, delta int) {
+func (f *form) step(index, delta int) {
 	field := &f.fields[index]
 	switch field.kind {
 	case fieldChoice:
@@ -340,7 +384,7 @@ func (f *jobForm) step(index, delta int) {
 	f.touched[field.key] = true
 }
 
-func (f *jobForm) toggle(index, item int) {
+func (f *form) toggle(index, item int) {
 	field := &f.fields[index]
 	if field.kind == fieldChecklist && item >= 0 && item < len(field.ticked) {
 		field.ticked[item] = !field.ticked[item]
@@ -405,13 +449,7 @@ func (m manageModel) formAction(action string) (manageModel, bool) {
 
 func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 	m.form.attempted = true
-	job, err := m.form.job()
-	if err == nil {
-		err = configedit.Validate(&job, m.form.known)
-	}
-	if err == nil {
-		err = m.actions.saveJob(m.form.original, job)
-	}
+	label, err := m.form.apply(m.actions)
 	var invalid *configedit.InvalidError
 	switch {
 	case err == nil:
@@ -419,8 +457,8 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		if m.form.original != "" {
 			verb = "Saved"
 		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s job %s in the config. Restart the daemon (sentinel run) to apply it.", verb, job.Name), false
-		m = m.refreshJobRepositories()
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s %s in the config. Restart the daemon (sentinel run) to apply it.", verb, label), false
+		m = m.refreshJobRepositories().refreshConfig()
 		return m, m.reload()
 	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
 		if errors.As(err, &invalid) && invalid.Field != "" {
@@ -440,6 +478,22 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// apply saves what the form holds and says what was saved ("job shop"). The error is an
+// InvalidError (with the field) when the input is at fault.
+func (f form) apply(actions manageActions) (string, error) {
+	if f.kind != formJob {
+		return f.applyEntry(actions)
+	}
+	job, err := f.job()
+	if err == nil {
+		err = configedit.Validate(&job, f.known)
+	}
+	if err == nil {
+		err = actions.saveJob(f.original, job)
+	}
+	return "job " + job.Name, err
+}
+
 const formLabelWidth = 17
 
 // inputStyle paints the focused input with the selection background.
@@ -451,11 +505,7 @@ func inputStyle(focused bool, text string, width int) string {
 }
 
 func (m manageModel) renderForm() []string {
-	title := "Add a job"
-	if m.form.original != "" {
-		title = "Edit " + m.form.original
-	}
-	screenLines := []string{titleStyle.Render(title), ""}
+	screenLines := []string{titleStyle.Render(m.form.title), ""}
 	problems := m.form.shownProblems()
 	valid := len(m.form.problems()) == 0
 	valueColumn := 2 + formLabelWidth + 1
@@ -652,19 +702,24 @@ func (m manageModel) startAdd() manageModel {
 	return m.openForm(configedit.Job{Type: config.BackupPostgres}, "", listing)
 }
 
-// startEdit opens the form for the selected job, or says why it cannot.
+// startEdit opens the form for the selected job on the Backups tab.
 func (m manageModel) startEdit() manageModel {
 	line, ok := m.selectedBackup()
 	if !ok {
 		return m
 	}
+	return m.editJob(line.job)
+}
+
+// editJob opens the form for the named job, or says why it cannot.
+func (m manageModel) editJob(name string) manageModel {
 	listing, err := m.actions.listJobs()
 	if err != nil {
 		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
 		return m
 	}
 	for _, job := range listing.Jobs {
-		if job.Name != line.job {
+		if job.Name != name {
 			continue
 		}
 		if !job.Editable() {
@@ -673,28 +728,39 @@ func (m manageModel) startEdit() manageModel {
 		}
 		return m.openForm(job, job.Name, listing)
 	}
-	m.notice, m.noticeBad = line.job+" is not in the config file any more.", true
+	m.notice, m.noticeBad = name+" is not in the config file any more.", true
 	return m
 }
 
-// startDelete asks for the job name before removing a job.
+// startDelete asks for the job name before removing the selected job of the Backups tab.
 func (m manageModel) startDelete() manageModel {
 	line, ok := m.selectedBackup()
 	if !ok {
 		return m
 	}
+	return m.deleteJobNamed(line.job)
+}
+
+// deleteJobNamed asks for the job name before removing it from the config.
+func (m manageModel) deleteJobNamed(name string) manageModel {
 	listing, err := m.actions.listJobs()
 	if err != nil {
 		m.notice, m.noticeBad = "Could not read the config: "+err.Error(), true
 		return m
 	}
 	for _, job := range listing.Jobs {
-		if job.Name == line.job && job.Editable() {
-			m.mode, m.deleteName, m.confirm, m.inputError = modeDelete, job.Name, "", ""
-			return m
+		if job.Name == name && job.Editable() {
+			actions := m.actions
+			return m.confirmRemoval("job", name, "Existing snapshots stay in the repositories.", func() error { return actions.deleteJob(name) })
 		}
 	}
-	m.notice, m.noticeBad = line.job+" is not a job this screen can remove (it is not in the config file, or has another type).", true
+	m.notice, m.noticeBad = name+" is not a job this screen can remove (it is not in the config file, or has another type).", true
+	return m
+}
+
+// confirmRemoval opens the screen that asks for the entry's name before remove runs.
+func (m manageModel) confirmRemoval(what, name, note string, remove func() error) manageModel {
+	m.mode, m.deleteWhat, m.deleteName, m.deleteNote, m.deleteAction, m.confirm, m.inputError = modeDelete, what, name, note, remove, "", ""
 	return m
 }
 
@@ -707,13 +773,13 @@ func (m manageModel) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
 			m.inputError = "the name does not match"
 			return m, nil
 		}
-		if err := m.actions.deleteJob(m.deleteName); err != nil {
-			m.mode, m.notice, m.noticeBad = modeTable, "Could not remove the job: "+err.Error(), true
+		if err := m.deleteAction(); err != nil {
+			m.mode, m.notice, m.noticeBad = modeTable, "Could not remove the "+m.deleteWhat+": "+err.Error(), true
 			return m, nil
 		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Removed job %s from the config. Its snapshots stay in the repositories. Restart the daemon (sentinel run) to apply it.", m.deleteName), false
-		m = m.refreshJobRepositories()
-		m.cursor = 0
+		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Removed %s %s from the config. %s Restart the daemon (sentinel run) to apply it.", m.deleteWhat, m.deleteName, m.deleteNote), false
+		m = m.refreshJobRepositories().refreshConfig()
+		m.cursor = max(min(m.cursor, len(m.tabs()[m.tab].lines)-1), 0)
 		return m, m.reload()
 	default:
 		m.confirm, m.inputError = editText(m.confirm, key, text), ""
@@ -725,9 +791,9 @@ func (m manageModel) renderDelete() []string {
 	screenLines := []string{
 		titleStyle.Render("Remove " + m.deleteName),
 		"",
-		wrap("This removes the job from the config file. Existing snapshots stay in the repositories.", m.width-2),
+		wrap(fmt.Sprintf("This removes the %s from the config file. %s", m.deleteWhat, m.deleteNote), m.width-2),
 		"",
-		"Type the job name (" + m.deleteName + ") to confirm:",
+		"Type the name (" + m.deleteName + ") to confirm:",
 		"  " + m.confirm + lipglossAccent("▏"),
 	}
 	if m.inputError != "" {

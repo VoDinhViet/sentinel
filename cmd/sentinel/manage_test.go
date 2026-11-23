@@ -96,7 +96,7 @@ func TestManageKeysSwitchTabsAndMoveSelection(t *testing.T) {
 	if view := plain(screen.render()); !strings.Contains(view, "DOWN") || !strings.Contains(view, "site") {
 		t.Errorf("uptime tab:\n%s", view)
 	}
-	for range 3 {
+	for range len(screen.tabs()) - 1 {
 		screen, _ = press(t, screen, "tab")
 	}
 	if screen.tab != 0 {

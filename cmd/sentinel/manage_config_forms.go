@@ -1,0 +1,389 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"sentinel/internal/config"
+	"sentinel/internal/configedit"
+)
+
+// The forms of the Config tab: repository, uptime check, notifier channel and settings. They use
+// the same form engine as the job form; what differs is how the fields turn into an entry.
+
+var repositoryKinds = []string{"local", "s3", "rclone", "sftp", "custom"}
+
+var urlScheme = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
+
+// splitRepositoryURL breaks a restic repository location into the parts the form edits; a
+// location it does not recognise is a "custom" one kept as it is.
+func splitRepositoryURL(url string) (kind string, parts map[string]string) {
+	switch {
+	case strings.HasPrefix(url, "s3:"):
+		rest := strings.TrimPrefix(url, "s3:")
+		endpoint := ""
+		if scheme, after, found := strings.Cut(rest, "://"); found {
+			host, path, _ := strings.Cut(after, "/")
+			endpoint, rest = scheme+"://"+host, path
+		} else if host, path, _ := strings.Cut(rest, "/"); host != "s3.amazonaws.com" {
+			endpoint, rest = host, path
+		} else {
+			rest = path
+		}
+		bucket, prefix, _ := strings.Cut(rest, "/")
+		if bucket == "" {
+			return "custom", map[string]string{"url": url}
+		}
+		return "s3", map[string]string{"endpoint": endpoint, "bucket": bucket, "prefix": prefix}
+	case strings.HasPrefix(url, "rclone:"):
+		if remote, path, found := strings.Cut(strings.TrimPrefix(url, "rclone:"), ":"); found && remote != "" {
+			return "rclone", map[string]string{"remote": remote, "path": path}
+		}
+	case strings.HasPrefix(url, "sftp:") && !strings.HasPrefix(url, "sftp://"):
+		if target, path, found := strings.Cut(strings.TrimPrefix(url, "sftp:"), ":"); found && target != "" {
+			return "sftp", map[string]string{"target": target, "path": path}
+		}
+	case url != "" && !urlScheme.MatchString(url):
+		return "local", map[string]string{"path": url}
+	}
+	return "custom", map[string]string{"url": url}
+}
+
+// buildRepositoryURL is the inverse of splitRepositoryURL.
+func buildRepositoryURL(kind string, parts map[string]string) string {
+	switch kind {
+	case "local":
+		return parts["path"]
+	case "s3":
+		endpoint := strings.TrimSuffix(parts["endpoint"], "/")
+		if endpoint == "" {
+			endpoint = "s3.amazonaws.com"
+		}
+		url := "s3:" + endpoint + "/" + parts["bucket"]
+		if parts["prefix"] != "" {
+			url += "/" + strings.Trim(parts["prefix"], "/")
+		}
+		return url
+	case "rclone":
+		return "rclone:" + parts["remote"] + ":" + parts["path"]
+	case "sftp":
+		return "sftp:" + parts["target"] + ":" + parts["path"]
+	}
+	return parts["url"]
+}
+
+// repositoryParts are the text fields of a repository form that make up its location, by kind.
+var repositoryParts = map[string][]string{
+	"local":  {"path"},
+	"s3":     {"endpoint", "bucket", "prefix"},
+	"rclone": {"remote", "path"},
+	"sftp":   {"target", "path"},
+	"custom": {"url"},
+}
+
+const (
+	awsKeyID     = "AWS_ACCESS_KEY_ID"
+	awsSecretKey = "AWS_SECRET_ACCESS_KEY"
+)
+
+func newRepositoryForm(repository configedit.Repository, original string, listing configedit.Listing) form {
+	kind, parts := splitRepositoryURL(repository.URL)
+	if original == "" {
+		kind = "local"
+	}
+	passwordHint := "name of the environment variable holding the restic password (never the password itself)"
+	if repository.PasswordLiteral {
+		passwordHint = "the file has a literal password; enter a variable name to replace it, or leave empty to keep it"
+	}
+	kept := map[string]string{}
+	for key, name := range repository.Env {
+		if key != awsKeyID && key != awsSecretKey {
+			kept[key] = name
+		}
+	}
+	title := "Add a repository"
+	if original != "" {
+		title = "Edit repository " + original
+	}
+	fields := []formField{
+		{key: "name", label: "Name", hint: "letters, digits, . _ - ; jobs refer to the repository by this name", value: repository.Name, fixed: original != ""},
+		{key: "kind", label: "Kind", hint: "← → to choose where the backups are stored", kind: fieldChoice, value: kind, choices: repositoryKinds},
+	}
+	add := func(onKind, key, label, hint, placeholder string) {
+		fields = append(fields, formField{key: key, label: label, hint: hint, value: parts[key], placeholder: placeholder, onField: "kind", only: []string{onKind}})
+	}
+	add("local", "path", "Folder", "a folder on this machine or a mounted disk; ${HOME} works", "")
+	add("s3", "endpoint", "Endpoint", "empty = Amazon S3; for MinIO, R2 or Wasabi: https://host", "Amazon S3")
+	add("s3", "bucket", "Bucket", "the bucket name", "")
+	add("s3", "prefix", "Folder in bucket", "optional path inside the bucket, e.g. web-01", "")
+	add("rclone", "remote", "rclone remote", "the remote name from `rclone config`, e.g. gdrive", "")
+	add("rclone", "path", "Folder", "path inside the remote, e.g. backups/web-01", "")
+	add("sftp", "target", "User and host", "user@host", "")
+	add("sftp", "path", "Folder", "absolute path on the server, e.g. /srv/backups", "")
+	add("custom", "url", "Location", "any restic repository location, e.g. b2:bucket:path", "")
+	fields = append(fields,
+		formField{key: "access_key_env", label: "Access key var", hint: "name of the environment variable holding the access key id", value: repository.Env[awsKeyID], onField: "kind", only: []string{"s3"}},
+		formField{key: "secret_key_env", label: "Secret key var", hint: "name of the environment variable holding the secret access key", value: repository.Env[awsSecretKey], onField: "kind", only: []string{"s3"}},
+		formField{key: "password_env", label: "Password env var", hint: passwordHint, value: repository.PasswordEnv},
+	)
+	return form{kind: formRepository, title: title, original: original, passwordKept: repository.PasswordLiteral, known: configedit.Known{Repositories: listing.Repositories}, fields: fields, touched: map[string]bool{}, kept: kept}
+}
+
+// repository turns the form into a repository entry.
+func (f form) repository() configedit.Repository {
+	kind := f.field("kind").value
+	parts := map[string]string{}
+	for _, key := range repositoryParts[kind] {
+		parts[key] = strings.TrimSpace(f.field(key).value)
+	}
+	repository := configedit.Repository{
+		Name:            strings.TrimSpace(f.field("name").value),
+		URL:             buildRepositoryURL(kind, parts),
+		PasswordEnv:     strings.TrimSpace(f.field("password_env").value),
+		PasswordLiteral: f.passwordKept,
+		Env:             map[string]string{},
+	}
+	for key, name := range f.kept {
+		repository.Env[key] = name
+	}
+	if kind == "s3" {
+		for key, field := range map[string]string{awsKeyID: "access_key_env", awsSecretKey: "secret_key_env"} {
+			if name := strings.TrimSpace(f.field(field).value); name != "" {
+				repository.Env[key] = name
+			}
+		}
+	}
+	return repository
+}
+
+func newUptimeForm(check configedit.Uptime, original string) form {
+	title := "Add an uptime check"
+	if original != "" {
+		title = "Edit check " + original
+	}
+	if check.Type == "" {
+		check.Type = config.CheckHTTP
+	}
+	only := func(types ...string) (string, []string) { return "type", types }
+	field := func(key, label, hint, value, placeholder string, kind fieldKind, types ...string) formField {
+		f := formField{key: key, label: label, hint: hint, value: value, placeholder: placeholder, kind: kind}
+		if len(types) > 0 {
+			f.onField, f.only = only(types...)
+		}
+		return f
+	}
+	return form{kind: formUptime, title: title, original: original, touched: map[string]bool{}, fields: []formField{
+		{key: "name", label: "Name", hint: "letters, digits, . _ -", value: check.Name},
+		{key: "type", label: "Type", hint: "← → http: a web address · tcp: a host:port that accepts connections · ping: a host that answers", kind: fieldChoice, value: check.Type, choices: []string{config.CheckHTTP, config.CheckTCP, config.CheckPing}},
+		field("url", "Address", "https://example.com/health", check.URL, "", fieldText, config.CheckHTTP),
+		field("address", "Host:port", "e.g. 10.0.0.5:5432", check.Address, "", fieldText, config.CheckTCP),
+		field("host", "Host", "a name or address to ping", check.Host, "", fieldText, config.CheckPing),
+		field("interval", "Every", "how often to check, e.g. 30s, 1m, 5m", check.Interval, "1m", fieldText),
+		field("timeout", "Timeout", "give up on one check after, e.g. 10s", check.Timeout, "10s", fieldText),
+		field("expect_status", "Expect status", "the HTTP status that means up", check.ExpectStatus, "200", fieldNumber, config.CheckHTTP),
+		field("keyword", "Must contain", "optional: text that must appear in the page", check.Keyword, "", fieldText, config.CheckHTTP),
+		field("cert_expiry_days", "Cert warning", "warn when the TLS certificate expires within this many days", check.CertExpiryDays, "off", fieldNumber, config.CheckHTTP),
+		field("fail_after", "Alert after", "alert after this many failed checks in a row", check.FailAfter, "3", fieldNumber),
+	}}
+}
+
+func (f form) uptime() configedit.Uptime {
+	value := func(key string) string { return strings.TrimSpace(f.field(key).value) }
+	return configedit.Uptime{
+		Name: value("name"), Type: value("type"), URL: value("url"), Address: value("address"), Host: value("host"),
+		Interval: value("interval"), Timeout: value("timeout"), ExpectStatus: value("expect_status"), Keyword: value("keyword"),
+		CertExpiryDays: value("cert_expiry_days"), FailAfter: value("fail_after"),
+	}
+}
+
+func newNotifierForm(notifier configedit.Notifier, original string) form {
+	title := "Add a notification channel"
+	if original != "" {
+		title = "Edit " + original
+	}
+	if notifier.Kind == "" {
+		notifier.Kind = configedit.NotifierKinds[0]
+	}
+	fields := []formField{{key: "kind", label: "Channel", hint: "← → to choose", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
+	for _, kind := range configedit.NotifierKinds {
+		for _, spec := range configedit.NotifierFields(kind) {
+			field := formField{key: kind + "." + spec.Key, label: spec.Label, hint: notifierHint(spec), value: notifier.Values[spec.Key], onField: "kind", only: []string{kind}}
+			if kind != notifier.Kind {
+				field.value = ""
+			}
+			switch {
+			case spec.Secret:
+				field.label += " var"
+				if notifier.Kind == kind && notifier.Literal[spec.Key] {
+					field.hint = "the file has a literal value; enter a variable name to replace it, or leave empty to keep it"
+				}
+			case spec.Number:
+				field.kind = fieldNumber
+			}
+			fields = append(fields, field)
+		}
+	}
+	return form{kind: formNotifier, title: title, original: original, touched: map[string]bool{}, fields: fields, kept: literalKeys(notifier)}
+}
+
+func notifierHint(spec configedit.NotifierField) string {
+	switch {
+	case spec.Secret:
+		return "name of the environment variable holding it, e.g. TG_TOKEN (never the secret itself)"
+	case spec.List:
+		return "one or more addresses, separated by commas"
+	case spec.Number:
+		return "port; empty = 587"
+	case spec.Key == "chat_id":
+		return "the chat or group id; a group id starts with -"
+	}
+	return "required"
+}
+
+// literalKeys remembers which secrets are literals in the file, so they are kept unless replaced.
+func literalKeys(notifier configedit.Notifier) map[string]string {
+	kept := map[string]string{}
+	for key, literal := range notifier.Literal {
+		if literal {
+			kept[key] = "literal"
+		}
+	}
+	return kept
+}
+
+func (f form) notifier() configedit.Notifier {
+	kind := f.field("kind").value
+	notifier := configedit.Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
+	for _, spec := range configedit.NotifierFields(kind) {
+		value := strings.TrimSpace(f.field(kind + "." + spec.Key).value)
+		notifier.Values[spec.Key] = value
+		if spec.Secret && value == "" && f.original == kind && f.kept[spec.Key] == "literal" {
+			notifier.Literal[spec.Key] = true
+		}
+	}
+	return notifier
+}
+
+func newSettingsForm(settings configedit.Settings, listing configedit.Listing) form {
+	ticked := make([]bool, len(listing.Repositories))
+	for i, name := range listing.Repositories {
+		for _, chosen := range settings.DefaultRepositories {
+			ticked[i] = ticked[i] || chosen == name
+		}
+	}
+	notifySuccess := "no"
+	if settings.NotifySuccess {
+		notifySuccess = "yes"
+	}
+	var retention [5]string
+	for i, count := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
+		if count > 0 {
+			retention[i] = fmt.Sprint(count)
+		}
+	}
+	scheduleHint := "daily 02:00 · weekly sun 03:00 · monthly 1 04:00 · hourly :15 · every 6h · a cron expression; ← → for presets"
+	return form{kind: formSettings, title: "Settings", original: "settings", touched: map[string]bool{}, known: configedit.Known{Repositories: listing.Repositories}, fields: []formField{
+		{key: "server_name", label: "Server name", hint: "the name shown in alerts and on this screen", value: settings.ServerName, placeholder: "this machine's host name"},
+		{key: "store", label: "State database", hint: "where run history and job locks are kept (a file path)", value: settings.Store, placeholder: "/var/lib/sentinel/state.db"},
+		{key: "cooldown", label: "Alert repeat", hint: "how long to wait before repeating an alert that is still open, e.g. 30m, 1h", value: settings.Cooldown, placeholder: "1h"},
+		{key: "notify_success", label: "Tell me successes", hint: "also send a message after every successful backup", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
+		{key: "repo_check_schedule", label: "Repo check", hint: "when to run `restic check` on every repository. " + scheduleHint, kind: fieldSchedule, value: settings.RepoCheckSchedule, placeholder: "never"},
+		{key: "default_schedule", label: "Default schedule", hint: "for jobs that set none. " + scheduleHint, kind: fieldSchedule, value: settings.DefaultSchedule, placeholder: "none: jobs run by hand"},
+		{key: "default_repositories", label: "Default repos", hint: "space or click ticks; for jobs that list none. None ticked and a single repository = that repository", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
+		{key: "retention", label: "Default keep", hint: "snapshots kept by jobs that set none: last N, then one per day, week, month, year", kind: fieldRetention, counts: retention},
+	}}
+}
+
+func (f form) settings() (configedit.Settings, error) {
+	settings := configedit.Settings{
+		ServerName: strings.TrimSpace(f.field("server_name").value), Store: strings.TrimSpace(f.field("store").value),
+		Cooldown: strings.TrimSpace(f.field("cooldown").value), NotifySuccess: f.field("notify_success").value == "yes",
+		RepoCheckSchedule: strings.TrimSpace(f.field("repo_check_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
+	}
+	repositories := f.field("default_repositories")
+	for i, name := range repositories.choices {
+		if repositories.ticked[i] {
+			settings.DefaultRepositories = append(settings.DefaultRepositories, name)
+		}
+	}
+	counts := f.field("retention").counts
+	for i, target := range []*int{&settings.DefaultRetention.Last, &settings.DefaultRetention.Daily, &settings.DefaultRetention.Weekly, &settings.DefaultRetention.Monthly, &settings.DefaultRetention.Yearly} {
+		if counts[i] != "" {
+			if _, err := fmt.Sscan(counts[i], target); err != nil {
+				return settings, formProblem("retention", "retention: %q is not a number", counts[i])
+			}
+		}
+	}
+	return settings, nil
+}
+
+// checkEntries validates a repository, uptime, notifier or settings form without saving it.
+func (f form) checkEntries() []error {
+	switch f.kind {
+	case formRepository:
+		kind := f.field("kind").value
+		var problems []error
+		for _, problem := range configedit.RepositoryProblems(f.repository()) {
+			switch problem.Field {
+			case "url": // the form has no such field: the missing parts are reported below
+			case "env":
+				problems = append(problems, formProblem("access_key_env", "%s", problem.Message))
+			default:
+				problems = append(problems, problem)
+			}
+		}
+		for _, key := range map[string][]string{"local": {"path"}, "s3": {"bucket"}, "rclone": {"remote", "path"}, "sftp": {"target", "path"}, "custom": {"url"}}[kind] {
+			if strings.TrimSpace(f.field(key).value) == "" {
+				problems = append(problems, formProblem(key, "%s is required", strings.ToLower(f.field(key).label)))
+			}
+		}
+		return problems
+	case formUptime:
+		check := f.uptime()
+		return []error{configedit.ValidateUptime(&check)}
+	case formNotifier:
+		return []error{f.prefixNotifierField(configedit.ValidateNotifier(f.notifier()))}
+	case formSettings:
+		settings, err := f.settings()
+		if err != nil {
+			return []error{err}
+		}
+		return []error{configedit.ValidateSettings(settings)}
+	}
+	return nil
+}
+
+// prefixNotifierField maps a problem of a channel field ("token") to the form's key ("telegram.token").
+func (f form) prefixNotifierField(err error) error {
+	var invalid *configedit.InvalidError
+	if errors.As(err, &invalid) && invalid.Field != "" && invalid.Field != "kind" {
+		return formProblem(f.field("kind").value+"."+invalid.Field, "%s", invalid.Message)
+	}
+	return err
+}
+
+// applyEntry saves a repository, uptime, notifier or settings form.
+func (f form) applyEntry(actions manageActions) (string, error) {
+	for _, err := range f.checkEntries() {
+		if err != nil {
+			return "", err
+		}
+	}
+	switch f.kind {
+	case formRepository:
+		repository := f.repository()
+		return "repository " + repository.Name, actions.saveRepository(f.original, repository)
+	case formUptime:
+		check := f.uptime()
+		return "check " + check.Name, actions.saveUptime(f.original, check)
+	case formNotifier:
+		notifier := f.notifier()
+		return notifier.Kind + " notifications", actions.saveNotifier(notifier)
+	case formSettings:
+		settings, _ := f.settings()
+		return "settings", actions.saveSettings(settings)
+	}
+	return "", errors.New("unknown form")
+}

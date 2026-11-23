@@ -67,6 +67,8 @@ type manageLine struct {
 	job, repository string
 	// history is the outcome of the latest runs, oldest first (Backups tab only).
 	history []string
+	// entry says which part of the config a line of the Config tab stands for.
+	entry configEntry
 }
 
 type manageTab struct {
@@ -128,8 +130,13 @@ type manageModel struct {
 	resultText string
 	resultBad  bool
 
-	form       jobForm
+	form       form
 	deleteName string
+	// deleteWhat is "job", "repository"...; deleteNote tells what stays; deleteAction removes it.
+	deleteWhat, deleteNote string
+	deleteAction           func() error
+
+	config configData
 
 	helpReturn manageMode // the screen the key list was opened from
 
@@ -182,7 +189,11 @@ func (m manageModel) scheduleRefresh() tea.Cmd {
 
 func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
-	return model.(manageModel).startDoctorIfNeeded(cmd)
+	next := model.(manageModel)
+	if next.mode == modeTable && next.tab == configTab && !next.config.loaded {
+		next = next.refreshConfig()
+	}
+	return next.startDoctorIfNeeded(cmd)
 }
 
 func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -285,7 +296,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tab, m.cursor = (m.tab+1)%tabCount, 0
 	case "shift+tab", "left", "h":
 		m.tab, m.cursor = (m.tab+tabCount-1)%tabCount, 0
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		m.tab, m.cursor = int(key[0]-'1'), 0
 	case "down", "j":
 		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
@@ -311,18 +322,30 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 			})
 		}
 	case "a":
+		if m.tab == configTab {
+			return m.configAdd(), nil
+		}
 		if m.tab == 0 {
 			return m.startAdd(), nil
 		}
 	case "e":
+		if m.tab == configTab {
+			return m.configEdit(), nil
+		}
 		if m.tab == 0 {
 			return m.startEdit(), nil
 		}
 	case "d":
+		if m.tab == configTab {
+			return m.configRemove(), nil
+		}
 		if m.tab == 0 {
 			return m.startDelete(), nil
 		}
 	case "s", "enter":
+		if m.tab == configTab {
+			return m.configEdit(), nil
+		}
 		if line, ok := m.selectedBackup(); ok {
 			ctx := m.startBusy(fmt.Sprintf("Listing snapshots of %s in %s", line.job, line.repository))
 			job, repository, actions := line.job, line.repository, m.actions
@@ -507,7 +530,7 @@ func (m manageModel) tabs() []manageTab {
 			detail:   alert.Key + ": " + alert.Message,
 		})
 	}
-	return []manageTab{backups, checks, alerts, m.buildDoctorTab()}
+	return []manageTab{backups, checks, alerts, m.buildDoctorTab(), m.buildConfigTab()}
 }
 
 // summary is the one line under the title: what needs attention, or "all good".
@@ -721,6 +744,8 @@ func (m manageModel) renderTabs() []string {
 	switch m.tab {
 	case doctorTab:
 		footerKeys = []string{"tab", "switch", "↑↓", "select", "r", "run checks", "?", "help", "q", "quit"}
+	case configTab:
+		footerKeys = []string{"a", "add", "e", "edit", "d", "remove", "tab", "switch", "?", "help", "q", "quit"}
 	case 0:
 		footerKeys = []string{"b", "backup", "s", "snapshots", "a", "add", "e", "edit", "d", "remove", "?", "help", "q", "quit"}
 	}
@@ -729,16 +754,36 @@ func (m manageModel) renderTabs() []string {
 }
 
 // tabLabels are the tab bar's labels, e.g. "1 Backups 3"; the tab bar joins them with tabGap().
+// On a narrow screen the counts go first, then the names of the tabs that are not open.
 func (m manageModel) tabLabels() []string {
-	var labels []string
-	for i, tab := range m.tabs() {
-		label := fmt.Sprintf("%d %s", i+1, tab.title)
-		if n := len(tab.lines); n > 0 {
-			label += fmt.Sprintf(" %d", n)
+	tabs := m.tabs()
+	build := func(counts, names bool) []string {
+		var labels []string
+		for i, tab := range tabs {
+			label := fmt.Sprintf("%d", i+1)
+			if names || i == m.tab {
+				label += " " + tab.title
+			}
+			if n := len(tab.lines); counts && n > 0 && i != configTab {
+				label += fmt.Sprintf(" %d", n)
+			}
+			labels = append(labels, label)
 		}
-		labels = append(labels, label)
+		return labels
 	}
-	return labels
+	fits := func(labels []string) bool {
+		total := lipgloss.Width(m.tabGap()) * (len(labels) - 1)
+		for _, label := range labels {
+			total += lipgloss.Width(label)
+		}
+		return total <= m.width
+	}
+	for _, attempt := range [][2]bool{{true, true}, {false, true}, {false, false}} {
+		if labels := build(attempt[0], attempt[1]); fits(labels) || attempt == [2]bool{false, false} {
+			return labels
+		}
+	}
+	return nil
 }
 
 // tabGap separates the tab labels; a narrow screen packs them closer.
@@ -754,8 +799,11 @@ func (m manageModel) tabGap() string {
 func (m manageModel) visibleRows() int { return max(m.height-13, 3) }
 
 func (m manageModel) emptyText(tab int) string {
-	if tab == doctorTab {
+	switch tab {
+	case doctorTab:
 		return m.doctorWaitText()
+	case configTab:
+		return "The config could not be read."
 	}
 	return [...]string{
 		"No backups recorded yet. Run `sentinel backup run <job>` or start the daemon.",

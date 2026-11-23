@@ -93,8 +93,8 @@ func (m manageModel) onClick(x, y int, left bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if index, ok := actionIndex(action, "row:"); ok {
-		if index == m.cursor && m.tab == 0 {
-			return m.onTableKey("s") // a second click opens the job
+		if index == m.cursor && (m.tab == 0 || m.tab == configTab) {
+			return m.onTableKey("s") // a second click opens the job, or the entry to edit
 		}
 		m.cursor, m.notice = index, ""
 		return m, nil

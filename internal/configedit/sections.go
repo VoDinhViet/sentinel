@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"sentinel/internal/config"
+	"sentinel/internal/schedule"
 )
 
 // The functions here edit the parts of the config that are not backup jobs: repositories,
@@ -292,25 +293,38 @@ func fieldError(field, format string, args ...any) error {
 
 // ---- repositories
 
-func validateRepository(repository Repository) error {
+// RepositoryProblems lists what is wrong with a repository entry, at most one problem per field.
+func RepositoryProblems(repository Repository) []*InvalidError {
+	var problems []*InvalidError
+	add := func(field, format string, args ...any) {
+		problems = append(problems, &InvalidError{Message: fmt.Sprintf(format, args...), Field: field})
+	}
+	if !jobName.MatchString(repository.Name) {
+		add("name", "invalid repository name %q: use letters, digits, '.', '_' or '-'", repository.Name)
+	}
+	if strings.TrimSpace(repository.URL) == "" || strings.ContainsAny(repository.URL, "\x00\n\r") {
+		add("url", "the repository location is required")
+	}
 	switch {
-	case !jobName.MatchString(repository.Name):
-		return fieldError("name", "invalid repository name %q: use letters, digits, '.', '_' or '-'", repository.Name)
-	case strings.TrimSpace(repository.URL) == "" || strings.ContainsAny(repository.URL, "\x00\n\r"):
-		return fieldError("url", "the repository location is required")
 	case repository.PasswordEnv == "" && !repository.PasswordLiteral:
-		return fieldError("password_env", "name the environment variable that holds the repository password")
+		add("password_env", "name the environment variable that holds the repository password")
+	case repository.PasswordEnv != "" && !envName.MatchString(repository.PasswordEnv):
+		add("password_env", "%q is not an environment variable name (the password itself is never entered here)", repository.PasswordEnv)
 	}
-	if err := checkEnvName("password_env", repository.PasswordEnv); err != nil {
-		return err
-	}
-	for key, name := range repository.Env {
+	for _, key := range slices.Sorted(maps.Keys(repository.Env)) {
 		if !envName.MatchString(key) {
-			return fieldError("env", "%q is not a variable name", key)
+			add("env", "%q is not a variable name", key)
+		} else if name := repository.Env[key]; name != "" && !envName.MatchString(name) {
+			add("env", "%q is not an environment variable name (the secret itself is never entered here)", name)
 		}
-		if err := checkEnvName("env", name); err != nil {
-			return err
-		}
+	}
+	return problems
+}
+
+// ValidateRepository returns the first problem of RepositoryProblems.
+func ValidateRepository(repository Repository) error {
+	if problems := RepositoryProblems(repository); len(problems) > 0 {
+		return problems[0]
 	}
 	return nil
 }
@@ -319,7 +333,7 @@ func validateRepository(repository Repository) error {
 // A repository cannot be renamed: jobs refer to it by name.
 func SaveRepository(path, original string, repository Repository) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
-		if err := validateRepository(repository); err != nil {
+		if err := ValidateRepository(repository); err != nil {
 			return err
 		}
 		if original != "" && original != repository.Name {
@@ -381,7 +395,8 @@ func DeleteRepository(path, name string) error {
 
 // ---- uptime checks
 
-func validateUptime(check *Uptime) error {
+// ValidateUptime checks an uptime check and clears the fields its type does not use.
+func ValidateUptime(check *Uptime) error {
 	if !jobName.MatchString(check.Name) {
 		return fieldError("name", "invalid check name %q: use letters, digits, '.', '_' or '-'", check.Name)
 	}
@@ -432,7 +447,7 @@ func findByName(sequence *yaml.Node, name string) int {
 // SaveUptime adds an uptime check (original == "") or replaces the settings of the one named original.
 func SaveUptime(path, original string, check Uptime) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
-		if err := validateUptime(&check); err != nil {
+		if err := ValidateUptime(&check); err != nil {
 			return err
 		}
 		sequence := ensureSequence(root, "uptime")
@@ -484,28 +499,37 @@ func DeleteUptime(path, name string) error {
 
 // ---- notifier channels
 
+// ValidateNotifier checks a channel's fields; the error names the field at fault.
+func ValidateNotifier(notifier Notifier) error {
+	fields := NotifierFields(notifier.Kind)
+	if fields == nil {
+		return fieldError("kind", "channel must be one of %s", strings.Join(NotifierKinds, ", "))
+	}
+	for _, field := range fields {
+		value := strings.TrimSpace(notifier.Values[field.Key])
+		switch {
+		case field.Required && value == "" && !notifier.Literal[field.Key]:
+			return fieldError(field.Key, "%s is required", strings.ToLower(field.Label))
+		case field.Secret:
+			if err := checkEnvName(field.Key, value); err != nil {
+				return err
+			}
+		case field.Number:
+			if n, err := strconv.Atoi(value); value != "" && (err != nil || n < 1 || n > 65535) {
+				return fieldError(field.Key, "%s must be a port number", strings.ToLower(field.Label))
+			}
+		}
+	}
+	return nil
+}
+
 // SaveNotifier adds the channel or replaces its settings.
 func SaveNotifier(path string, notifier Notifier) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
+		if err := ValidateNotifier(notifier); err != nil {
+			return err
+		}
 		fields := NotifierFields(notifier.Kind)
-		if fields == nil {
-			return fieldError("kind", "channel must be one of %s", strings.Join(NotifierKinds, ", "))
-		}
-		for _, field := range fields {
-			value := strings.TrimSpace(notifier.Values[field.Key])
-			switch {
-			case field.Required && value == "" && !notifier.Literal[field.Key]:
-				return fieldError(field.Key, "%s is required", strings.ToLower(field.Label))
-			case field.Secret:
-				if err := checkEnvName(field.Key, value); err != nil {
-					return err
-				}
-			case field.Number:
-				if n, err := strconv.Atoi(value); value != "" && (err != nil || n < 1 || n > 65535) {
-					return fieldError(field.Key, "%s must be a port number", strings.ToLower(field.Label))
-				}
-			}
-		}
 		channels := ensureMapping(root, "notifiers", 0)
 		entry := mapGet(channels, notifier.Kind)
 		if entry == nil || entry.Kind != yaml.MappingNode {
@@ -562,18 +586,36 @@ func DeleteNotifier(path, kind string) error {
 
 // ---- settings
 
+// ValidateSettings checks the general options; the error names the field at fault.
+func ValidateSettings(settings Settings) error {
+	if settings.Cooldown != "" {
+		if duration, err := time.ParseDuration(settings.Cooldown); err != nil || duration <= 0 {
+			return fieldError("cooldown", "cooldown: %q is not a duration like 1h or 30m", settings.Cooldown)
+		}
+	}
+	if !schedule.IsManual(settings.RepoCheckSchedule) {
+		if _, err := schedule.Parse(settings.RepoCheckSchedule); err != nil {
+			return fieldError("repo_check_schedule", "%v", err)
+		}
+	}
+	if !schedule.IsManual(settings.DefaultSchedule) {
+		if _, err := schedule.Parse(settings.DefaultSchedule); err != nil {
+			return fieldError("default_schedule", "%v", err)
+		}
+	}
+	for _, n := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
+		if n < 0 {
+			return fieldError("retention", "retention values cannot be negative")
+		}
+	}
+	return nil
+}
+
 // SaveSettings writes the general options; an empty value removes the key so the default applies.
 func SaveSettings(path string, settings Settings) error {
 	return editFile(path, func(root *yaml.Node, _ *config.Config) error {
-		if settings.Cooldown != "" {
-			if duration, err := time.ParseDuration(settings.Cooldown); err != nil || duration <= 0 {
-				return fieldError("cooldown", "cooldown: %q is not a duration like 1h or 30m", settings.Cooldown)
-			}
-		}
-		for _, n := range []int{settings.DefaultRetention.Last, settings.DefaultRetention.Daily, settings.DefaultRetention.Weekly, settings.DefaultRetention.Monthly, settings.DefaultRetention.Yearly} {
-			if n < 0 {
-				return fieldError("retention", "retention values cannot be negative")
-			}
+		if err := ValidateSettings(settings); err != nil {
+			return err
 		}
 		setText(root, "server_name", settings.ServerName)
 		setText(root, "store", settings.Store)

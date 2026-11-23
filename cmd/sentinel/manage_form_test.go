@@ -16,6 +16,14 @@ type fakeConfig struct {
 	savedFrom []string
 	deleted   []string
 	saveErr   error
+
+	// The other parts of the config file, for the Config tab.
+	overview     configedit.Overview
+	repositories []configedit.Repository
+	checks       []configedit.Uptime
+	notifiers    []configedit.Notifier
+	settings     []configedit.Settings
+	removed      []string // "repository s3", "uptime web", "notifier telegram"
 }
 
 func (f *fakeConfig) attach(actions *manageActions) {
@@ -29,6 +37,26 @@ func (f *fakeConfig) attach(actions *manageActions) {
 		f.deleted = append(f.deleted, name)
 		return nil
 	}
+	actions.overview = func() (configedit.Overview, error) { return f.overview, nil }
+	actions.saveRepository = func(_ string, repository configedit.Repository) error {
+		f.repositories = append(f.repositories, repository)
+		return f.saveErr
+	}
+	actions.saveUptime = func(_ string, check configedit.Uptime) error {
+		f.checks = append(f.checks, check)
+		return f.saveErr
+	}
+	actions.saveNotifier = func(notifier configedit.Notifier) error {
+		f.notifiers = append(f.notifiers, notifier)
+		return f.saveErr
+	}
+	actions.saveSettings = func(settings configedit.Settings) error {
+		f.settings = append(f.settings, settings)
+		return f.saveErr
+	}
+	actions.deleteRepository = func(name string) error { f.removed = append(f.removed, "repository "+name); return nil }
+	actions.deleteUptime = func(name string) error { f.removed = append(f.removed, "uptime "+name); return nil }
+	actions.deleteNotifier = func(kind string) error { f.removed = append(f.removed, "notifier "+kind); return nil }
 }
 
 func formModel(t *testing.T) (manageModel, *fakeConfig) {
@@ -39,6 +67,14 @@ func formModel(t *testing.T) (manageModel, *fakeConfig) {
 			{Name: "appdb", Type: config.BackupPostgres, Database: "app", Host: "db", Port: 5433, PasswordLiteral: true, Repositories: []string{"s3"}, Retention: config.Retention{Daily: 7}},
 			{Name: "files", Type: config.BackupFiles, Repositories: []string{"local"}},
 		},
+	}, overview: configedit.Overview{
+		Repositories: []configedit.Repository{
+			{Name: "local", URL: "/var/backups/repo", PasswordEnv: "RESTIC_PW", Env: map[string]string{}},
+			{Name: "s3", URL: "s3:https://minio.example.com/bucket/web-01", PasswordLiteral: true, Env: map[string]string{awsKeyID: "MINIO_ID", awsSecretKey: "MINIO_SECRET"}, UsedBy: []string{"appdb"}},
+		},
+		Uptime:    []configedit.Uptime{{Name: "web", Type: "http", URL: "https://example.com", Interval: "30s"}},
+		Notifiers: []configedit.Notifier{{Kind: "telegram", Values: map[string]string{"token": "TG_TOKEN", "chat_id": "-100"}, Literal: map[string]bool{}}},
+		Settings:  configedit.Settings{ServerName: "web-01", DefaultSchedule: "daily 02:00", DefaultRetention: config.Retention{Daily: 7}},
 	}}
 	actions := (&fakeActions{}).actions()
 	configFile.attach(&actions)

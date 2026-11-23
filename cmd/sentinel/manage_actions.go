@@ -44,6 +44,15 @@ type manageActions struct {
 	deleteJob func(name string) error
 	// doctor runs the same checks as `sentinel doctor`.
 	doctor func(ctx context.Context) []finding
+	// The rest of the config file, shown and edited on the Config tab.
+	overview         func() (configedit.Overview, error)
+	saveRepository   func(original string, repository configedit.Repository) error
+	deleteRepository func(name string) error
+	saveUptime       func(original string, check configedit.Uptime) error
+	deleteUptime     func(name string) error
+	saveNotifier     func(notifier configedit.Notifier) error
+	deleteNotifier   func(kind string) error
+	saveSettings     func(settings configedit.Settings) error
 }
 
 func newManageActions(cfg *config.Config, st *store.Store, configPath string) manageActions {
@@ -59,6 +68,18 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 		listJobs:  func() (configedit.Listing, error) { return configedit.List(configPath) },
 		saveJob:   func(original string, job configedit.Job) error { return configedit.Save(configPath, original, job) },
 		deleteJob: func(name string) error { return configedit.Delete(configPath, name) },
+		overview:  func() (configedit.Overview, error) { return configedit.Read(configPath) },
+		saveRepository: func(original string, repository configedit.Repository) error {
+			return configedit.SaveRepository(configPath, original, repository)
+		},
+		deleteRepository: func(name string) error { return configedit.DeleteRepository(configPath, name) },
+		saveUptime: func(original string, check configedit.Uptime) error {
+			return configedit.SaveUptime(configPath, original, check)
+		},
+		deleteUptime:   func(name string) error { return configedit.DeleteUptime(configPath, name) },
+		saveNotifier:   func(notifier configedit.Notifier) error { return configedit.SaveNotifier(configPath, notifier) },
+		deleteNotifier: func(kind string) error { return configedit.DeleteNotifier(configPath, kind) },
+		saveSettings:   func(settings configedit.Settings) error { return configedit.SaveSettings(configPath, settings) },
 		doctor: func(ctx context.Context) []finding {
 			return runDoctor(ctx, cfg, configPath, func(c *config.Config) (*store.Store, error) { return store.Open(c.Store) })
 		},
