@@ -368,6 +368,9 @@ func intNode(n int) *yaml.Node {
 }
 
 func mapGet(mapping *yaml.Node, key string) *yaml.Node {
+	if mapping == nil {
+		return nil
+	}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
 			return mapping.Content[i+1]
