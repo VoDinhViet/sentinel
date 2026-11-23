@@ -1,6 +1,6 @@
 ---
 name: backup-safety-reviewer
-description: Reviews changes to Sentinel's backup, restore, engine and scheduling code for data-loss and secret-leak risks. Use after changing internal/backup, internal/engine, internal/scheduler, internal/schedule, internal/store or cmd/sentinel, or before releasing a version that touches backups.
+description: Reviews changes to Sentinel's backup, restore, engine and scheduling code for data-loss and secret-leak risks. Use after changing internal/backup, internal/engine, internal/daemon, internal/schedule, internal/store or cmd/sentinel, or before releasing a version that touches backups.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -10,7 +10,7 @@ for real failure scenarios, not style.
 ## Scope
 
 Start from `git diff` (or the commit/range you are given) and read the surrounding code in `internal/backup`,
-`internal/engine`, `internal/scheduler`, `internal/schedule`, `internal/store`, `internal/config` and
+`internal/engine`, `internal/daemon`, `internal/schedule`, `internal/store`, `internal/config` and
 `cmd/sentinel`. Do not edit files. You may run `go vet ./...` and `go test ./<package>/...`; nothing that writes outside the
 repo or needs credentials.
 

@@ -182,10 +182,10 @@ Cấu trúc thư mục:
 cmd/sentinel/        lệnh CLI (cobra)
 internal/config      đọc YAML, ${ENV}, kiểm tra hợp lệ
 internal/backup      wrapper restic, job files/database, retention
-internal/scheduler   daemon: lịch cron, backup quá hạn, restic check
+internal/daemon      tiến trình `sentinel run`: lịch cron, backup quá hạn, restic check, cảnh báo uptime
 internal/alert       trạng thái cảnh báo OK → FIRING → RESOLVED, cooldown
 internal/notify      Telegram, SMTP, Discord, Slack
-internal/uptime      kiểm tra HTTP/TCP/ping
+internal/uptime      probe HTTP/TCP/ping
 internal/store       SQLite (trạng thái, lịch sử backup/uptime)
 deploy/              systemd units, install*.sh, config mẫu 
 test/                integration test bằng docker compose

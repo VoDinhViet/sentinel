@@ -1,4 +1,4 @@
-package scheduler
+package daemon
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func TestIsStale(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stale, _ := IsStale(tc.job, tc.last, started, tc.now)
+			stale, _ := isStale(tc.job, tc.last, started, tc.now)
 			if stale != tc.stale {
 				t.Errorf("stale = %v, want %v", stale, tc.stale)
 			}
@@ -213,7 +213,7 @@ func TestRunBackupSkipsWhenJobAlreadyRunning(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	second := d.RunBackup(ctx, job)
-	if len(second) != 1 || second[0].Error != ErrAlreadyRunning || second[0].Success {
+	if len(second) != 1 || second[0].Error != backup.AlreadyRunning || second[0].Success {
 		t.Fatalf("overlapping run = %+v", second)
 	}
 	if got := rec.titles(); len(got) != 0 {

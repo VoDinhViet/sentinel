@@ -12,7 +12,7 @@ import (
 	"sentinel/internal/alert"
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
-	"sentinel/internal/scheduler"
+	"sentinel/internal/daemon"
 	"sentinel/internal/store"
 	"sentinel/internal/uptime"
 )
@@ -50,12 +50,12 @@ func (a *app) runCmd() *cobra.Command {
 			}
 			defer st.Close()
 
-			build := func(cfg *config.Config) (*scheduler.Daemon, error) {
+			build := func(cfg *config.Config) (*daemon.Daemon, error) {
 				alerts := newAlertManager(cfg, st)
 				if err := alerts.Load(ctx); err != nil {
 					return nil, fmt.Errorf("load alert state: %w", err)
 				}
-				return &scheduler.Daemon{
+				return &daemon.Daemon{
 					Config: cfg,
 					Store:  st,
 					Alerts: alerts,
@@ -80,11 +80,11 @@ func (a *app) runCmd() *cobra.Command {
 }
 
 // periodicTasks returns the uptime tasks for the daemon.
-func periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) []scheduler.Task {
-	var tasks []scheduler.Task
-	tracker := &uptime.Tracker{Alerts: alerts, Store: st}
+func periodicTasks(cfg *config.Config, st *store.Store, alerts *alert.Manager) []daemon.Task {
+	var tasks []daemon.Task
+	tracker := &daemon.UptimeTracker{Alerts: alerts, Store: st}
 	for _, c := range cfg.Uptime {
-		tasks = append(tasks, scheduler.Task{
+		tasks = append(tasks, daemon.Task{
 			Name:  "uptime:" + c.Name,
 			Every: c.Interval,
 			Run: func(ctx context.Context) {
