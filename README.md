@@ -1,83 +1,73 @@
 # Sentinel
 
-Công cụ bảo trì server viết bằng Go: một binary duy nhất cài trên mỗi server Linux để
+Một binary Go cài trên mỗi server Linux: **backup** file và database bằng restic, **kiểm tra uptime**, và **cảnh báo** khi có chuyện. Điều khiển bằng dòng lệnh, file cấu hình YAML và một màn hình quản lý trong terminal.
 
-- **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên **S3** (AWS, MinIO, R2, Wasabi…) và **Google Drive** (qua [rclone](https://rclone.org)), có retention và `restic check` định kỳ.
-- **Kiểm tra uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
-- **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi xảy ra, nhắc lại theo `cooldown`, báo khi đã khắc phục. Cảnh báo cả khi một job **quá lâu chưa backup thành công**.
+![Màn hình sentinel manage: các job backup, kết quả và lịch sử từng lần chạy](docs/images/manage-backups.png)
 
-Mọi thứ điều khiển bằng dòng lệnh (`sentinel backup run|list|restore`, `status`, `check`, `doctor`) và file cấu hình YAML. Trạng thái được lưu trong SQLite (`/var/lib/sentinel/state.db`).
+- **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên thư mục, S3 (AWS, MinIO, R2, Wasabi…), sftp hoặc Google Drive (qua [rclone](https://rclone.org)); có retention và `restic check` định kỳ.
+- **Uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
+- **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, và báo khi một job quá lâu chưa backup thành công.
+
+Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM/disk (dùng công cụ giám sát riêng cho việc đó). Phiên bản hiện tại: v0.1.0.
 
 ## Cài đặt
 
-Trên Ubuntu/Debian, một dòng lệnh (cần quyền root) cài Sentinel cùng mọi công cụ nó chạy: restic, rclone, `pg_dump`, `mariadb-dump`, `mongodump`, rồi tạo `/etc/sentinel/config.yaml`, `/etc/sentinel/sentinel.env` và systemd unit:
+**Trên server Ubuntu/Debian** (cần root). Một dòng lệnh cài Sentinel cùng restic, rclone, `pg_dump`, `mariadb-dump`, `mongodump`, rồi tạo `/etc/sentinel/config.yaml`, `/etc/sentinel/sentinel.env` và systemd unit:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/VoDinhViet/sentinel/main/deploy/install.sh | sudo sh
 ```
 
-Bản phát hành được tải về và kiểm tra SHA-256 trước khi cài. Chạy lại cùng lệnh để nâng cấp: binary được thay, `config.yaml` và `sentinel.env` giữ nguyên. Tùy chọn (thêm sau `sh -s --`): `--version v1.2.0` cài đúng một bản, `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB; biến `SENTINEL_REPO` đổi repo GitHub tải về. Client PostgreSQL lấy từ apt, nên cần cùng major version với PostgreSQL server (`sentinel doctor` báo khi thiếu).
+Bản phát hành được kiểm tra SHA-256 trước khi cài. Chạy lại đúng lệnh này để nâng cấp (`config.yaml` và `sentinel.env` được giữ nguyên). Thêm sau `sh -s --`: `--version v0.1.0` để cài đúng một bản, `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB. Client PostgreSQL phải cùng major version với server (`sentinel doctor` báo khi thiếu).
 
-Bản phát hành được tạo tay: `make dist VERSION=v0.1.0` build `sentinel_linux_amd64.tar.gz`, `sentinel_linux_arm64.tar.gz` và `checksums.txt` vào `dist/`, rồi `gh release create v0.1.0 dist/*` đưa lên GitHub (chưa dùng CI). Chưa có bản nào thì dòng lệnh trên báo "could not download" và dừng; khi đó build tay:
-
-```sh
-make build                        # -> bin/sentinel (dùng Go nếu có, không thì build qua docker)
-scp bin/sentinel deploy/* server:/tmp/sentinel/
-ssh server 'cd /tmp/sentinel && sudo sh install.sh ./sentinel'
-```
-
-Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi `sentinel doctor`, `sentinel backup init <job>`, `systemctl enable --now sentinel`.
-
-## Chạy trên terminal của bạn
-
-Không cần root, không cần service: build, cài vào `~/.local/bin`, rồi thao tác backup ngay trong terminal.
+Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi
 
 ```sh
-make build && make install          # không có Go thì tự build qua docker; sudo make install PREFIX=/usr/local để cài cho mọi người dùng
-sentinel init                       # một form: kho lưu ở đâu, backup gì, lịch nào -> ghi ~/.config/sentinel/config.yaml
-sentinel backup init documents      # tạo kho restic (một lần); lần đầu sẽ hỏi mật khẩu kho
-sentinel backup run documents       # backup ngay
-sentinel manage                     # màn hình quản lý: backup, snapshot + restore, sửa mọi thứ trong config
+sentinel doctor                      # kiểm tra config, công cụ, kho backup
+sentinel backup init appdb           # tạo kho restic (một lần cho mỗi job)
+sudo systemctl enable --now sentinel
 ```
 
-`sentinel init` chạy bằng root thì ghi `/etc/sentinel/config.yaml` và tự tạo mật khẩu ngẫu nhiên cho kho trong `/etc/sentinel/sentinel.env` (quyền 0600; hãy lưu một bản ở nơi khác). Đã có config thì lệnh từ chối, trừ khi thêm `--force` (file cũ được giữ lại thành `config.yaml.old`). Thích sửa tay thì chép [deploy/config.user.example.yaml](deploy/config.user.example.yaml).
+**Trên máy của bạn** (không cần root, không cần service). Cần Go hoặc docker để build:
 
-**Không có đăng nhập.** Sentinel không có tài khoản; thứ duy nhất giống "mật khẩu" là mật khẩu mã hoá kho restic, ghi trong config dạng `${RESTIC_PASSWORD}`. Gõ `sentinel` trơn trên terminal thì mở form `init` nếu chưa có config, đã có thì mở `sentinel manage`; ngoài terminal (script, pipe) nó in phần trợ giúp.
+```sh
+make build && make install           # cài vào ~/.local/bin
+sentinel init                        # một form: lưu ở đâu, backup gì, lịch nào -> ~/.config/sentinel/config.yaml
+sentinel backup run documents        # backup ngay
+sentinel manage                      # màn hình quản lý
+```
 
-Khi config có biến `${VAR}` chưa được đặt và bạn đang ở terminal, Sentinel hỏi giá trị bằng ô nhập ẩn (không hiện ký tự), kiểm tra mật khẩu với kho (sai thì hỏi lại tối đa 3 lần; kho mới thì bắt gõ hai lần), rồi hỏi có lưu vào `sentinel.env` cạnh config không (quyền 0600). Lần sau Sentinel tự đọc file đó; biến đã `export` trong shell luôn được ưu tiên. Daemon `sentinel run` và script không bao giờ hỏi: thiếu biến là lỗi. Vẫn dùng được cách cũ `export RESTIC_PASSWORD=...`. Chú ý: giá trị trong `${...}` là **tên biến**, không phải mật khẩu; viết `${pass123}` sẽ báo `unset environment variables: [pass123]`.
-
-Không cần gõ `-c`: Sentinel lấy file config theo thứ tự `--config`, biến `SENTINEL_CONFIG`, `/etc/sentinel/config.yaml`, rồi `~/.config/sentinel/config.yaml` (file đầu tiên tồn tại). Nếu `~/.local/bin` chưa nằm trong `PATH`, `make install` sẽ nhắc.
+Gõ `sentinel` trơn trên terminal thì mở `init` nếu chưa có config, đã có thì mở `sentinel manage`. Config được lấy theo thứ tự: `--config`, biến `SENTINEL_CONFIG`, `/etc/sentinel/config.yaml`, `~/.config/sentinel/config.yaml`.
 
 ## Cấu hình
 
-Xem [deploy/config.example.yaml](deploy/config.example.yaml); mọi trường đều có chú thích. Secret được viết dạng `${VAR}` và đặt trong `/etc/sentinel/sentinel.env`:
+Mẫu đầy đủ, có chú thích từng trường: [deploy/config.example.yaml](deploy/config.example.yaml) (server) và [deploy/config.user.example.yaml](deploy/config.user.example.yaml) (máy cá nhân).
+
+Mật khẩu và token không viết thẳng vào config mà viết dạng `${TÊN_BIẾN}`; giá trị thật nằm trong `/etc/sentinel/sentinel.env` (quyền 0600):
 
 ```sh
 RESTIC_PASSWORD=mot-mat-khau-dai-va-ngau-nhien
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
-PGPASSWORD=...
 TG_TOKEN=123456:ABC...
 ```
 
-> **Mất `RESTIC_PASSWORD` là mất toàn bộ backup.** Hãy lưu nó ở nơi khác ngoài server (ví dụ trình quản lý mật khẩu).
+> **Mất `RESTIC_PASSWORD` là mất toàn bộ backup.** Hãy lưu nó ở nơi khác ngoài server.
 
-### Lịch chạy và giá trị mặc định
+Trên terminal, nếu thiếu một biến, Sentinel hỏi giá trị bằng ô nhập ẩn và có thể lưu vào `sentinel.env`. Daemon và script không bao giờ hỏi: thiếu biến là lỗi.
 
-`schedule` nhận cron 5 trường như trước (`"0 2 * * *"`, `@daily`, `@every 1h`) và các dạng dễ đọc hơn:
+### Lịch chạy
 
 | Viết | Nghĩa |
 |---|---|
 | `daily 02:00` | mỗi ngày lúc 02:00 |
 | `weekly sun 03:00` | mỗi Chủ nhật lúc 03:00 |
-| `monthly 1 04:00` | ngày 1 hằng tháng lúc 04:00 (ngày 1-28) |
+| `monthly 1 04:00` | ngày 1 hằng tháng lúc 04:00 |
 | `hourly`, `hourly :15` | đầu mỗi giờ, hoặc phút 15 mỗi giờ |
 | `every 6h` | mỗi 6 giờ (tối thiểu 1m) |
 | `manual` hoặc để trống | chỉ chạy tay |
 
-Các dạng trên được đọc khá thoải mái: `daily at 2:30pm`, `every day 02:00`, `weekly monday 3am`, `monthly on the 1st at 4am`, `every 6 hours`, `every 30 minutes` đều dùng được (file config vẫn giữ nguyên chữ bạn viết).
-
-Khối `defaults:` cho các job không ghi riêng `schedule`, `repositories` hoặc `retention`, nên file không phải lặp lại:
+Cron 5 trường (`"0 2 * * *"`) vẫn dùng được. Khối `defaults:` đặt sẵn `schedule`, `repositories`, `retention` cho các job không ghi riêng:
 
 ```yaml
 defaults:
@@ -86,118 +76,87 @@ defaults:
   retention: { daily: 7, weekly: 4, monthly: 6 }
 ```
 
-Giá trị ghi trong job luôn thắng. Config chỉ có **một** kho thì job không cần `repositories:`; có nhiều kho mà không có `defaults.repositories` thì Sentinel báo lỗi và liệt kê tên các kho. Khi đã đặt `defaults.retention`, một job không thể xin "giữ tất cả" (job không ghi retention sẽ nhận giá trị mặc định).
-
-### Google Drive (rclone)
+### Google Drive
 
 Chạy bằng root (vì service chạy bằng root):
 
 ```sh
-sudo rclone config
-#  n) New remote -> name: gdrive -> storage: drive -> scope: drive.file (1)
-#  Server không có trình duyệt: chọn "n" ở bước auto config rồi làm theo
-#  hướng dẫn `rclone authorize "drive"` trên máy có trình duyệt.
-sudo rclone lsd gdrive:           # kiểm tra
+sudo rclone config     # n) New remote -> name: gdrive -> storage: drive -> scope: drive.file
+sudo rclone lsd gdrive:
 ```
 
-Sau đó dùng `url: "rclone:gdrive:backups/<server>"` trong `repositories`. Có thể dùng service account (`service_account_file`) thay cho OAuth nếu dùng Google Workspace.
+Server không có trình duyệt: ở bước auto config chọn `n` rồi làm theo `rclone authorize "drive"` trên máy có trình duyệt. Sau đó dùng `url: "rclone:gdrive:backups/<server>"` trong `repositories`.
 
 ### Telegram
 
-Tạo bot với @BotFather để lấy token, thêm bot vào nhóm, gửi một tin nhắn rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` để lấy `chat.id`.
+Tạo bot với @BotFather để lấy token, thêm bot vào nhóm, gửi một tin nhắn rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` để lấy `chat.id`. Thử bằng `sentinel notify test`.
 
-## Sử dụng
+## Các lệnh hay dùng
 
 ```sh
-set -a; . /etc/sentinel/sentinel.env; set +a   # khi chạy tay ngoài systemd
-
-sentinel init                       # tạo config đầu tiên bằng một form (--force để thay config cũ)
-sentinel doctor                     # kiểm tra config, restic/rclone/pg_dump, repository, store
-sentinel notify test                # gửi tin thử tới mọi kênh
-sentinel backup init appdb          # tạo restic repository (một lần cho mỗi job)
-sentinel backup run appdb           # chạy backup ngay
-sentinel backup list appdb          # liệt kê snapshot
+sentinel doctor                      # kiểm tra config, restic/rclone/pg_dump, kho, nơi lưu trạng thái
+sentinel backup run appdb            # chạy backup ngay
+sentinel backup list appdb           # liệt kê snapshot
 sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
-sentinel check                      # chạy mọi uptime check một lần
-sentinel status                     # backup gần nhất, cảnh báo đang mở, uptime
-sentinel status -o json             # như trên, dạng JSON cho script
-sentinel manage                     # màn hình quản lý tương tác (alias: tui): trạng thái, backup ngay, snapshot + restore, sửa mọi thứ trong config, Doctor, ? trợ giúp, q thoát
-
-sudo systemctl enable --now sentinel
-journalctl -u sentinel -f
+sentinel check                       # chạy mọi uptime check một lần
+sentinel status                      # backup gần nhất, cảnh báo đang mở, uptime
+sentinel status -o json              # như trên, cho script
+sentinel notify test                 # gửi tin thử tới mọi kênh cảnh báo
+journalctl -u sentinel -f            # log của daemon
 ```
 
-### Khôi phục PostgreSQL
+Chạy tay ngoài systemd thì nạp biến trước: `set -a; . /etc/sentinel/sentinel.env; set +a`.
 
-Backup PostgreSQL được lưu dưới dạng file `<database>.dump` (định dạng custom của `pg_dump`):
+## Khôi phục dữ liệu
+
+`sentinel backup restore` đưa snapshot ra thư mục `--target`, rồi in lệnh để nạp lại vào database:
 
 ```sh
-sentinel backup restore appdb latest --target /tmp/restore
+# PostgreSQL: file <database>.dump
 pg_restore --clean --if-exists -d app /tmp/restore/app.dump
+
+# MySQL/MariaDB: file <database>.sql
+mysql shop < /tmp/restore/shop.sql
+
+# MongoDB: file <database>.archive.gz
+mongorestore --drop --gzip --archive=/tmp/restore/crm.archive.gz --nsInclude 'crm.*'
 ```
 
-### Khôi phục MySQL/MariaDB và MongoDB
+Job `files` thì file nằm ngay trong `--target`.
 
-- MySQL/MariaDB lưu file `<database>.sql` (dump `--single-transaction`, kèm routines, triggers, events; cột nhị phân dạng hex). Nạp lại: `mysql <database> < /tmp/restore/<database>.sql`.
-- MongoDB lưu file `<database>.archive.gz` (`mongodump --archive --gzip`). Nạp lại: `mongorestore --drop --gzip --archive=/tmp/restore/<database>.archive.gz --nsInclude '<database>.*'`.
+## Màn hình quản lý
 
-Sau mỗi lần `sentinel backup restore`, lệnh nạp lại tương ứng được in ra. Mật khẩu của MySQL và MongoDB không bao giờ nằm trên dòng lệnh: Sentinel ghi một file tạm quyền 0600 (`--defaults-extra-file` / `--config`) rồi xóa ngay sau khi dump xong. Client MariaDB ≥ 11.4 mặc định đòi TLS; nếu server không có TLS, đặt `tls: disabled` trong khối `mysql:`.
+`sentinel manage` mở trong terminal với năm tab (phím `1`-`5`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**. Dòng tóm tắt trên cùng cho biết cần chú ý gì, cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải). Màn hình tự làm mới mỗi 5 giây; chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 
-### Màn hình quản lý (`sentinel manage`)
+| Phím | Việc |
+|---|---|
+| `b` | backup ngay job đang chọn (không chạy chồng với daemon) |
+| `s` | xem snapshot của job và restore |
+| `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
+| `r` | làm mới / chạy lại Doctor |
 
-Chạy trong terminal, năm tab: **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config** (phím `1`-`5`). Dòng tóm tắt dưới tiêu đề cho biết ngay cần chú ý gì (ví dụ `1 failed · 1 alert · 1 warning`) hoặc chỉ `all good`; mỗi dòng có chấm màu theo trạng thái, thời gian dạng tương đối (`1h ago`), và cột **HISTORY** là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải). Dòng đang chọn được tô nền xanh. Màn hình tự làm mới mỗi 5 giây, `r` làm mới ngay.
+![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 
-**Chuột dùng được cho mọi thứ**: bấm tab, bấm một dòng để chọn (bấm lần nữa để mở: snapshot ở tab Backups, form sửa ở tab Config), bấm các phím ở dòng cuối (`b backup`, `? help`...), con lăn để cuộn; trong form bấm vào ô để nhập, bấm `‹ ›` để đổi lựa chọn, bấm ô tick để chọn kho, bấm `[ Save ]` `[ Cancel ]`. Bàn phím vẫn đủ: `?` hiện các phím của màn hình đang mở. Trong `tmux` cần `set -g mouse on`.
-
-Tab **Backups**: `b` backup ngay job đang chọn (khóa job vẫn có hiệu lực nên không chạy chồng với daemon), `s` xem snapshot của job rồi restore (nhập thư mục đích tuyệt đối và gõ lại tên job để xác nhận), `ctrl+c` hủy tác vụ đang chạy. `a` thêm, `e` sửa, `d` xóa job (files hoặc database) ngay trong `config.yaml`.
-
-Tab **Doctor** chạy các kiểm tra của `sentinel doctor` (config, restic/rclone/dump tool, store, từng repository, kênh cảnh báo) ngầm ở lần mở đầu tiên: kho không trả lời có thể mất tới vài chục giây nên màn hình vẫn dùng được. `r` chạy lại; dòng đang chọn hiện gợi ý cách sửa, và nhãn tab đỏ khi có lỗi.
-
-Tab **Config** liệt kê mọi thứ trong file config: kho (repositories), job, uptime check, kênh cảnh báo và thiết lập chung. `a` thêm vào nhóm của dòng đang chọn, `e` hoặc `enter` sửa, `d` xóa (gõ lại tên để xác nhận; kho đang có job dùng thì không xóa được và màn hình nêu tên các job đó).
-
-Các form giúp nhập đúng ngay từ đầu. Mọi ô vẽ dạng `[ giá trị ]`, ô chọn có `▾` (`←` `→` hoặc bấm để đổi). Ở phần **LỊCH & GIỮ BẢN** của form job: **Schedule** là ô chọn tần suất (`[ Daily ▾ ]`), **Time** và **Day** là hai ô riêng cho giờ và thứ/ngày (chỉ hiện khi lịch có chúng), **Storage** chọn `Tự động` / `Thư mục` / `Repository`, **Retention** gọn một dòng (`7 daily · 4 weekly · 6 monthly`, chọn vào để sửa từng số). Form settings và `sentinel init` dùng cùng kiểu ô này. Kiểu kho (thư mục, S3, rclone, sftp) tự ghép thành `url`, lịch chỉnh bằng phím thay vì gõ cú pháp: `←` `→` đổi tần suất (manual, mỗi 15 phút, mỗi giờ, mỗi 6 giờ, hằng ngày, hằng tuần, hằng tháng; giữ nguyên giờ đang có), `alt+↑` `alt+↓` đổi giờ ±30 phút, `alt+←` `alt+→` đổi thứ trong tuần hoặc ngày trong tháng; dưới ô có dòng giải thích bằng chữ và ba lần chạy kế tiếp (`→ every day at 02:00 · next Tue 24 Nov 02:00 (in 13h)` rồi `then 25 Nov, 26 Nov`). Vẫn gõ tay được, kể cả cron, retention là năm ô số, đường dẫn của job files được báo nếu không thấy trên máy này. Lỗi hiện ngay dưới ô sai.
-
-**`Tab` hoàn thành đường dẫn** như trong shell ở mọi ô đường dẫn: Paths của job, Folder của kho kiểu thư mục, ô **Thư mục** khi Storage là `Thư mục` và ô thư mục khôi phục khi restore. Gõ `/h` rồi `Tab` ra `/home/`; nhiều kết quả thì điền phần chung và liệt kê gợi ý ngay dưới ô; hết gì để điền thì `Tab` chuyển sang ô kế tiếp như cũ. `${HOME}/` và `~/` giữ nguyên như bạn gõ. Với danh sách ngăn bằng dấu phẩy, `Tab` chỉ hoàn thành mục cuối.
-
-Job database không có `paths` vì dump được đẩy thẳng vào kho restic (tên file `<db>.dump`, `.sql` hoặc `.archive.gz`), không ghi file ra đĩa. Nơi lưu là *kho*, và **không cần tự chọn thư mục**: để **Storage** là `Tự động` (và không có kho mặc định trong `defaults:`) thì Sentinel tự dựng một thư mục riêng cho job, `~/.local/share/sentinel/<tên job>` (root: `/var/backups/sentinel/<tên job>`), và tạo kho cùng tên job ở đó; form hiện sẵn đường dẫn sẽ dùng. Cách làm này áp dụng cho cả job files. Muốn chỗ khác thì chọn Storage `Repository` rồi tick kho có sẵn, hoặc `Thư mục` rồi gõ đường dẫn. Kho mới dùng lại biến mật khẩu của kho đầu tiên (hoặc `RESTIC_PASSWORD`). **Backup đầu tiên vào một thư mục trên chính máy này tự tạo kho** (không cần `sentinel backup init`), nhưng chỉ khi thư mục chưa có hoặc đang trống: thư mục có file khác thì Sentinel từ chối và nói rõ lý do. Kho từ xa (S3, sftp, rclone) không bao giờ tự tạo, vì gõ nhầm bucket hay host sẽ tạo ra một kho mới trống; với các kho đó vẫn chạy `sentinel backup init <job>` một lần. Kho từ xa (S3, sftp, rclone) vẫn tạo ở tab Config.
-
-Ô **Paths** của job files (cả trong `sentinel init`) giúp chọn folder trên chính máy đang chạy Sentinel: dòng `add:` dưới ô liệt kê vài folder phổ biến có thật (`/etc`, `/var/www`, `/srv`, `/opt`, `/root`, mỗi thư mục trong `/home`), bấm hoặc `alt+1`...`alt+9` để thêm. `ctrl+o` hoặc `[ Browse ]` mở trình duyệt folder: `↑` `↓` chọn, `enter`/`→` vào folder, `←`/`backspace` lên một cấp, gõ chữ để lọc theo tên (từ 2 ký tự còn tìm sâu tới 4 cấp bên dưới, mục `also found deeper`), `space` đánh dấu (giữ nguyên khi đi sang folder khác), `ctrl+s` thêm các folder đã đánh dấu vào ô Paths, `esc` hủy. Mỗi dòng hiện dung lượng ước lượng (đếm ngầm, tối đa 20000 file; vượt thì hiện `> 2.1 GiB`) và `✗ no access` nếu tài khoản đang chạy không đọc được. Trình duyệt chỉ đọc, không ghi hay xóa gì, và không đi theo symlink khi tìm sâu.
-
-Sửa bằng form giữ nguyên comment, thứ tự và các khóa không quản lý trong file; chỉ ghi những giá trị bạn đặt (giá trị mặc định thì không ghi ra); bản cũ được lưu ở `config.yaml.bak` cùng quyền truy cập. **Mật khẩu và token không bao giờ nhập vào màn hình này**: chỉ nhập *tên* biến môi trường (ví dụ `PG_APPDB_PASSWORD`), config ghi `${PG_APPDB_PASSWORD}` và giá trị thật nằm trong `/etc/sentinel/sentinel.env`; một giá trị viết thẳng trong file được giữ nguyên cho tới khi bạn nhập tên biến thay thế. Sau khi sửa, daemon đang chạy phải được khởi động lại (`systemctl restart sentinel`) để nhận thay đổi.
+Form sửa giữ nguyên comment và thứ tự trong `config.yaml`; bản cũ được lưu thành `config.yaml.bak`. Mật khẩu và token không nhập ở đây, chỉ nhập *tên* biến môi trường. Sửa xong, daemon đang chạy cần `systemctl restart sentinel` để nhận thay đổi.
 
 ## Chạy bằng Docker
 
-Không muốn cài trực tiếp thì dùng image Docker (đã gồm restic, rclone, pg_dump): `make docker` build image `sentinel:latest` từ binary vừa build, rồi `docker save sentinel | ssh vps docker load` (hoặc push lên registry của bạn và đặt `SENTINEL_IMAGE`). Compose mẫu: [docker-compose.yml](deploy/docker-compose.yml) (backup, uptime check, cảnh báo). Mount các đường dẫn cần backup (chỉ đọc) vào đúng đường dẫn trong config; `network_mode: host` để uptime check và `pg_dump` tới được dịch vụ trên VPS.
+`make docker` build image `sentinel:latest` (đã gồm restic, rclone, pg_dump), rồi dùng [deploy/docker-compose.yml](deploy/docker-compose.yml). Mount các đường dẫn cần backup (chỉ đọc) vào đúng đường dẫn trong config; `network_mode: host` để uptime check và `pg_dump` tới được dịch vụ trên server.
 
-### Lưu ý
+## Lưu ý
 
-- Mục `monitor:` trong config cũ vẫn được chấp nhận nhưng bị bỏ qua (có cảnh báo trong log): Sentinel không còn đo CPU/RAM/disk. Dùng công cụ giám sát riêng cho việc đó.
-- Nếu job có nhiều repository, mỗi repository được backup riêng (với PostgreSQL thì `pg_dump` chạy một lần cho mỗi repository).
-- Nếu `pg_dump` thất bại thì restic không tạo snapshot, và lần chạy được ghi nhận là lỗi.
-- Backup có snapshot nhưng không đọc được một số file (restic trả exit code 3) cũng bị tính là **lỗi**.
-- Khi repository đang bị khóa, daemon thử lại 3 lần, mỗi lần cách nhau 5 phút. Sentinel không bao giờ tự `unlock`.
-- Daemon bị khởi động lại thì không gửi lại các cảnh báo đang mở, nhưng vẫn báo khi chúng được khắc phục.
-- Lịch sử uptime được giữ 30 ngày; lịch sử backup được giữ vĩnh viễn.
+- Kho từ xa (S3, sftp, rclone) phải tạo bằng `sentinel backup init <job>` một lần. Kho là thư mục trên chính máy này thì tự tạo ở lần backup đầu, nếu thư mục chưa có hoặc đang trống.
+- Nếu `pg_dump` thất bại thì restic không tạo snapshot và lần chạy được ghi là lỗi. Backup có snapshot nhưng không đọc được một số file cũng tính là lỗi.
+- Job có nhiều repository thì mỗi repository được backup riêng.
+- Khi repository đang bị khóa, daemon thử lại 3 lần, cách nhau 5 phút. Sentinel không bao giờ tự `unlock`.
+- Daemon khởi động lại thì không gửi lại các cảnh báo đang mở, nhưng vẫn báo khi chúng được khắc phục.
+- Lịch sử uptime giữ 30 ngày; lịch sử backup giữ vĩnh viễn.
+- MariaDB client ≥ 11.4 mặc định đòi TLS; server không có TLS thì đặt `tls: disabled` trong khối `mysql:`.
 
 ## Phát triển
 
 ```sh
-make test        # golangci-lint + govulncheck + go vet + go test (cần restic trong PATH cho test backup, nếu không sẽ skip)
-make e2e         # integration test: Postgres + S3 (SeaweedFS) bằng Docker 
-make e2e-engines # integration test: MariaDB 10.11, MySQL 5.7, MongoDB 5.0 (chỉ cần docker)
-```
-
-Cấu trúc thư mục:
-
-```
-cmd/sentinel/        lệnh CLI (cobra)
-internal/config      đọc YAML, ${ENV}, kiểm tra hợp lệ
-internal/backup      wrapper restic, job files/database, retention
-internal/daemon      tiến trình `sentinel run`: lịch cron, backup quá hạn, restic check, cảnh báo uptime
-internal/alert       trạng thái cảnh báo OK → FIRING → RESOLVED, cooldown
-internal/notify      Telegram, SMTP, Discord, Slack
-internal/uptime      probe HTTP/TCP/ping
-internal/store       SQLite (trạng thái, lịch sử backup/uptime)
-deploy/              systemd units, install*.sh, config mẫu 
-test/                integration test bằng docker compose
+make test         # golangci-lint + govulncheck + go vet + go test
+make e2e          # Postgres + S3 bằng docker
+make e2e-engines  # MariaDB, MySQL, MongoDB bằng docker
 ```

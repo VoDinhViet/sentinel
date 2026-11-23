@@ -71,6 +71,13 @@
       "skillPath": "skills/golang-testing/SKILL.md",
       "computedHash": "adfaf95d45383e8e579de1770ea0f25d0729b3e94e0b003ea08d1646646f7247"
     },
+    "readme-optimization": {
+      "source": "samber/developer-relations-skills",
+      "commit": "c3a1b6912791539567727723baf626b4fec5ac7a",
+      "sourceType": "github",
+      "skillPath": "skills/readme-optimization/SKILL.md",
+      "computedHash": "ec3e32814dc730884e1888d471dd663dbe35791963f16b04390530fd4f6e30db"
+    },
     "shadcn": {
       "source": "shadcn-ui/ui",
       "commit": "bfa64ff4d1cb7317d2403ecb176df6826d4caffc",
