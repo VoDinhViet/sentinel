@@ -8,8 +8,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"sentinel/internal/config"
 	"sentinel/internal/configedit"
 	"sentinel/internal/schedule"
+	"sentinel/internal/uptime"
 )
 
 // configTab is the index of the Config tab: the repositories, jobs, uptime checks, notification
@@ -72,6 +74,12 @@ func orDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// uptimeEndpoint is the address an uptime entry probes, written the way `sentinel check` and the
+// alerts write it: the secrets of an URL are masked.
+func uptimeEndpoint(check configedit.Uptime) string {
+	return uptime.Endpoint(config.UptimeCheck{Type: check.Type, URL: check.URL, Address: check.Address, Host: check.Host})
 }
 
 // whenText says in words when a schedule runs; an empty one means the default, or by hand.
@@ -153,17 +161,17 @@ func (m manageModel) buildConfigTab() manageTab {
 
 	begin(secUptime)
 	for _, check := range overview.Uptime {
-		target := orDefault(check.URL, orDefault(check.Address, check.Host))
+		endpoint := uptimeEndpoint(check)
 		every := orDefault(check.Interval, "1m") + " (mặc định)"
 		if check.Interval != "" {
 			every = check.Interval
 		}
-		fields := [][2]string{{"Loại", check.Type}, {"Đích", target}, {"Mỗi", every}}
+		fields := [][2]string{{"Loại", check.Type}, {"Đích", endpoint}, {"Mỗi", every}}
 		if check.Timeout != "" {
 			fields = append(fields, [2]string{"Timeout", check.Timeout})
 		}
-		add(configEntry{secUptime, check.Name}, sevOK, []string{check.Name, check.Type, target, "mỗi " + every},
-			fmt.Sprintf("Uptime check %s: %s %s, mỗi %s.", check.Name, check.Type, target, every), fields)
+		add(configEntry{secUptime, check.Name}, sevOK, []string{check.Name, check.Type, endpoint, "mỗi " + every},
+			fmt.Sprintf("Uptime check %s: %s %s, mỗi %s.", check.Name, check.Type, endpoint, every), fields)
 	}
 	finish(secUptime)
 

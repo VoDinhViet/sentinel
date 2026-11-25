@@ -8,8 +8,31 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"sentinel/internal/configedit"
 	"sentinel/internal/status"
 )
+
+// The Config tab shows the address an entry probes the way `sentinel check` does, so the secret in a
+// health-check URL is not on the screen.
+func TestUptimeEndpoint(t *testing.T) {
+	tests := []struct {
+		name  string
+		check configedit.Uptime
+		want  string
+	}{
+		{"http", configedit.Uptime{Type: "http", URL: "https://example.com/health"}, "https://example.com/health"},
+		{"http with a token", configedit.Uptime{Type: "http", URL: "https://u:p@example.com/ping?token=abc"}, "https://example.com/ping?token=***"},
+		{"tcp", configedit.Uptime{Type: "tcp", Address: "db:5432"}, "db:5432"},
+		{"ping", configedit.Uptime{Type: "ping", Host: "10.0.0.1"}, "10.0.0.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := uptimeEndpoint(tt.check); got != tt.want {
+				t.Errorf("uptimeEndpoint = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 // configScreen is the formModel screen opened on the Config tab.
 func configScreen(t *testing.T) (manageModel, *fakeConfig) {
