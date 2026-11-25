@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/termtext"
 )
 
 type Telegram struct {
@@ -40,7 +41,20 @@ type Discord struct{ URL string }
 func (d *Discord) Name() string { return "discord" }
 
 func (d *Discord) Send(ctx context.Context, msg Message) error {
-	return postJSON(ctx, d.URL, map[string]any{"content": truncate(msg.Text(), 2000)})
+	// The subject is Sentinel's own; the body quotes outside text. Clean first: escaping "[" before an
+	// escape sequence would turn it into "ESC \", the end of a string sequence, and swallow the backslash.
+	msg.Body = discordEscape(termtext.Clean(msg.Body))
+	return postJSON(ctx, d.URL, map[string]any{
+		"content": truncate(msg.Text(), 2000),
+		// An empty parse list pings nobody: a file name with @everyone in an error must not notify the channel.
+		"allowed_mentions": map[string]any{"parse": []string{}},
+	})
+}
+
+// discordEscape escapes "[", which every [text](url) link needs, so a file name cannot make a link that
+// shows one address and opens another.
+func discordEscape(text string) string {
+	return strings.ReplaceAll(text, "[", `\[`)
 }
 
 type Slack struct{ URL string }
@@ -48,8 +62,12 @@ type Slack struct{ URL string }
 func (s *Slack) Name() string { return "slack" }
 
 func (s *Slack) Send(ctx context.Context, msg Message) error {
-	return postJSON(ctx, s.URL, map[string]any{"text": truncate(msg.Text(), 3000)})
+	return postJSON(ctx, s.URL, map[string]any{"text": truncate(slackEscape(msg.Text()), 3000)})
 }
+
+// slackEscape escapes the three characters Slack gives a meaning to (<!channel>, <https://x|label>), as its
+// documentation asks for text that is not markup.
+var slackEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
 
 // SMTP sends mail with STARTTLS when offered, or implicit TLS on port 465.
 type SMTP struct {
@@ -87,6 +105,10 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		if err := client.StartTLS(&tls.Config{ServerName: settings.Host}); err != nil {
 			return fmt.Errorf("starttls: %w", err)
 		}
+	} else if settings.Port != 465 && !settings.InsecurePlaintext && !isLoopbackHost(settings.Host) {
+		// Port 465 is already inside TLS. Anywhere else, a server that does not offer STARTTLS (or whose
+		// greeting someone on the path edited to hide it) would get the alert in the clear.
+		return fmt.Errorf("smtp server %s does not offer STARTTLS, so the mail would go out unencrypted: use a server with TLS, or set notifiers.smtp.insecure_plaintext: true", settings.Host)
 	}
 	if settings.User != "" {
 		// PlainAuth refuses to send credentials over an unencrypted
@@ -114,6 +136,16 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		return err
 	}
 	return client.Quit()
+}
+
+// isLoopbackHost reports whether host is this machine: "localhost" or a loopback address. It is a variable
+// so a test can make a fake server on 127.0.0.1 look remote.
+var isLoopbackHost = func(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func buildMail(from string, to []string, msg Message) string {

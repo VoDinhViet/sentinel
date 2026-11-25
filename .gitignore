@@ -3,6 +3,7 @@
 *.db
 *.db-*
 .env
+sentinel.env
 /test/.data/
 
 # Claude Code: personal settings stay local

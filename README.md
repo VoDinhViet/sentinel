@@ -26,6 +26,8 @@ Server không có Go hoặc docker thì build ở máy khác: `make dist` tạo 
 tar -xzf sentinel_linux_amd64.tar.gz && sudo ./deploy/install.sh ./sentinel
 ```
 
+Mọi thứ script tải về (restic, rclone, mongodump, và Sentinel khi chạy với `--version`) đều được kiểm tra SHA-256 trước khi cài, và chỉ tải qua `https://` (`SENTINEL_BASE_URL` cũng phải là `https://`).
+
 Để nâng cấp: `git pull`, build lại, chạy lại đúng lệnh cài (`config.yaml` và `sentinel.env` được giữ nguyên). Thêm sau đường dẫn binary: `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB. Client PostgreSQL phải cùng major version với server (`sentinel doctor` báo khi thiếu).
 
 Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi
@@ -147,6 +149,8 @@ mongorestore --drop --gzip --archive=/tmp/restore/crm.archive.gz --nsInclude 'cr
 ```
 
 Job `files` thì file nằm ngay trong `--target`.
+
+`--target` phải là đường dẫn tuyệt đối. Thư mục chưa có sẽ được tạo với quyền `0700`; thư mục có sẵn phải thuộc user đang chạy, không phải symlink và không cho group hoặc người khác ghi, vì restic ghi qua bất cứ thứ gì nó thấy ở đó với quyền của user này (thường là root). Đích là `/` hoặc thư mục hệ thống (`/etc`, `/var`, `/home`, thư mục dữ liệu database...) bị từ chối trừ khi thêm `--force`; `--force` cũng bỏ kiểm tra chủ sở hữu và quyền của thư mục đích, cho mount NFS/CIFS hay thư mục của user khác khi chạy qua `sudo`.
 
 ## Màn hình quản lý
 

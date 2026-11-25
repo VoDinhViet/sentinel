@@ -1,13 +1,16 @@
 [Unit]
 Description=Sentinel server maintenance (backups, uptime checks)
-Documentation=https://github.com/OWNER/sentinel
+Documentation=https://github.com/VoDinhViet/sentinel
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/sentinel run --config /etc/sentinel/config.yaml
-# Secrets referenced as ${VAR} in config.yaml.
+# Secrets referenced as ${VAR} in config.yaml. The daemon reads those from the file itself too;
+# loading the whole file here also gives restic the other variables it reads from its environment
+# (for example AWS_* or RCLONE_CONFIG_*). Sentinel does not pass the variables of config.yaml on to
+# restic or the dump tools, and it refuses PATH, LD_* and *_COMMAND names in the config.
 EnvironmentFile=-/etc/sentinel/sentinel.env
 Restart=on-failure
 RestartSec=10s
@@ -20,11 +23,34 @@ TimeoutStopSec=2h30m
 # Runs as root so file backups can read everything. To run unprivileged,
 # create a user, grant it read access to the backup paths and set User=.
 StateDirectory=sentinel
+# Only the owner reads the state database and what restic and the dump tools create.
+StateDirectoryMode=0700
+UMask=0077
 ProtectSystem=full
+# ProtectHome stays off: restic keeps its cache and rclone its config under /root, and /home may be backed up.
 PrivateTmp=true
 NoNewPrivileges=true
-# Raw ICMP for ping checks.
+
+# Backups need to read every file (DAC_READ_SEARCH), write repositories owned by another user
+# (DAC_OVERRIDE, FOWNER, CHOWN) and ping checks need raw ICMP (NET_RAW). Nothing else of root's
+# powers is used: no mounting, module loading, tracing other processes or rebooting.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_RAW
+
+# Nothing a backup daemon does needs these.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+# Unix sockets (databases, resolver), IPv4/IPv6, and netlink (listing network interfaces).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

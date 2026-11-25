@@ -38,13 +38,25 @@ func editFile(path string, edit func(root *yaml.Node, current *config.Config) er
 	return replaceFile(path, raw, edited)
 }
 
+// replaceFile keeps the previous content in path+".bak", then replaces path in one step. The new file
+// has the mode and owner of the old one, and when path is a symlink the file behind it is replaced, not the link.
 func replaceFile(path string, previous, next []byte) error {
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	mode := fileInfo.Mode().Perm()
-	if err := os.WriteFile(path+".bak", previous, mode); err != nil {
+	backup := path + ".bak"
+	if err := os.WriteFile(backup, previous, tightenedMode(mode)); err != nil {
+		return fmt.Errorf("write backup of the config: %w", err)
+	}
+	// WriteFile applies the mode only to a file it creates, and the backup holds every literal
+	// password of the previous config, so one left by an earlier run must not stay wider, and nobody
+	// outside the owner and the group may read it even when the config itself is open to everyone.
+	if err := os.Chmod(backup, tightenedMode(mode)); err != nil {
 		return fmt.Errorf("write backup of the config: %w", err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".sentinel-config-*")
@@ -60,8 +72,25 @@ func replaceFile(path string, previous, next []byte) error {
 		tmp.Close()
 		return fmt.Errorf("write config: %w", err)
 	}
+	keepOwner(tmp, fileInfo) // best effort: the daemon's user keeps reading the file
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write config: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	syncDir(filepath.Dir(path))
+	return nil
+}
+
+// syncDir flushes a directory so a rename in it survives a crash. Best effort: the rename itself already happened.
+func syncDir(dir string) {
+	if handle, err := os.Open(dir); err == nil {
+		_ = handle.Sync()
+		_ = handle.Close()
+	}
 }

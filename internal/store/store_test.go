@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -18,6 +20,51 @@ func openTemp(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// The store holds restic and dump error text, so no other local user may read it, whatever the umask
+// of the process is and whether or not the file existed before.
+func TestOpenKeepsFilesPrivate(t *testing.T) {
+	oldUmask := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(oldUmask) })
+
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, path string)
+	}{
+		{"new database", func(*testing.T, string) {}},
+		{"existing world-readable database", func(t *testing.T, path string) {
+			if err := os.WriteFile(path, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.db")
+			tt.prepare(t, path)
+			st, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			if err := st.RecordBackup(context.Background(), BackupRun{Job: "db", Repository: "local", Success: false, Error: "boom"}); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{path, path + "-wal", path + "-shm"} {
+				info, err := os.Stat(name)
+				if err != nil {
+					t.Fatalf("%s: %v", filepath.Base(name), err)
+				}
+				if mode := info.Mode().Perm(); mode != 0o600 {
+					t.Errorf("%s has mode %o, want 600", filepath.Base(name), mode)
+				}
+			}
+		})
+	}
 }
 
 func TestMigrateTwice(t *testing.T) {
@@ -311,5 +358,21 @@ func TestRecentChecks(t *testing.T) {
 	}
 	if none, err := openTemp(t).RecentChecks(ctx, 3); err != nil || len(none) != 0 {
 		t.Errorf("empty store: %v, %v", none, err)
+	}
+}
+
+// vfat, some network mounts and files of another user answer chmod with EPERM or ENOTSUP; that must not
+// stop the daemon, while any other failure still does.
+func TestModeUnsupported(t *testing.T) {
+	for err, want := range map[error]bool{
+		syscall.EPERM:   true,
+		syscall.ENOTSUP: true,
+		syscall.EACCES:  false,
+		syscall.EIO:     false,
+		syscall.ENOENT:  false,
+	} {
+		if got := modeUnsupported(&os.PathError{Op: "chmod", Path: "x", Err: err}); got != want {
+			t.Errorf("modeUnsupported(%v) = %v, want %v", err, got, want)
+		}
 	}
 }

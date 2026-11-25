@@ -4,6 +4,7 @@ linters:
   default: standard   # errcheck, govet, ineffassign, staticcheck, unused
   enable:
     - errorlint       # %w and errors.Is/As instead of == and type assertions on errors
+    - gosec           # security patterns: file modes, exec with variables, unchecked errors, integer conversions
   exclusions:
     rules:
       # Closing a read-only handle or rolling back after a commit has nothing to act on.
@@ -17,3 +18,45 @@ linters:
       # Tests set up and tear down fixtures; assertions cover the behaviour.
       - linters: [errcheck]
         path: _test\.go
+      # gosec in tests: fixtures use loose modes, odd paths and ignored errors on purpose, to build the
+      # situations the code under test must handle.
+      - linters: [gosec]
+        path: _test\.go
+      # gosec G101 reads a name that contains "secret" or "password" as a credential; these are the
+      # names of environment variables and hint text of the forms, not values.
+      - linters: [gosec]
+        path: cmd/sentinel/manage_(config_forms|form)\.go
+        text: "G101"
+      # gosec G115: free bytes of a disk (statfs) never come near 2^63.
+      - linters: [gosec]
+        path: cmd/sentinel/manage_form_view\.go
+        text: "G115"
+      # gosec G104 repeats errcheck, which is on with the exclusions this file already accepts above
+      # (Close, Rollback, fmt.Fprint*, os.Remove ...). One policy for unchecked errors, not two.
+      - linters: [gosec]
+        text: "G104"
+      # gosec G304 flags every file opened by a variable path. Sentinel is run by the operator over paths
+      # the operator names: the config, the env file, the state directory, the folders to back up. Nothing
+      # a remote party sends becomes a path to open (snapshot contents go through restic).
+      - linters: [gosec]
+        text: "G304"
+      # gosec G703: the same operator-chosen config path, when the .bak next to it is written.
+      - linters: [gosec]
+        path: internal/configedit/file\.go
+        text: "G703"
+      # gosec G306: a new config is 0640 on purpose, so the user the daemon runs as can read it through the
+      # group (the installer makes it the same). Secrets go in the env file, which is 0600.
+      - linters: [gosec]
+        path: internal/configedit/create\.go
+        text: "G306"
+      # gosec G301: the parents of a new restore target are made 0755 on purpose; a private 0700 parent owned by
+      # root would lock out the user who owns the tree, or the database user who loads the dump. Only the
+      # target itself is 0700.
+      - linters: [gosec]
+        path: internal/backup/restoretarget\.go
+        text: "G301"
+      # gosec G204: restic and the dump tools are started with an argv slice and a context, never through a
+      # shell (see the go-backend rules); the arguments are built by Sentinel, and the binary is the one on PATH.
+      - linters: [gosec]
+        path: internal/(restic/client|engine/probe)\.go
+        text: "G204"

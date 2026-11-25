@@ -45,6 +45,9 @@ func LoadEnvFile(path string, wanted []string) ([]string, error) {
 		if _, set := os.LookupEnv(name); set || !slices.Contains(wanted, name) {
 			continue
 		}
+		if IsDangerousEnvName(name) {
+			continue // never from a file: it would reach restic and its tools (the config refuses it too)
+		}
 		parsed, err := parseEnvValue(strings.TrimSpace(value))
 		if err != nil {
 			return loaded, fmt.Errorf("%s:%d: %w", path, lineNum, err)

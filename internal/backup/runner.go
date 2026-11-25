@@ -29,6 +29,8 @@ type Runner struct {
 	// (from another goroutine). The same progress is written to a file next to the state
 	// database for other processes to read: see ReadRunning.
 	OnProgress func(Progress)
+	// TrustRestoreTarget skips the owner and mode checks of a restore target (see PrepareRestoreTarget).
+	TrustRestoreTarget bool
 }
 
 func (r *Runner) now() time.Time {
@@ -49,7 +51,7 @@ func (r *Runner) Restic(repoName string) (*restic.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown repository %q", repoName)
 	}
-	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName}, nil
+	return &restic.Client{Bin: r.Bin, Repo: repo, Host: r.Config.ServerName, DropEnv: r.Config.EnvRefs}, nil
 }
 
 // backupClient is the client a backup uses: restic is the same, but it runs at the priority

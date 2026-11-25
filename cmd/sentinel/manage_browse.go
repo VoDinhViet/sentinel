@@ -9,6 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"sentinel/internal/termtext"
 )
 
 type browseKind int
@@ -68,7 +70,7 @@ func folderRows(dir string) []browseRow {
 				continue
 			}
 		}
-		row := browseRow{kind: browseFolder, name: child.Name() + "/", path: path, hidden: strings.HasPrefix(child.Name(), "."), denied: !readableDir(path)}
+		row := browseRow{kind: browseFolder, name: termtext.Clean(child.Name()) + "/", path: path, hidden: strings.HasPrefix(child.Name(), "."), denied: !readableDir(path)}
 		if row.hidden {
 			hidden = append(hidden, row)
 		} else {
@@ -232,7 +234,7 @@ func (m manageModel) browseFilter(filter string) (manageModel, tea.Cmd) {
 			if err != nil {
 				continue
 			}
-			m.browse.deeper = append(m.browse.deeper, browseRow{kind: browseDeeper, name: relative + "/", path: path, denied: !readableDir(path)})
+			m.browse.deeper = append(m.browse.deeper, browseRow{kind: browseDeeper, name: termtext.Clean(relative) + "/", path: path, denied: !readableDir(path)})
 		}
 	}
 	m.browse.cursor = m.browse.firstFolder()

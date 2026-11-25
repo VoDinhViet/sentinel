@@ -16,8 +16,9 @@ var plainEnvValue = regexp.MustCompile(`^[A-Za-z0-9._+/=@-]+$`)
 
 // SaveSecret sets name=value in the env file: it replaces the line of that variable or adds one,
 // keeps every other line, and writes the file readable by its owner only (0600) unless it
-// already existed, in which case its mode and owner are kept. The file is flushed to disk and
-// replaced in one step, so a crash cannot leave half of it.
+// already existed, in which case its owner and group read access are kept but nothing for other
+// users (see tightenedMode). The file is flushed to disk and replaced in one step, so a crash
+// cannot leave half of it.
 func SaveSecret(envFile, name, value string) error {
 	if !envNameRe.MatchString(name) {
 		return fmt.Errorf("%q không phải tên biến môi trường", name)
@@ -34,7 +35,7 @@ func SaveSecret(envFile, name, value string) error {
 	}
 	mode := os.FileMode(0o600)
 	if info, statErr := os.Stat(envFile); statErr == nil {
-		mode = info.Mode().Perm()
+		mode = tightenedMode(info.Mode().Perm())
 	}
 	line := name + "=" + quoteEnvValue(value)
 	var lines []string
@@ -84,17 +85,24 @@ func SaveSecret(envFile, name, value string) error {
 	if err := os.Rename(temp.Name(), envFile); err != nil {
 		return err
 	}
-	if dir, err := os.Open(filepath.Dir(envFile)); err == nil {
-		_ = dir.Sync() // best effort: the rename itself already happened
-		_ = dir.Close()
-	}
+	syncDir(filepath.Dir(envFile))
 	return nil
+}
+
+// tightenedMode drops what the group may write and everything other users may do. Group read stays
+// because the daemon may run as a user in the file's group.
+func tightenedMode(mode os.FileMode) os.FileMode {
+	return mode &^ 0o027
 }
 
 // keepOwner gives the new file the owner and group of the file it replaces, when allowed.
 func keepOwner(temp *os.File, old os.FileInfo) {
 	if stat, ok := old.Sys().(*syscall.Stat_t); ok {
-		_ = temp.Chown(int(stat.Uid), int(stat.Gid))
+		// A user who is not root cannot give a file to somebody else, but may still hand it to a group
+		// they belong to, which is what lets the daemon's user keep reading it.
+		if err := temp.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
+			_ = temp.Chown(-1, int(stat.Gid))
+		}
 	}
 }
 

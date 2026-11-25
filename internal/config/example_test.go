@@ -8,10 +8,12 @@ import (
 
 // The shipped example must always be a valid config.
 func TestExampleConfigParses(t *testing.T) {
-	for _, v := range []string{"TG_TOKEN", "SMTP_USER", "SMTP_PASS", "DISCORD_WEBHOOK", "SLACK_WEBHOOK",
+	for _, v := range []string{"TG_TOKEN", "SMTP_USER", "SMTP_PASS",
 		"RESTIC_PASSWORD", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "PGPASSWORD"} {
 		t.Setenv(v, "x")
 	}
+	t.Setenv("DISCORD_WEBHOOK", "https://discord.com/api/webhooks/1/x") // a webhook must be https
+	t.Setenv("SLACK_WEBHOOK", "https://hooks.slack.com/services/x")
 	raw, err := os.ReadFile("../../deploy/config.example.yaml")
 	if err != nil {
 		t.Fatal(err)

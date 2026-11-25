@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/termtext"
 )
 
 // restic exit codes (restic >= 0.17).
@@ -66,6 +68,11 @@ type Client struct {
 	LowPriority bool
 	// UploadLimitKiB caps the upload speed in KiB/s (0 = no cap).
 	UploadLimitKiB int
+	// DropEnv names variables that restic and its child processes must not inherit: the ones the
+	// config refers to with ${VAR}. Each of their values is already in the config, so whatever
+	// restic or a dump tool needs reaches it through Repo and ExtraEnv, and the rest (a notifier
+	// token, the password of another repository) is not theirs to see.
+	DropEnv []string
 }
 
 // command is the process to start for restic and args: restic itself, or `nice`/`ionice`
@@ -98,7 +105,14 @@ func (c *Client) bin() string {
 // env passes the repository and secrets through the environment so they never
 // appear in the process list.
 func (c *Client) env() []string {
-	env := append(os.Environ(),
+	inherited := os.Environ()
+	env := make([]string, 0, len(inherited)+2+len(c.Repo.Env)+len(c.ExtraEnv))
+	for _, entry := range inherited {
+		if name, _, _ := strings.Cut(entry, "="); !slices.Contains(c.DropEnv, name) || isProcessSetting(name) {
+			env = append(env, entry)
+		}
+	}
+	env = append(env,
 		"RESTIC_REPOSITORY="+c.Repo.URL,
 		"RESTIC_PASSWORD="+c.Repo.Password,
 	)
@@ -106,6 +120,17 @@ func (c *Client) env() []string {
 		env = append(env, name+"="+value)
 	}
 	return append(env, c.ExtraEnv...)
+}
+
+// isProcessSetting reports ordinary settings of the process that carry no secret and that restic needs
+// (PATH to find the dump tools, HOME for its cache, TMPDIR, the locale), so they stay even when the config uses one in a value such
+// as ${HOME}/backups.
+func isProcessSetting(name string) bool {
+	switch name {
+	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG", "LANGUAGE", "PWD", "HOSTNAME", "TERM":
+		return true
+	}
+	return strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_")
 }
 
 // run executes restic and returns stdout. On failure the error carries
@@ -229,9 +254,16 @@ type message struct {
 	BytesDone      int64   `json:"bytes_done"`
 }
 
-// errorMessage prefers restic's JSON exit_error, then per-item errors, then
-// the last non-empty stderr line.
+// errorMessage is the reason a restic command failed, with credentials masked and terminal escape
+// sequences removed (file names in the error are chosen by other users): it is stored, logged, printed
+// and sent in alerts.
 func errorMessage(stdout, stderr []byte) string {
+	return termtext.Clean(redact(pickErrorMessage(stdout, stderr)))
+}
+
+// pickErrorMessage prefers restic's JSON exit_error, then per-item errors, then
+// the last non-empty stderr line.
+func pickErrorMessage(stdout, stderr []byte) string {
 	var exitMsg string
 	var itemErrs []string
 	for _, msg := range parseMessages(append(append([]byte{}, stdout...), stderr...)) {

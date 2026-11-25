@@ -35,6 +35,10 @@ func (r *Runner) Restore(ctx context.Context, job *config.Job, repoName, ref, ta
 		}
 		snapID = snap.ID
 	}
+	// Only now, so a mistyped snapshot or another job's snapshot leaves no folder behind.
+	if err := PrepareRestoreTarget(targetDir, r.TrustRestoreTarget); err != nil {
+		return "", "", err
+	}
 	if err := client.Restore(ctx, snapID, targetDir); err != nil {
 		return "", "", err
 	}

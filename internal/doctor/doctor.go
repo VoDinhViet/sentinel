@@ -53,6 +53,31 @@ func Locale(getenv func(string) string) Finding {
 	return finding
 }
 
+// ConfigAccess reports who can use the config file. The daemon runs as root, so a file another user can
+// write is a way to run commands as root, and one every user can read may hold passwords. Group write is
+// only a warning: the default umask of Debian and Ubuntu gives a private group write access to what its
+// user creates. A file that cannot be read is left to the loader to report.
+func ConfigAccess(path string) Finding {
+	finding := Finding{Name: "config", Info: path}
+	info, err := os.Stat(path)
+	if err != nil {
+		return finding
+	}
+	mode := info.Mode().Perm()
+	switch {
+	case mode&0o002 != 0:
+		finding.Err = fmt.Errorf("every user can change this file (mode %04o), and the daemon runs it as root", mode)
+	case mode&0o020 != 0:
+		finding.Err, finding.Warn = fmt.Errorf("the group can change this file (mode %04o), and the daemon runs it as root", mode), true
+	case mode&0o004 != 0:
+		finding.Err, finding.Warn = fmt.Errorf("every user can read this file (mode %04o) and it may hold passwords", mode), true
+	default:
+		return finding
+	}
+	finding.Hint = "run: chmod 640 " + path
+	return finding
+}
+
 // Tools verifies the external tools the config needs are installed.
 func Tools(ctx context.Context, cfg *config.Config) []Finding {
 	var findings []Finding
@@ -108,7 +133,7 @@ func versionLess(a, b [3]int) bool {
 
 // Run checks the config's tools, store, repositories and notifiers.
 func Run(ctx context.Context, cfg *config.Config, configPath string, openStore func(*config.Config) (*store.Store, error)) []Finding {
-	findings := []Finding{{Name: "config", Info: configPath}, Locale(os.Getenv)}
+	findings := []Finding{ConfigAccess(configPath), Locale(os.Getenv)}
 	findings = append(findings, Tools(ctx, cfg)...)
 
 	st, err := openStore(cfg)

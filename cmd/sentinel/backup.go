@@ -205,13 +205,19 @@ func (a *app) backupCmd() *cobra.Command {
 	addOutputFlag(listCmd, &listOutput)
 
 	var target string
+	var force bool
 	restoreCmd := &cobra.Command{
 		Use:   "restore <job> <snapshot>",
 		Short: "Khôi phục một snapshot vào một thư mục",
 		Long: "Khôi phục snapshot vào --target. Dùng \"latest\" cho snapshot mới nhất.\n" +
-			"Job database khôi phục ra file dump; lệnh để nạp lại file đó sẽ được in ra.",
+			"Job database khôi phục ra file dump; lệnh để nạp lại file đó sẽ được in ra.\n" +
+			"Thư mục đích chưa có sẽ được tạo với quyền 0700; thư mục có sẵn phải thuộc user đang chạy, không phải symlink\n" +
+			"và không cho người khác ghi. Đích là thư mục hệ thống (/, /etc, /var...) hoặc một mount NFS/CIFS không đạt các điều kiện đó cần thêm --force.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if backup.IsSystemRestoreTarget(target) && !force {
+				return fmt.Errorf("--target %s is a system folder: restoring there overwrites live files; pick another folder, or add --force if you mean it", target)
+			}
 			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
@@ -221,7 +227,7 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			repoName := job.Repositories[0] // a restore reads one repository: the first unless --repository
-			snapID, loadHint, err := (&backup.Runner{Config: cfg}).Restore(cmd.Context(), job, repoName, args[1], target)
+			snapID, loadHint, err := (&backup.Runner{Config: cfg, TrustRestoreTarget: force}).Restore(cmd.Context(), job, repoName, args[1], target)
 			if errors.Is(err, restic.ErrForeignSnapshot) {
 				return fmt.Errorf("snapshot %s is not a snapshot of job %q in %s (see `sentinel backup list %s`)", args[1], job.Name, repoName, job.Name)
 			}
@@ -237,6 +243,7 @@ func (a *app) backupCmd() *cobra.Command {
 		},
 	}
 	restoreCmd.Flags().StringVar(&target, "target", "", "thư mục khôi phục vào (bắt buộc)")
+	restoreCmd.Flags().BoolVar(&force, "force", false, "cho phép khôi phục vào thư mục hệ thống như / hoặc /etc, và bỏ kiểm tra chủ sở hữu/quyền của thư mục đích")
 	restoreCmd.MarkFlagRequired("target")
 
 	for _, sub := range []*cobra.Command{initCmd, runCmd, listCmd, restoreCmd} {

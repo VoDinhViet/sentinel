@@ -24,6 +24,11 @@ type Config struct {
 	// monitors server resources.
 	Monitor      any           `yaml:"monitor"`
 	UptimeChecks []UptimeCheck `yaml:"uptime"`
+
+	// EnvRefs are the variables the file refers to with ${VAR}, sorted. Set when it is parsed, not read
+	// from YAML. restic and the dump tools get every value of the config explicitly, so they do not
+	// inherit these (see restic.Client.DropEnv): a notifier token is not theirs to see.
+	EnvRefs []string `yaml:"-"`
 }
 
 // Resources keeps backups from starving the services on the server. The defaults are the
@@ -75,6 +80,9 @@ type SMTP struct {
 	Pass string   `yaml:"pass"`
 	From string   `yaml:"from"`
 	To   []string `yaml:"to"`
+	// InsecurePlaintext lets a mail go out unencrypted when a server that is not this machine offers no
+	// STARTTLS. Off by default: the alert text quotes file names and error output.
+	InsecurePlaintext bool `yaml:"insecure_plaintext"`
 }
 
 type Webhook struct {
