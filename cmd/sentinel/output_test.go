@@ -197,6 +197,56 @@ func TestCheckCmdJSONWithoutChecks(t *testing.T) {
 	}
 }
 
+func TestCheckCmdTable(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer site.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAddress := listener.Addr().String()
+	listener.Close()
+
+	path := writeConfig(t, fmt.Sprintf(`uptime:
+  - name: site
+    type: http
+    url: %s
+    timeout: 2s
+  - name: database
+    type: tcp
+    address: %s
+    timeout: 2s
+`, site.URL, closedAddress))
+
+	stdout, err := runSentinel(t, "--config", path, "check")
+	if err == nil || !strings.Contains(err.Error(), "1 of 2 checks failed") {
+		t.Fatalf("err = %v, want 1 of 2 checks failed", err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want a header and 2 rows, got:\n%s", stdout)
+	}
+	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "NAME ENDPOINT STATUS LATENCY DETAIL" {
+		t.Errorf("header = %q", lines[0])
+	}
+	if got := strings.Fields(lines[1]); len(got) != 4 || got[0] != "site" || got[1] != site.URL || got[2] != "UP" {
+		t.Errorf("site row = %q", lines[1])
+	}
+	if got := strings.Fields(lines[2]); len(got) < 5 || got[0] != "database" || got[1] != closedAddress || got[2] != "DOWN" || !strings.Contains(lines[2], "refused") {
+		t.Errorf("database row = %q", lines[2])
+	}
+}
+
+func TestCheckCmdWithoutChecks(t *testing.T) {
+	stdout, err := runSentinel(t, "--config", writeConfig(t, ""), "check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(stdout) != "no uptime checks configured" {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
 func TestCommandsRejectUnknownOutput(t *testing.T) {
 	path := writeConfig(t, "")
 	for _, args := range [][]string{
