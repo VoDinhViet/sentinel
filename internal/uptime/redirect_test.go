@@ -19,9 +19,9 @@ func TestHTTPSCheckFailsWhenRedirectedToPlainHTTP(t *testing.T) {
 	defer secure.Close()
 	useTestTLS(t, secure)
 
-	result := Probe(context.Background(), httpCheck(secure.URL))
-	if result.OK || !strings.Contains(result.Error, "https to http") {
-		t.Errorf("result = %+v, want a failure that says the redirect left https", result)
+	probe := Probe(context.Background(), httpCheck(secure.URL))
+	if probe.OK || !strings.Contains(probe.Error, "https to http") {
+		t.Errorf("probe = %+v, want a failure that says the redirect left https", probe)
 	}
 }
 
@@ -36,9 +36,9 @@ func TestRedirectWithinHTTPSIsFollowedAndKeepsTheCertificate(t *testing.T) {
 	defer secure.Close()
 	useTestTLS(t, secure)
 
-	result := Probe(context.Background(), httpCheck(secure.URL+"/old"))
-	if !result.OK || result.CertExpiry.IsZero() {
-		t.Errorf("result = %+v, want UP with the certificate of the https site", result)
+	probe := Probe(context.Background(), httpCheck(secure.URL+"/old"))
+	if !probe.OK || probe.CertExpiry.IsZero() {
+		t.Errorf("probe = %+v, want UP with the certificate of the https site", probe)
 	}
 }
 
@@ -48,9 +48,9 @@ func TestRedirectLoopStops(t *testing.T) {
 		http.Redirect(w, r, srv.URL, http.StatusFound)
 	}))
 	defer srv.Close()
-	result := Probe(context.Background(), httpCheck(srv.URL))
-	if result.OK {
-		t.Errorf("result = %+v, want a failure after too many redirects", result)
+	probe := Probe(context.Background(), httpCheck(srv.URL))
+	if probe.OK {
+		t.Errorf("probe = %+v, want a failure after too many redirects", probe)
 	}
 }
 

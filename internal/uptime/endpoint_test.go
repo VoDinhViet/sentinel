@@ -48,16 +48,16 @@ func TestEndpointOfOtherChecksIsUnchanged(t *testing.T) {
 // Go's parse error quotes the whole URL; the failure reaches the store, the log and the alert.
 func TestProbeErrorOfAMalformedURLDoesNotQuoteIt(t *testing.T) {
 	check := httpCheck("http://monitor:s3cret@example.com/%zz?token=hunter2")
-	result := Probe(context.Background(), check)
-	if result.OK {
+	probe := Probe(context.Background(), check)
+	if probe.OK {
 		t.Fatal("a malformed URL must fail")
 	}
 	for _, secret := range []string{"s3cret", "hunter2", "monitor", "example.com"} {
-		if strings.Contains(result.Error, secret) {
-			t.Errorf("error %q contains %q", result.Error, secret)
+		if strings.Contains(probe.Error, secret) {
+			t.Errorf("error %q contains %q", probe.Error, secret)
 		}
 	}
-	if !strings.Contains(result.Error, "invalid URL") {
-		t.Errorf("error = %q, want it to say the URL is invalid", result.Error)
+	if !strings.Contains(probe.Error, "invalid URL") {
+		t.Errorf("error = %q, want it to say the URL is invalid", probe.Error)
 	}
 }
