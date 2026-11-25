@@ -32,50 +32,68 @@ func (t *UptimeTracker) now() time.Time {
 	return time.Now()
 }
 
-func (t *UptimeTracker) Observe(ctx context.Context, check config.UptimeCheck, result uptime.Result) {
+// Observe takes one probe of check: it records it, then raises or resolves the DOWN alert and,
+// for an HTTPS check that watches its certificate, the expiry alert.
+func (t *UptimeTracker) Observe(ctx context.Context, check config.UptimeCheck, probe uptime.Result) {
 	now := t.now()
-	if t.Store != nil {
-		err := t.Store.RecordCheck(ctx, store.CheckResult{Name: check.Name, At: now, OK: result.OK, Latency: result.Latency, Error: result.Error})
-		if err != nil {
-			slog.Error("record check", "check", check.Name, "error", err)
-		}
-	}
+	t.record(ctx, check, probe, now)
+	failures := t.countFailures(check.Name, probe.OK)
+	t.alertUptime(ctx, check, probe, failures)
+	t.alertCert(ctx, check, probe, now)
+}
 
+func (t *UptimeTracker) record(ctx context.Context, check config.UptimeCheck, probe uptime.Result, now time.Time) {
+	if t.Store == nil {
+		return
+	}
+	err := t.Store.RecordCheck(ctx, store.CheckResult{Name: check.Name, At: now, OK: probe.OK, Latency: probe.Latency, Error: probe.Error})
+	if err != nil {
+		slog.Error("record check", "check", check.Name, "error", err)
+	}
+}
+
+// countFailures returns how many probes of the check in a row have failed, counting this one.
+func (t *UptimeTracker) countFailures(name string, ok bool) int {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.failuresByName == nil {
 		t.failuresByName = map[string]int{}
 	}
-	if result.OK {
-		t.failuresByName[check.Name] = 0
+	if ok {
+		t.failuresByName[name] = 0
 	} else {
-		t.failuresByName[check.Name]++
+		t.failuresByName[name]++
 	}
-	failures := t.failuresByName[check.Name]
-	t.mu.Unlock()
+	return t.failuresByName[name]
+}
 
+func (t *UptimeTracker) alertUptime(ctx context.Context, check config.UptimeCheck, probe uptime.Result, failures int) {
 	key := alert.UptimeKey(check.Name)
 	endpoint := uptime.Endpoint(check)
 	switch {
-	case result.OK:
-		t.Alerts.Resolve(ctx, key, check.Name+" is UP", fmt.Sprintf("%s responded in %s.", endpoint, result.Latency.Round(time.Millisecond)))
+	case probe.OK:
+		t.Alerts.Resolve(ctx, key, check.Name+" is UP", fmt.Sprintf("%s responded in %s.", endpoint, probe.Latency.Round(time.Millisecond)))
 	case failures >= check.FailAfter:
 		t.Alerts.Fire(ctx, key, notify.Critical, check.Name+" is DOWN",
-			fmt.Sprintf("%s: %s (failed %d checks in a row)", endpoint, result.Error, failures))
+			fmt.Sprintf("%s: %s (failed %d checks in a row)", endpoint, probe.Error, failures))
 	default:
-		slog.Warn("check failed", "check", check.Name, "error", result.Error, "consecutive", failures, "alert_after", check.FailAfter)
+		slog.Warn("check failed", "check", check.Name, "error", probe.Error, "consecutive", failures, "alert_after", check.FailAfter)
 	}
+}
 
-	if check.CertExpiryDays > 0 && !result.CertExpiry.IsZero() {
-		untilExpiry := result.CertExpiry.Sub(now)
-		certKey := alert.CertKey(check.Name)
-		if untilExpiry < time.Duration(check.CertExpiryDays)*24*time.Hour {
-			t.Alerts.Fire(ctx, certKey, notify.Warning, "TLS certificate for "+check.Name+" expires soon",
-				fmt.Sprintf("%s: certificate expires %s (in %d days).", endpoint, result.CertExpiry.Format("2006-01-02"), int(untilExpiry.Hours()/24)))
-		} else {
-			t.Alerts.Resolve(ctx, certKey, "TLS certificate for "+check.Name+" renewed",
-				fmt.Sprintf("Now valid until %s.", result.CertExpiry.Format("2006-01-02")))
-		}
+func (t *UptimeTracker) alertCert(ctx context.Context, check config.UptimeCheck, probe uptime.Result, now time.Time) {
+	if check.CertExpiryDays <= 0 || probe.CertExpiry.IsZero() {
+		return
 	}
+	untilExpiry := probe.CertExpiry.Sub(now)
+	key := alert.CertKey(check.Name)
+	if untilExpiry < time.Duration(check.CertExpiryDays)*24*time.Hour {
+		t.Alerts.Fire(ctx, key, notify.Warning, "TLS certificate for "+check.Name+" expires soon",
+			fmt.Sprintf("%s: certificate expires %s (in %d days).", uptime.Endpoint(check), probe.CertExpiry.Format(time.DateOnly), int(untilExpiry.Hours()/24)))
+		return
+	}
+	t.Alerts.Resolve(ctx, key, "TLS certificate for "+check.Name+" renewed",
+		fmt.Sprintf("Now valid until %s.", probe.CertExpiry.Format(time.DateOnly)))
 }
 
 // uptimeTasks returns one interval task per uptime check: probe it, then let the tracker
