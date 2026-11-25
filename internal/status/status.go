@@ -151,14 +151,14 @@ func Build(ctx context.Context, cfg *config.Config, st *store.Store, now time.Ti
 		return report, err
 	}
 	recentByName := map[string][]store.CheckResult{}
-	for _, result := range recentChecks {
-		recentByName[result.Name] = append(recentByName[result.Name], result)
+	for _, recent := range recentChecks {
+		recentByName[recent.Name] = append(recentByName[recent.Name], recent)
 	}
-	for _, result := range latestChecks {
+	for _, latest := range latestChecks {
 		check := Check{
-			Name: result.Name, OK: result.OK, LatencyMs: result.Latency.Milliseconds(), At: result.At, Error: termtext.Clean(result.Error),
+			Name: latest.Name, OK: latest.OK, LatencyMs: latest.Latency.Milliseconds(), At: latest.At, Error: termtext.Clean(latest.Error),
 		}
-		for _, past := range recentByName[result.Name] {
+		for _, past := range recentByName[latest.Name] {
 			check.RecentLatencyMs = append(check.RecentLatencyMs, past.Latency.Milliseconds())
 			check.RecentOK = append(check.RecentOK, past.OK)
 		}

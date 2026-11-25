@@ -297,10 +297,10 @@ type CheckResult struct {
 	Error   string
 }
 
-func (s *Store) RecordCheck(ctx context.Context, result CheckResult) error {
+func (s *Store) RecordCheck(ctx context.Context, check CheckResult) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO check_results (name, at, ok, latency_ms, error) VALUES (?, ?, ?, ?, ?)`,
-		result.Name, result.At.Unix(), result.OK, result.Latency.Milliseconds(), result.Error)
+		check.Name, check.At.Unix(), check.OK, check.Latency.Milliseconds(), check.Error)
 	return err
 }
 
@@ -310,17 +310,17 @@ func (s *Store) queryChecks(ctx context.Context, query string, args ...any) ([]C
 		return nil, err
 	}
 	defer checkRows.Close()
-	var results []CheckResult
+	var checks []CheckResult
 	for checkRows.Next() {
-		var result CheckResult
+		var check CheckResult
 		var atUnix, latencyMS int64
-		if err := checkRows.Scan(&result.ID, &result.Name, &atUnix, &result.OK, &latencyMS, &result.Error); err != nil {
+		if err := checkRows.Scan(&check.ID, &check.Name, &atUnix, &check.OK, &latencyMS, &check.Error); err != nil {
 			return nil, err
 		}
-		result.At, result.Latency = time.Unix(atUnix, 0), time.Duration(latencyMS)*time.Millisecond
-		results = append(results, result)
+		check.At, check.Latency = time.Unix(atUnix, 0), time.Duration(latencyMS)*time.Millisecond
+		checks = append(checks, check)
 	}
-	return results, checkRows.Err()
+	return checks, checkRows.Err()
 }
 
 // LatestChecks returns the most recent result for each check name.
