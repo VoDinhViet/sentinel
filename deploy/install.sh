@@ -131,7 +131,7 @@ main() {
 		shift
 	done
 
-	[ "$(id -u)" -eq 0 ] || die "run as root: curl -fsSL <url> | sudo sh"
+	[ "$(id -u)" -eq 0 ] || die "run as root: sudo ./deploy/install.sh ./bin/sentinel"
 
 	case "$(uname -s)" in Linux) ;; *) die "Linux only" ;; esac
 	case "$(uname -m)" in

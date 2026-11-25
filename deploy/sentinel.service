@@ -1,6 +1,6 @@
 [Unit]
 Description=Sentinel server maintenance (backups, uptime checks)
-Documentation=https://github.com/VoDinhViet/sentinel
+Documentation=https://github.com/Cong-ty-ThoMi-Group/gm-backup
 Wants=network-online.target
 After=network-online.target
 
