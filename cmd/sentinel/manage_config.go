@@ -77,9 +77,18 @@ func orDefault(value, fallback string) string {
 }
 
 // uptimeEndpoint is the address an uptime entry probes, written the way `sentinel check` and the
-// alerts write it: the secrets of an URL are masked.
+// alerts write it: the secrets of an URL are masked. The entry is the raw text of the file, so a URL
+// that still holds a ${VAR} reference (no secret value in it) is shown as written, and an entry
+// without a known type shows its first address field, as it did before.
 func uptimeEndpoint(check configedit.Uptime) string {
-	return uptime.Endpoint(config.UptimeCheck{Type: check.Type, URL: check.URL, Address: check.Address, Host: check.Host})
+	switch {
+	case check.Type == config.CheckHTTP && strings.Contains(check.URL, "${"):
+		return check.URL
+	case check.Type == config.CheckHTTP, check.Type == config.CheckTCP, check.Type == config.CheckPing:
+		return uptime.Endpoint(config.UptimeCheck{Type: check.Type, URL: check.URL, Address: check.Address, Host: check.Host})
+	default:
+		return orDefault(check.URL, orDefault(check.Address, check.Host))
+	}
 }
 
 // whenText says in words when a schedule runs; an empty one means the default, or by hand.

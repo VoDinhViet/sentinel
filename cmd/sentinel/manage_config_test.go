@@ -24,6 +24,9 @@ func TestUptimeEndpoint(t *testing.T) {
 		{"http with a token", configedit.Uptime{Type: "http", URL: "https://u:p@example.com/ping?token=abc"}, "https://example.com/ping?token=***"},
 		{"tcp", configedit.Uptime{Type: "tcp", Address: "db:5432"}, "db:5432"},
 		{"ping", configedit.Uptime{Type: "ping", Host: "10.0.0.1"}, "10.0.0.1"},
+		{"a ${VAR} in the URL is shown as written", configedit.Uptime{Type: "http", URL: "https://${HOST}/ping?key=${KEY}"}, "https://${HOST}/ping?key=${KEY}"},
+		{"no type shows the first address field", configedit.Uptime{URL: "https://example.com/health"}, "https://example.com/health"},
+		{"an unknown type shows the first address field", configedit.Uptime{Type: "udp", Address: "10.0.0.5:53"}, "10.0.0.5:53"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
