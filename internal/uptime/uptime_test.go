@@ -124,6 +124,15 @@ func TestPingLocalhost(t *testing.T) {
 	}
 }
 
+// A host that does not resolve fails with the lookup error; it is not a missing-permission problem.
+func TestPingUnresolvableHost(t *testing.T) {
+	check := config.UptimeCheck{Name: "gone", Type: config.CheckPing, Host: "no-such-host.invalid", Timeout: 3 * time.Second}
+	probe := Probe(context.Background(), check)
+	if probe.OK || probe.Error == "" || strings.Contains(probe.Error, "CAP_NET_RAW") {
+		t.Errorf("probe = %+v, want the lookup error", probe)
+	}
+}
+
 func TestProbeAllKeepsTheOrderOfTheChecks(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
