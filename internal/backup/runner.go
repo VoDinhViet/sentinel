@@ -81,9 +81,9 @@ func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 		return []store.BackupRun{{Job: job.Name, Error: AlreadyRunning}}
 	}
 	// Wait for a slot before the clock of the job's timeout starts: waiting is not running.
-	releaseSlot, err := r.acquireSlot(ctx, job.Name)
-	defer releaseSlot()
-	if err != nil {
+	slot := &heldSlot{runner: r, job: job.Name}
+	defer slot.free()
+	if err := slot.take(ctx); err != nil {
 		return []store.BackupRun{{Job: job.Name, StartedAt: r.now(), FinishedAt: r.now(), Error: err.Error()}}
 	}
 	ctx, cancel := context.WithTimeout(ctx, job.Timeout)
@@ -91,7 +91,7 @@ func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 
 	var runs []store.BackupRun
 	for _, repoName := range job.Repositories {
-		run := r.runOne(ctx, job, repoName)
+		run := r.runOne(ctx, job, repoName, slot)
 		if r.Store != nil {
 			// Record with a fresh context: a timed-out backup must still be logged.
 			if err := r.Store.RecordBackup(context.WithoutCancel(ctx), run); err != nil {
@@ -106,7 +106,9 @@ func (r *Runner) Run(ctx context.Context, job *config.Job) []store.BackupRun {
 	return runs
 }
 
-func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) store.BackupRun {
+// runOne backs the job up to one repository. slot is the slot the job holds; runOne gives it up while it
+// waits for a locked repository and takes it again.
+func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string, slot *heldSlot) store.BackupRun {
 	run := store.BackupRun{Job: job.Name, Repository: repoName, StartedAt: r.now()}
 	logger := slog.With("job", job.Name, "repository", repoName)
 	logger.Info("backup started")
@@ -172,10 +174,14 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string) s
 	}
 	for attempt := 0; restic.IsLocked(err) && attempt < r.LockRetries; attempt++ {
 		logger.Warn("repository locked, retrying", "in", r.LockRetryDelay)
+		slot.free() // waiting is not running: a job of another repository may use the slot meanwhile
 		select {
 		case <-ctx.Done():
 			return fail(fmt.Errorf("%w (gave up waiting for lock: %w)", err, ctx.Err()))
 		case <-time.After(r.LockRetryDelay):
+		}
+		if slotErr := slot.take(ctx); slotErr != nil {
+			return fail(fmt.Errorf("%w (gave up waiting for a slot: %w)", err, slotErr))
 		}
 		sum, err = client.Backup(ctx, opts)
 	}

@@ -113,3 +113,27 @@ func (r *Runner) acquireSlot(ctx context.Context, jobName string) (release func(
 		}
 	}
 }
+
+// heldSlot is the backup slot of one running job. A job that has to wait for a locked repository gives
+// the slot up for that time, so that the jobs of the other repositories are not held back by a wait that
+// may last several minutes, and takes one again before it tries the backup again.
+type heldSlot struct {
+	runner  *Runner
+	job     string
+	release func()
+}
+
+// take waits for a slot and holds it until free.
+func (s *heldSlot) take(ctx context.Context) error {
+	release, err := s.runner.acquireSlot(ctx, s.job)
+	s.release = release
+	return err
+}
+
+// free gives the slot back. It is safe to call without one, and twice.
+func (s *heldSlot) free() {
+	if s.release != nil {
+		s.release()
+		s.release = nil
+	}
+}

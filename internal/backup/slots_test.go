@@ -2,11 +2,13 @@ package backup
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/store"
 )
 
 func slotRunner(t *testing.T, maxParallel int) *Runner {
@@ -68,4 +70,50 @@ func TestNoStateDirectoryMeansNoSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
+}
+
+func TestJobWaitingForARepositoryLockGivesItsSlotToAnotherJob(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "restic")
+	// Locked on the first call, succeeds on the second.
+	script := "#!/bin/sh\n" +
+		"if [ ! -f " + dir + "/called ]; then touch " + dir + "/called\n" +
+		"  echo '{\"message_type\":\"exit_error\",\"code\":11,\"message\":\"locked\"}'; exit 11; fi\n" +
+		"echo '{\"message_type\":\"summary\",\"snapshot_id\":\"abc\"}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{
+		Config: &config.Config{
+			ServerName:   "h",
+			StorePath:    filepath.Join(dir, "state.db"),
+			Resources:    config.Resources{MaxParallel: 1},
+			Repositories: map[string]config.Repository{"r": {URL: "/r", Password: "p"}},
+		},
+		Bin: bin, LockRetries: 1, LockRetryDelay: time.Second,
+	}
+	job := config.Job{Name: "f", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"r"}}
+
+	finished := make(chan []store.BackupRun, 1)
+	go func() { finished <- runner.Run(context.Background(), &job) }()
+	for { // the first attempt found the repository locked: the job is now waiting
+		if _, err := os.Stat(filepath.Join(dir, "called")); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	other, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	release, err := runner.acquireSlot(other, "other")
+	if err != nil {
+		t.Fatalf("a job waiting for the repository lock must not hold the only slot: %v", err)
+	}
+	release()
+
+	runs := <-finished
+	if len(runs) != 1 || !runs[0].Success {
+		t.Fatalf("the waiting job must take a slot again and finish: %+v", runs)
+	}
 }
