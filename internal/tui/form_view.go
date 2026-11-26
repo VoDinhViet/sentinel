@@ -62,6 +62,58 @@ func boxed(text string, focused bool) string {
 	return edge.Render("[ ") + text + edge.Render(" ]")
 }
 
+// inputBox is how a value looks as an input: in a box while it has the focus, plain text (at the
+// column of the text inside the box) otherwise, so only the field being edited is framed.
+func inputBox(text string, focused bool) string {
+	if focused {
+		return boxed(text, true)
+	}
+	return "  " + text
+}
+
+// automaticStorage is the Storage line of a job whose storage is automatic. Out of focus it shows
+// where the backups will go, dim like every default: the folder made for the job, or the default
+// repositories. With the focus it is the input, and the destination follows it.
+func (m manageModel) automaticStorage(input string, focused bool, valueColumn int) string {
+	job, _ := m.form.job()
+	destination := strings.Join(m.form.defaults.repositories, ", ")
+	if folder := m.form.autoFolder(job); folder != "" {
+		destination = folder
+	}
+	room := max(m.width-valueColumn-4, 10)
+	switch {
+	case destination == "" && focused:
+		return input + "  " + dimStyle.Render("→ nhập tên job để thấy thư mục tự động")
+	case destination == "":
+		return inputBox(dimStyle.Render(storageAuto), false)
+	case focused:
+		return input + "  " + dimStyle.Render(truncate("→ "+destination, max(room-lipgloss.Width(input), 10)))
+	}
+	return inputBox(dimStyle.Render(truncate(destination, room)), false)
+}
+
+// unitInput is a field with a unit: "[ 7 ] bản mới nhất" while it has the focus, "7 bản mới nhất"
+// when it has a value, and only its placeholder (what an empty input stands for) when it has none.
+// The placeholder is never inside the box, so it cannot be taken for a value.
+func (m manageModel) unitInput(field formField, text string, focused bool) string {
+	placeholder := ""
+	if field.value == "" && field.placeholder != "" {
+		placeholder = dimStyle.Render(field.placeholder) // a default: dim
+		if field.placeholderOwn {
+			placeholder = field.placeholder // the job's own setting: a value
+		}
+	}
+	switch {
+	case !focused && field.value == "":
+		return inputBox(placeholder, false)
+	case field.value == "" && field.placeholderOwn:
+		return boxed(text, true) + " " + dimStyle.Render(field.unit) + "  " + placeholder + dimStyle.Render(" (giữ nguyên)")
+	case field.value == "":
+		return boxed(text, true) + " " + dimStyle.Render(field.unit) + "  " + placeholder
+	}
+	return inputBox(text, focused) + " " + dimStyle.Render(field.unit)
+}
+
 // dropdownText is what a choice, schedule or day field shows in its box, and whether it is a
 // list the arrows step through (a schedule written by hand is shown as the text it is).
 func (m manageModel) dropdownText(field formField) (text string, dropdown bool) {
@@ -98,7 +150,7 @@ func (m manageModel) retentionSummary(field formField) string {
 		}
 	}
 	if len(inherited) > 0 {
-		return dimStyle.Render("mặc định: " + strings.Join(inherited, " · "))
+		return dimStyle.Render(strings.Join(inherited, " · "))
 	}
 	return dimStyle.Render("giữ tất cả")
 }
@@ -128,7 +180,12 @@ func (m manageModel) renderForm() []string {
 				screenLines = append(screenLines, headerMark)
 			}
 			if section != sectionAdvanced {
-				screenLines = append(screenLines, headerMark+lipglossStyleAccent.Bold(true).Render(section)+" "+borderStyle.Render(strings.Repeat("─", max(m.width+railWidth-lipgloss.Width(section)-1, 0))))
+				caption := ""
+				if section == sectionSchedule && m.form.usesDefaults() {
+					caption = "  " + dimStyle.Render("chữ mờ = dùng mặc định chung")
+				}
+				used := lipgloss.Width(section) + lipgloss.Width(caption) + 1
+				screenLines = append(screenLines, headerMark+lipglossStyleAccent.Bold(true).Render(section)+caption+" "+borderStyle.Render(strings.Repeat("─", max(m.width+railWidth-used, 0))))
 			}
 		}
 		if field.kind == fieldToggle {
@@ -149,14 +206,14 @@ func (m manageModel) renderForm() []string {
 		switch field.kind {
 		case fieldChoice, fieldSchedule, fieldDay:
 			shown, dropdown := m.dropdownText(field)
-			if dropdown {
+			if dropdown && focused {
 				shown += " " + dimStyle.Render("▾")
 			}
 			cursor := ""
 			if focused && field.kind == fieldSchedule && !dropdown {
 				cursor = lipglossAccent("▏") // a schedule typed by hand is edited as text
 			}
-			value = boxed(shown+cursor, focused)
+			value = inputBox(shown+cursor, focused)
 			if !field.fixed {
 				m.hits.add(screenRow, valueColumn, lipgloss.Width(value), fmt.Sprintf("step:%d:1", index))
 			}
@@ -182,7 +239,7 @@ func (m manageModel) renderForm() []string {
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		case fieldRetention:
 			if !focused {
-				value = boxed(m.retentionSummary(field), false)
+				value = inputBox(m.retentionSummary(field), false)
 				m.hits.add(screenRow, 0, m.width, fmt.Sprintf("focus:%d", index))
 				break
 			}
@@ -209,11 +266,20 @@ func (m manageModel) renderForm() []string {
 			case focused:
 				text += lipglossAccent("▏")
 			}
-			if field.value == "" && field.placeholder != "" {
-				text += dimStyle.Render(field.placeholder)
+			switch {
+			case field.unit != "": // the placeholder of a field with a unit stays outside the box
+				value = m.unitInput(field, text, focused)
+			case field.value == "" && field.placeholder != "":
+				value = inputBox(text+dimStyle.Render(field.placeholder), focused)
+			case field.value == "" && !focused:
+				value = inputBox(dimStyle.Render("—"), false) // nothing typed: a dash instead of an empty gap
+			default:
+				value = inputBox(text, focused)
 			}
-			value = boxed(text, focused)
 			m.hits.add(screenRow, 0, m.width, fmt.Sprintf("focus:%d", index))
+		}
+		if field.key == "storage" && field.value == storageAuto {
+			value = m.automaticStorage(value, focused, valueColumn)
 		}
 		screenLines = append(screenLines, marker+label+" "+value)
 		if message, bad := problems[field.key]; bad {
@@ -229,22 +295,18 @@ func (m manageModel) renderForm() []string {
 				note = prefix + note
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
-		} else if field.key == "storage" && field.value == storageAuto {
-			job, _ := m.form.job()
-			note := "→ repository mặc định: " + strings.Join(m.form.defaults.repositories, ", ")
-			if folder := m.form.autoFolder(job); folder != "" {
-				note = "→ thư mục tự động: " + folder
-			} else if len(m.form.defaults.repositories) == 0 {
-				note = "→ nhập tên job để thấy thư mục tự động"
-			}
-			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(truncate(note, max(m.width-formLabelWidth-5, 10))))
 		} else if field.kind == fieldPaths {
 			if note := m.form.disk.pathsNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
-		} else if field.kind == fieldSchedule {
+		} else if field.kind == fieldSchedule && focused {
 			for _, preview := range m.schedulePreview(field.value) {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(preview))
+			}
+		}
+		if focused && field.hint != "" {
+			for _, line := range strings.Split(wrap(field.hint, max(m.width-formLabelWidth-5, 20)), "\n") {
+				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(line))
 			}
 		}
 		if (field.key == "password_env" || field.key == "job_password_env") && m.form.databaseType() != "" {
@@ -268,10 +330,6 @@ func (m manageModel) renderForm() []string {
 		}
 		m.hits.shift(hitStart, railWidth)
 		m.width += railWidth
-	}
-	screenLines = append(screenLines, "")
-	for _, line := range strings.Split(wrap(m.form.fields[m.form.focus].hint, m.width-2), "\n") { // one screen line each, so the frame closes every one
-		screenLines = append(screenLines, dimStyle.Render(line))
 	}
 	if m.form.problem != "" {
 		screenLines = append(screenLines, "")

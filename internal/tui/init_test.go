@@ -33,7 +33,7 @@ func pressInit(t *testing.T, program initProgram, key string) initProgram {
 func TestInitFormStartsValidAndWritesTheDefaults(t *testing.T) {
 	program, written := initScreen(t, false)
 	view := plain(program.render())
-	for _, want := range []string{"Tạo /home/me/.config/sentinel/config.yaml", "Tên repository", "local", "Nơi lưu backup", "${HOME}/.local/share/sentinel/repo", "RESTIC_PASSWORD", "Backup gì", "documents", "${HOME}/Documents", "[ Daily ▾ ]", "[ 02:00"} {
+	for _, want := range []string{"Tạo /home/me/.config/sentinel/config.yaml", "Tên repository", "local", "Nơi lưu backup", "${HOME}/.local/share/sentinel/repo", "RESTIC_PASSWORD", "Backup gì", "documents", "${HOME}/Documents", "Daily", "02:00"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("init form lacks %q:\n%s", want, view)
 		}

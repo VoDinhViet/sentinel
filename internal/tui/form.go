@@ -62,7 +62,13 @@ type formField struct {
 	sub     int       // checklist item or retention count under the cursor
 	// placeholder is what an empty field stands for, shown dimmed.
 	placeholder string
-	fixed       bool // a choice that cannot be changed
+	// placeholderOwn says the placeholder is the field's own setting that this input cannot show
+	// (a rule of daily and weekly counts), not the default it falls back to: it is drawn as a value.
+	placeholderOwn bool
+	// unit is what the number counts ("bản mới nhất"), shown after the input; the placeholder then
+	// goes after the unit too instead of inside the box.
+	unit  string
+	fixed bool // a choice that cannot be changed
 	// complete makes Tab finish a path typed in the field (a Paths field always does);
 	// options are the candidates the last Tab listed.
 	complete bool
@@ -167,7 +173,7 @@ func (f form) connectionJob() (configedit.Job, error) {
 }
 
 func newJobForm(job configedit.Job, original string, listing configedit.Listing) form {
-	keepValue, keepPlaceholder := keepInput(job.Retention, listing.Defaults.Retention)
+	keepValue, keepPlaceholder, keepIsOwn := keepInput(job.Retention, listing.Defaults.Retention)
 	form := form{
 		original:          original,
 		passwordKept:      job.PasswordLiteral,
@@ -189,10 +195,10 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		passwordHint = "file đang chứa mật khẩu ghi thẳng; nhập tên biến để thay, hoặc để trống để giữ nguyên"
 	}
 	scheduleHint := scheduleHint
-	scheduleNote := "để trống = chỉ chạy thủ công"
+	scheduleNote := "chỉ chạy thủ công"
 	if listing.Defaults.Schedule != "" {
 		scheduleHint += "; để trống = schedule mặc định"
-		scheduleNote = "mặc định: " + listing.Defaults.Schedule
+		scheduleNote = listing.Defaults.Schedule
 	}
 	ticked := make([]bool, len(listing.Repositories))
 	for i, name := range listing.Repositories {
@@ -234,7 +240,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó", complete: true, placeholder: "nhập đường dẫn", section: sectionSchedule, onField: "storage", only: []string{storageFolder}},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionSchedule, onField: "storage", only: []string{storageRepository}},
 		{key: "retention", label: "Retention", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
-		{key: "keep", label: "Giữ", hint: "số bản backup mới nhất được giữ lại, bản cũ hơn tự xoá (ví dụ 7); để trống = không đổi quy tắc giữ hiện có hoặc mặc định chung", kind: fieldNumber, value: keepValue, placeholder: keepPlaceholder, section: sectionSchedule},
+		{key: "keep", label: "Giữ", hint: "giữ N bản mới nhất, bản cũ hơn tự xoá; để trống = quy tắc hiện có hoặc mặc định", kind: fieldNumber, value: keepValue, placeholder: keepPlaceholder, placeholderOwn: keepIsOwn, unit: "bản mới nhất", section: sectionSchedule},
 	}...)
 	form.fields = append(form.fields, []formField{
 		{key: "advanced", label: "Tuỳ chọn nâng cao", hint: "enter hoặc space để mở hoặc đóng các tuỳ chọn bên dưới", kind: fieldToggle, section: sectionAdvanced},
@@ -444,15 +450,32 @@ func (f form) job() (configedit.Job, error) {
 
 // keepInput is what the "keep at most N backups" input of a database job starts with. N when the
 // job keeps only its last N; otherwise empty, with a placeholder that says what an empty input
-// stands for: the default rule, or the job's own rule that is more than a count of backups.
-func keepInput(own, defaults config.Retention) (value, placeholder string) {
+// stands for: the default rule, or the job's own rule when it is more than a count of backups
+// (own is true then, and the placeholder is a value of the job, not a default).
+func keepInput(own, defaults config.Retention) (value, placeholder string, ownRule bool) {
 	switch {
 	case own == config.Retention{}:
-		return "", "mặc định: " + describeRetention(defaults)
+		return "", describeRetention(defaults), false
 	case own == config.Retention{Last: own.Last}:
-		return strconv.Itoa(own.Last), ""
+		return strconv.Itoa(own.Last), "", false
 	}
-	return "", "giữ nguyên: " + describeRetention(own)
+	return "", describeRetention(own), true
+}
+
+// usesDefaults says the schedule, storage or retention of the job form fall back to the defaults
+// of the config, so the section can say what the dim text means.
+func (f form) usesDefaults() bool {
+	if f.kind != formJob {
+		return false
+	}
+	if strings.TrimSpace(f.field("schedule").value) == "" || f.field("storage").value == storageAuto {
+		return true
+	}
+	if f.databaseType() != "" {
+		keep := f.field("keep")
+		return strings.TrimSpace(keep.value) == "" && !keep.placeholderOwn
+	}
+	return f.field("retention").counts == [5]string{}
 }
 
 func describeRetention(retention config.Retention) string {
@@ -472,7 +495,7 @@ func (f form) withKeep(job configedit.Job) (configedit.Job, error) {
 	}
 	count, err := strconv.Atoi(text)
 	if err != nil || count < 1 {
-		return job, formProblem("keep", "giữ ít nhất 1 bản; để trống = không đổi quy tắc giữ hiện có hoặc mặc định chung")
+		return job, formProblem("keep", "giữ ít nhất 1 bản; để trống = quy tắc hiện có hoặc mặc định")
 	}
 	job.Retention = config.Retention{Last: count}
 	return job, nil
