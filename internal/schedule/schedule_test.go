@@ -20,24 +20,33 @@ func TestNext(t *testing.T) {
 	}
 }
 
-func TestMaxGap(t *testing.T) {
+func TestSecondRunAfter(t *testing.T) {
+	at := func(day, hour, minute int) time.Time { return time.Date(2026, 10, day, hour, minute, 0, 0, time.UTC) }
 	tests := []struct {
+		name string
 		spec string
-		want time.Duration
+		last time.Time
+		want time.Time
 	}{
-		{"*/15 * * * *", 15 * time.Minute},
-		{"0 3 * * *", 24 * time.Hour},
-		{"0 3 * * 1", 7 * 24 * time.Hour},
-		{"0 3 * * 1-5", 3 * 24 * time.Hour}, // Friday to Monday
+		{"every 15 minutes", "*/15 * * * *", at(5, 10, 7), at(5, 10, 30)},
+		{"daily", "0 3 * * *", at(5, 3, 10), at(7, 3, 0)},
+		{"weekly", "0 3 * * 1", at(5, 3, 10), at(19, 3, 0)},                      // Monday the 5th
+		{"weekdays over the weekend", "0 3 * * 1-5", at(9, 3, 10), at(13, 3, 0)}, // Friday the 9th: Mon 12th, Tue 13th
+		{"dense in working hours, last run of the day", "*/15 8-18 * * *", at(5, 18, 45), at(6, 8, 15)},
+		{"dense in working hours, inside the day", "*/15 8-18 * * *", at(5, 12, 5), at(5, 12, 30)},
 	}
 	for _, tc := range tests {
-		got, ok := MaxGap(tc.spec, now)
-		if !ok || got != tc.want {
-			t.Errorf("MaxGap(%q) = %v %v, want %v", tc.spec, got, ok, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := SecondRunAfter(tc.spec, tc.last)
+			if !ok || !got.Equal(tc.want) {
+				t.Errorf("SecondRunAfter(%q, %v) = %v %v, want %v", tc.spec, tc.last, got, ok, tc.want)
+			}
+		})
 	}
-	if _, ok := MaxGap("", now); ok {
-		t.Error("MaxGap accepted an empty schedule")
+	for _, bad := range []string{"", "manual", "not a cron"} {
+		if _, ok := SecondRunAfter(bad, now); ok {
+			t.Errorf("SecondRunAfter accepted %q", bad)
+		}
 	}
 }
 
@@ -64,8 +73,8 @@ func TestPlainFormsMeanTheSameAsCron(t *testing.T) {
 			t.Errorf("Describe(%q) = %q, want %q", tc.spec, description, tc.description)
 		}
 	}
-	if gap, ok := MaxGap("every 6h", now); !ok || gap != 6*time.Hour {
-		t.Errorf("MaxGap(every 6h) = %v %v", gap, ok)
+	if got, ok := SecondRunAfter("every 6h", now); !ok || got.Sub(now) < 6*time.Hour || got.Sub(now) > 12*time.Hour {
+		t.Errorf("SecondRunAfter(every 6h) = %v %v", got, ok)
 	}
 	if got, _ := Next("@every 90m", now); !got.Equal(now.Add(90 * time.Minute)) {
 		t.Errorf("@every 90m next = %v", got)

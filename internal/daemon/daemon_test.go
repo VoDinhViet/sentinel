@@ -21,6 +21,9 @@ func TestIsStale(t *testing.T) {
 	loc := time.UTC
 	daily := &config.Job{Schedule: "0 2 * * *", Timeout: time.Hour}
 	weekdays := &config.Job{Schedule: "0 2 * * 1-5", Timeout: time.Hour}
+	workHours := &config.Job{Schedule: "*/15 8-18 * * *", Timeout: 10 * time.Minute}
+	// Friday 2026-10-09 18:45, the last run of a working day, and the nights and weekend after it.
+	fridayEvening := time.Date(2026, 10, 9, 18, 45, 0, 0, loc)
 	started := time.Date(2026, 10, 1, 0, 0, 0, 0, loc)
 	// Sunday 2026-10-11 03:00.
 	sunday := time.Date(2026, 10, 11, 3, 0, 0, 0, loc)
@@ -37,6 +40,10 @@ func TestIsStale(t *testing.T) {
 		{"daily one missed run", daily, sunday.Add(-30 * time.Hour), sunday, false},
 		{"daily two missed runs", daily, sunday.Add(-50 * time.Hour), sunday, true},
 		{"weekdays over weekend", weekdays, friday2am, sunday, false},
+		{"working hours, overnight after the last run", workHours, fridayEvening, fridayEvening.Add(8 * time.Hour), false},
+		{"working hours, over the weekend", workHours, fridayEvening, fridayEvening.Add(40 * time.Hour), true},
+		{"working hours, second run of the morning still running", workHours, fridayEvening.Add(-24 * time.Hour), fridayEvening.Add(-24 * time.Hour).Add(13*time.Hour + 35*time.Minute), false},
+		{"working hours, two runs of the morning missed", workHours, fridayEvening.Add(-24 * time.Hour), fridayEvening.Add(-24 * time.Hour).Add(14 * time.Hour), true},
 		{"never ran, just started", daily, time.Time{}, started.Add(time.Hour), false},
 		{"never ran, long after start", daily, time.Time{}, started.Add(72 * time.Hour), true},
 		{"unscheduled", &config.Job{}, time.Time{}, sunday, false},

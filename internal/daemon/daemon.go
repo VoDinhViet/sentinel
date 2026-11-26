@@ -272,24 +272,24 @@ func (d *Daemon) CheckStale(ctx context.Context) {
 	}
 }
 
-// isStale reports whether job's last success (zero if never) is older than
-// twice the longest gap in its schedule plus its timeout. Jobs that never ran
-// are measured from daemon start so a fresh install is not instantly stale.
-// Unscheduled jobs are never stale (limit 0).
+// isStale reports whether job has missed two scheduled runs in a row since its last success (zero if
+// never), and gave the second one its timeout to finish. limit is how long after the last success that
+// point lies. Jobs that never ran are measured from daemon start so a fresh install is not instantly
+// stale. Unscheduled jobs are never stale (limit 0).
 func isStale(job *config.Job, lastSuccess, started, now time.Time) (stale bool, limit time.Duration) {
 	if schedule.IsManual(job.Schedule) {
 		return false, 0
 	}
-	maxGap, ok := schedule.MaxGap(job.Schedule, now)
-	if !ok {
-		return false, 0
-	}
-	limit = 2*maxGap + job.Timeout
 	measuredFrom := lastSuccess
 	if measuredFrom.IsZero() {
 		measuredFrom = started
 	}
-	return now.Sub(measuredFrom) > limit, limit
+	secondRun, ok := schedule.SecondRunAfter(job.Schedule, measuredFrom)
+	if !ok {
+		return false, 0
+	}
+	deadline := secondRun.Add(job.Timeout)
+	return now.After(deadline), deadline.Sub(measuredFrom)
 }
 
 // builtinTasks are the periodic jobs every daemon runs besides the backups. The prune also runs at start:

@@ -158,19 +158,13 @@ func Next(spec string, now time.Time) (time.Time, bool) {
 	return cronSchedule.Next(now), true
 }
 
-// MaxGap returns the longest gap between consecutive runs over the next two
-// weeks of runs, which covers weekly and weekday-only schedules.
-func MaxGap(spec string, now time.Time) (time.Duration, bool) {
+// SecondRunAfter returns the second run of spec after last, the moment a job whose last success was at last
+// has missed two runs in a row. Counting runs, not time, keeps it right for a schedule that is dense for a
+// few hours and silent the rest of the day or week; ok is false for a manual or invalid spec.
+func SecondRunAfter(spec string, last time.Time) (time.Time, bool) {
 	cronSchedule, err := Parse(spec)
 	if err != nil {
-		return 0, false
+		return time.Time{}, false
 	}
-	var gap time.Duration
-	runAt := cronSchedule.Next(now)
-	for range 14 {
-		next := cronSchedule.Next(runAt)
-		gap = max(gap, next.Sub(runAt))
-		runAt = next
-	}
-	return gap, true
+	return cronSchedule.Next(cronSchedule.Next(last)), true
 }
