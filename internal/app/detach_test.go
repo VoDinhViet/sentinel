@@ -93,7 +93,7 @@ func TestStartDetachedBackupRefusesAJobThatIsAlreadyRunning(t *testing.T) {
 func TestStopBackupAsksAndWaits(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{StorePath: filepath.Join(dir, "state.db")}
-	if _, err := stopBackup(cfg, "shop", time.Second); err == nil || !strings.Contains(err.Error(), "no backup of") {
+	if _, err := stopBackup(cfg, "shop", time.Second); err == nil || !strings.Contains(err.Error(), "no backup is running") {
 		t.Errorf("nothing runs: %v", err)
 	}
 	progressDir := backup.ProgressDir(cfg.StorePath)

@@ -5,6 +5,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"time"
 
 	"sentinel/internal/config"
@@ -28,4 +30,30 @@ func New(cfg *config.Config, st *store.Store, configPath string) *Service {
 // Status is the report of `sentinel status`: jobs, uptime checks, open alerts, running backups.
 func (s *Service) Status(ctx context.Context, now time.Time) (status.Report, error) {
 	return status.Build(ctx, s.cfg, s.st, now)
+}
+
+// JobRepository is one backup that can be started: a job and one of its repositories.
+type JobRepository struct{ Job, Repository string }
+
+// JobRepositories are the backups the config describes, in config order.
+func (s *Service) JobRepositories() []JobRepository {
+	var all []JobRepository
+	for _, job := range s.cfg.Jobs {
+		for _, repo := range job.Repositories {
+			all = append(all, JobRepository{Job: job.Name, Repository: repo})
+		}
+	}
+	return all
+}
+
+// job is the job of that name; a non-empty repo must be one of its repositories.
+func (s *Service) job(jobName, repo string) (*config.Job, error) {
+	job, err := s.cfg.FindJob(jobName)
+	if err != nil {
+		return nil, fmt.Errorf("job %q %w", jobName, ErrNotFound)
+	}
+	if repo != "" && !slices.Contains(job.Repositories, repo) {
+		return nil, fmt.Errorf("repository %q of job %q %w", repo, jobName, ErrNotFound)
+	}
+	return job, nil
 }

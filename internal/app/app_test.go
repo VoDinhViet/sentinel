@@ -24,8 +24,8 @@ func TestStartBackupRejectsWhatTheConfigDoesNotHave(t *testing.T) {
 	tests := map[string]struct {
 		jobName, repo, want string
 	}{
-		"unknown job":         {"nope", "", "nope"},
-		"repository not used": {"shop", "s3", `does not use repository "s3"`},
+		"unknown job":         {"nope", "", "not found"},
+		"repository not used": {"shop", "s3", "not found"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

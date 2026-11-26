@@ -11,7 +11,7 @@ import (
 
 // ListSnapshots are the snapshots of a job in one repository, newest first.
 func (s *Service) ListSnapshots(ctx context.Context, jobName, repo string) ([]restic.Snapshot, error) {
-	job, err := s.cfg.FindJob(jobName)
+	job, err := s.job(jobName, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (s *Service) ListSnapshots(ctx context.Context, jobName, repo string) ([]re
 // Restore puts a snapshot of the job into targetDir. For a database job it returns the command
 // that loads the restored dump, or "".
 func (s *Service) Restore(ctx context.Context, jobName, repo string, snap restic.Snapshot, targetDir string) (loadHint string, err error) {
-	job, err := s.cfg.FindJob(jobName)
+	job, err := s.job(jobName, repo)
 	if err != nil {
 		return "", err
 	}

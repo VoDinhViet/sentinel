@@ -130,10 +130,13 @@ func stopFile(dir, job string) string     { return filepath.Join(dir, safeFileNa
 // runs backups itself. It is an error when the job is not running.
 func RequestStop(dir, job string, now time.Time) error {
 	if !slices.ContainsFunc(ReadRunning(dir, now), func(p Progress) bool { return p.Job == job }) {
-		return fmt.Errorf("no backup of %q is running", job)
+		return fmt.Errorf("%w: %q", ErrNotRunning, job)
 	}
 	return os.WriteFile(stopFile(dir, job), nil, 0o600)
 }
+
+// ErrNotRunning is wrapped by the error for a stop request when the job is not being backed up.
+var ErrNotRunning = errors.New("no backup is running")
 
 // safeFileName keeps a job name from reaching outside the directory.
 func safeFileName(name string) string {

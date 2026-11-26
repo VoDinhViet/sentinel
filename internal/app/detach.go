@@ -24,14 +24,9 @@ const startWait = 3 * time.Second
 // repositories, or "" for all of them. It returns once the backup has got going, or has failed
 // to start (and says why). The job lock keeps it from overlapping any other run of the job.
 func (s *Service) StartBackup(jobName, repo string) (pid int, logPath string, err error) {
-	job, err := s.cfg.FindJob(jobName)
+	job, err := s.job(jobName, repo)
 	if err != nil {
 		return 0, "", err
-	}
-	if repo != "" {
-		if _, err := job.OnlyRepo(repo); err != nil {
-			return 0, "", err
-		}
 	}
 	return startDetachedBackup(s.cfg, s.configPath, job.Name, repo)
 }
@@ -57,7 +52,7 @@ func startDetachedBackup(cfg *config.Config, configPath, jobName, repo string) (
 	progressDir := backup.ProgressDir(cfg.StorePath)
 	for _, running := range backup.ReadRunning(progressDir, time.Now()) {
 		if running.Job == jobName {
-			return 0, "", fmt.Errorf("a backup of %s is already running (pid %d)", jobName, running.PID)
+			return 0, "", fmt.Errorf("a backup of %s is %w (pid %d)", jobName, ErrRunning, running.PID)
 		}
 	}
 	exe, err := os.Executable()
