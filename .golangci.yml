@@ -25,11 +25,11 @@ linters:
       # gosec G101 reads a name that contains "secret" or "password" as a credential; these are the
       # names of environment variables and hint text of the forms, not values.
       - linters: [gosec]
-        path: cmd/sentinel/manage_(config_forms|form)\.go
+        path: internal/tui/(config_forms|form)\.go
         text: "G101"
       # gosec G115: free bytes of a disk (statfs) never come near 2^63.
       - linters: [gosec]
-        path: cmd/sentinel/manage_form_view\.go
+        path: internal/tui/form_view\.go
         text: "G115"
       # gosec G104 repeats errcheck, which is on with the exclusions this file already accepts above
       # (Close, Rollback, fmt.Fprint*, os.Remove ...). One policy for unchecked errors, not two.

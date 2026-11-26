@@ -1,23 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"sentinel/internal/app"
-	"sentinel/internal/restic"
-	"sentinel/internal/status"
-)
-
-const (
-	manageRefresh        = 5 * time.Second
-	manageRefreshRunning = 2 * time.Second
-	minColumn            = 6
+	"sentinel/internal/tui"
 )
 
 func (a *cliApp) manageCmd() *cobra.Command {
@@ -44,179 +34,10 @@ func (a *cliApp) runManage(cmd *cobra.Command) error {
 		return err
 	}
 	defer st.Close()
-	ctx := cmd.Context()
-	svc := app.New(cfg, st, a.configPath)
-	load := func() (status.Report, error) { return svc.Status(ctx, time.Now()) }
-	model := newManageModel(ctx, load, newManageActions(svc), configuredJobRepositories(cfg))
-	_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
-	return err
+	return tui.RunManage(cmd.Context(), app.New(cfg, st, a.configPath))
 }
 
 func stdoutIsTerminal() bool {
 	info, err := os.Stdout.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
-
-// Severity of one manager line, shown as a colour.
-type severity int
-
-const (
-	sevOK severity = iota
-	sevWarn
-	sevBad
-	sevRun // a backup that is running now
-)
-
-// manageLine is one table line of a manager tab. detail is the full text shown
-// under the table for the selected line, since cells are shortened to fit.
-type manageLine struct {
-	cells    []string
-	severity severity
-	detail   string
-	// job and repository identify the backup a line stands for (Backups tab only).
-	job, repository string
-	// history is the outcome of the latest runs, oldest first (Backups tab only).
-	history []string
-	// running says a backup of this job and repository is in progress (Backups tab only).
-	running bool
-	// entry says which part of the config a line of the Config tab stands for.
-	entry configEntry
-	// placeholder marks the row that invites adding the first entry of an empty group (Config tab).
-	placeholder bool
-	// sub is the dim line under the row ("└ the full error", the progress of a running backup).
-	sub string
-	// fields are the label/value pairs the detail panel shows for the line; without them the
-	// panel shows detail.
-	fields [][2]string
-}
-
-type manageTab struct {
-	title   string
-	headers []string
-	lines   []manageLine
-	// sections split the lines into groups with their own heading and column headers (the
-	// Config tab); without them the tab is one table under headers.
-	sections []tableSection
-	// count is the number next to the tab's title: how many lines, or how many problems.
-	count int
-	// statusCol is the column coloured by severity; historyCol (-1 = none) shows line.history.
-	statusCol, historyCol int
-	// alarm colours the tab label red.
-	alarm bool
-}
-
-// tableSection is a run of lines that starts at line index first and ends where the next
-// section starts. title and hint make the heading row; headers name the columns of the run.
-type tableSection struct {
-	title, hint string
-	headers     []string
-	first       int
-}
-
-type manageMode int
-
-const (
-	modeTable     manageMode = iota // the three tabs
-	modeSnapshots                   // snapshots of the selected job and repository
-	modeTarget                      // typing the directory to restore into
-	modeConfirm                     // typing the job name to confirm a restore
-	modeBusy                        // a backup, snapshot listing or restore is running
-	modeResult                      // the outcome of a restore
-	modeForm                        // adding or editing a database job
-	modeDelete                      // typing the job name to confirm its removal
-	modeHelp                        // the key list
-	modeBrowse                      // choosing folders for a Paths field
-)
-
-type manageModel struct {
-	ctx             context.Context
-	load            func() (status.Report, error)
-	actions         manageActions
-	jobRepositories []jobRepository
-	report          status.Report
-	loadErr         error
-	loaded          bool
-
-	mode     manageMode
-	tab      int
-	cursor   int
-	width    int
-	height   int
-	quitting bool
-
-	// notice is the outcome of the last action, shown under the table.
-	notice    string
-	noticeBad bool
-
-	snapshotJob, snapshotRepo string
-	snapshots                 []restic.Snapshot // newest first
-	snapshotCursor            int
-	chosen                    restic.Snapshot
-	target, confirm           string
-	inputError                string
-	targetOptions             []string // candidates the last Tab listed for the restore folder
-
-	// stopAsked is the job whose stop was asked for once; a second x confirms it.
-	stopAsked string
-
-	busyText   string
-	busyStart  time.Time
-	busyFrame  int
-	connectSeq int // the number of connection tests started, so a late answer to an old one is ignored
-	cancelBusy context.CancelFunc
-
-	resultText string
-	resultBad  bool
-
-	form       form
-	browse     browseState
-	deleteName string
-	// deleteWhat is "job", "repository"...; deleteNote tells what stays; deleteAction removes it.
-	deleteWhat, deleteNote string
-	deleteAction           func() error
-
-	config configData
-
-	helpReturn manageMode // the screen the key list was opened from
-
-	doctor doctorState
-
-	hits *hitMap // where a click lands, rebuilt by every render
-}
-
-type (
-	reportMsg struct {
-		report status.Report
-		err    error
-	}
-	refreshMsg       struct{}
-	spinMsg          struct{}
-	backupStartedMsg struct {
-		job, repository string
-		pid             int
-		logPath         string
-		err             error
-	}
-	backupStopRequestedMsg struct {
-		job string
-		err error
-	}
-	snapshotsMsg struct {
-		job, repository string
-		snapshots       []restic.Snapshot
-		err             error
-	}
-	restoreDoneMsg struct {
-		hint string
-		err  error
-	}
-	notifierTestedMsg struct {
-		kind string
-		err  error
-	}
-	connectTestedMsg struct {
-		seq  int
-		took time.Duration
-		err  error
-	}
-)
