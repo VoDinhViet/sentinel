@@ -79,7 +79,7 @@ jobs:
     repositories: [s3main]
     retention: { daily: 7, weekly: 4 }
 
-verify_schedule: weekly sun 04:00    # `restic check` of every repository
+verify_schedule: weekly sun 04:00    # `restic check` of every repository; this is the default, `manual` turns it off
 
 # Keep backups from starving the server. These are the defaults.
 # resources:

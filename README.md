@@ -4,7 +4,7 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 
 ![Màn hình sentinel manage: các job backup, kết quả và lịch sử từng lần chạy](docs/images/manage-backups.png)
 
-- **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên thư mục, S3 (AWS, MinIO, R2, Wasabi…), sftp hoặc Google Drive (qua [rclone](https://rclone.org)); có retention và `restic check` định kỳ.
+- **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên thư mục, S3 (AWS, MinIO, R2, Wasabi…), sftp hoặc Google Drive (qua [rclone](https://rclone.org)); có retention và `restic check` hằng tuần (mặc định chủ nhật 04:00; đổi bằng `verify_schedule`, tắt bằng `verify_schedule: manual`).
 - **Uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
 - **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, và báo khi một job quá lâu chưa backup thành công.
 

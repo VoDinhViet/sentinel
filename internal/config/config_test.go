@@ -328,6 +328,25 @@ jobs:
 	}
 }
 
+// The repository check is on unless the config turns it off: an unchecked repository is a backup nobody knows is readable.
+func TestVerifyScheduleDefaultsToWeekly(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"not set": {"", DefaultVerifySchedule},
+		"own":     {"verify_schedule: daily 03:00", "daily 03:00"},
+		"manual":  {"verify_schedule: manual", "manual"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.VerifySchedule != tc.want {
+				t.Errorf("VerifySchedule = %q, want %q", cfg.VerifySchedule, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultsAreValidated(t *testing.T) {
 	_, err := Parse([]byte(`
 repositories: { r: { url: /tmp/r, password: p } }

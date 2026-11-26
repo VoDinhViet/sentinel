@@ -297,7 +297,7 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 		{key: "upload_limit_kib", label: "Giới hạn upload", hint: "KiB/s cho mỗi backup, vd. 20480 = 20 MiB/s. Để trống = không giới hạn", value: settings.UploadLimitKiB, placeholder: "không giới hạn"},
 		{key: "notify_success", label: "Báo thành công", hint: "cũng gửi tin sau mỗi backup thành công", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
 	}
-	fields = append(fields, scheduleFields("verify_schedule", "Kiểm tra repo", "khi nào chạy `restic check` trên mọi repository. "+scheduleHint, settings.VerifySchedule, "không bao giờ", "")...)
+	fields = append(fields, scheduleFields("verify_schedule", "Kiểm tra repo", "khi nào chạy `restic check` trên mọi repository. Để trống = mặc định, gõ manual để tắt. "+scheduleHint, settings.VerifySchedule, "hàng tuần, chủ nhật 04:00 (mặc định)", "")...)
 	fields = append(fields, scheduleFields("default_schedule", "Schedule mặc định", "cho job không đặt schedule. "+scheduleHint, settings.DefaultSchedule, "chưa có: job chạy bằng tay", "")...)
 	fields = append(fields, []formField{
 		{key: "default_repositories", label: "Repo mặc định", hint: "space hoặc click để tick; cho job không liệt kê repository. Không tick gì mà chỉ có một repository = repository đó", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},

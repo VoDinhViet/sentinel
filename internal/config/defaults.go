@@ -10,6 +10,10 @@ import (
 // DefaultJobTimeout is how long one run of a job may take when the job sets no timeout.
 const DefaultJobTimeout = 6 * time.Hour
 
+// DefaultVerifySchedule is when `restic check` runs on every repository when the config sets no
+// verify_schedule. "manual" turns it off.
+const DefaultVerifySchedule = "weekly sun 04:00"
+
 func (c *Config) applyDefaults() {
 	if c.ServerName == "" {
 		c.ServerName, _ = os.Hostname()
@@ -22,6 +26,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Resources.MaxParallel == 0 {
 		c.Resources.MaxParallel = 1
+	}
+	if c.VerifySchedule == "" {
+		c.VerifySchedule = DefaultVerifySchedule
 	}
 	if c.ShutdownWait == 0 {
 		c.ShutdownWait = 2 * time.Hour

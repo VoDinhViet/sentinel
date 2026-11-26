@@ -214,13 +214,14 @@ func (m manageModel) buildConfigTab() manageTab {
 		defaults = "mặc định: " + strings.Join(nonEmpty(settings.DefaultSchedule, strings.Join(settings.DefaultRepositories, ", "), settings.DefaultRetention.String()), " · ")
 	}
 	serverName := orDefault(settings.ServerName, "(tên máy)")
+	verifySchedule := schedule.Describe(orDefault(settings.VerifySchedule, config.DefaultVerifySchedule))
 	defaultSchedule := orDefault(settings.DefaultSchedule, "chưa đặt")
 	defaultRepositories := orDefault(strings.Join(settings.DefaultRepositories, ", "), "chưa đặt")
 	defaultRetention := orDefault(strings.Join(nonEmpty(settings.DefaultRetention.String()), ""), "chưa đặt")
 	add(configEntry{secSettings, "general"}, sevOK, []string{serverName, defaultSchedule, defaultRepositories, defaultRetention},
-		fmt.Sprintf("Cài đặt: server %s, cảnh báo lặp lại mỗi %s, kiểm tra repository %s. %s", serverName, orDefault(settings.Cooldown, "1h (mặc định)"), schedule.Describe(settings.VerifySchedule), defaults),
+		fmt.Sprintf("Cài đặt: server %s, cảnh báo lặp lại mỗi %s, kiểm tra repository %s. %s", serverName, orDefault(settings.Cooldown, "1h (mặc định)"), verifySchedule, defaults),
 		[][2]string{
-			{"Tên máy", serverName}, {"Cảnh báo lặp lại", orDefault(settings.Cooldown, "1h (mặc định)")}, {"Kiểm tra repo", schedule.Describe(settings.VerifySchedule)},
+			{"Tên máy", serverName}, {"Cảnh báo lặp lại", orDefault(settings.Cooldown, "1h (mặc định)")}, {"Kiểm tra repo", verifySchedule},
 			{"Lịch mặc định", defaultSchedule}, {"Repository mặc định", defaultRepositories}, {"Retention mặc định", defaultRetention},
 		})
 	tab.count = 0
