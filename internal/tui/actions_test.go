@@ -108,8 +108,8 @@ func TestBackupNowStartsADetachedBackupWithoutBlockingTheScreen(t *testing.T) {
 	screen := modelWith(t, fake)
 	model, cmd := screen.onKey("b", "")
 	screen = model.(manageModel)
-	if screen.mode != modeTable {
-		t.Fatalf("b must not switch to the busy screen (mode %d)", screen.mode)
+	if !screen.onTabs() {
+		t.Fatalf("b must not switch to the busy screen (screens %d)", len(screen.screens))
 	}
 	screen = feed(t, screen, messagesOf(cmd))
 	if len(fake.backups) != 1 || fake.backups[0] != "appdb/s3" {
@@ -187,7 +187,7 @@ func TestBackupKeyOnlyActsOnTheBackupsTab(t *testing.T) {
 	screen := modelWith(t, fake)
 	model, _ := screen.onKey("2", "")
 	model, cmd := model.(manageModel).onKey("b", "")
-	if cmd != nil || model.(manageModel).mode != modeTable || len(fake.backups) != 0 {
+	if cmd != nil || !model.(manageModel).onTabs() || len(fake.backups) != 0 {
 		t.Error("b on the Uptime tab must do nothing")
 	}
 }
@@ -205,24 +205,24 @@ func TestRestoreNeedsTargetAndTheJobNameThenShowsTheLoadCommand(t *testing.T) {
 	screen := modelWith(t, fake)
 	model, cmd := screen.onKey("s", "")
 	screen = feed(t, model.(manageModel), messagesOf(cmd))
-	if screen.mode != modeSnapshots || !strings.Contains(plain(screen.render()), "newest00") {
-		t.Fatalf("snapshot list missing (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if _, ok := openScreen[snapshotsScreen](screen); !ok || !strings.Contains(plain(screen.render()), "newest00") {
+		t.Fatalf("snapshot list missing (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 	model, _ = screen.onKey("down", "")
 	model, _ = model.(manageModel).onKey("enter", "")
 	screen = model.(manageModel)
-	if screen.mode != modeTarget || screen.chosen.ID != "older00000000000" {
-		t.Fatalf("mode %d chosen %q", screen.mode, screen.chosen.ID)
+	if asked, ok := openScreen[targetScreen](screen); !ok || asked.snap.ID != "older00000000000" {
+		t.Fatalf("target screen missing or the wrong snapshot: %+v", asked)
 	}
 
 	model, _ = screen.onKey("enter", "") // empty target
 	screen = model.(manageModel)
-	if screen.mode != modeTarget || screen.inputError == "" {
+	if asked, ok := openScreen[targetScreen](screen); !ok || asked.problem == "" {
 		t.Fatal("an empty or relative target must be refused")
 	}
 	screen = typeText(t, screen, "relative/dir")
 	model, _ = screen.onKey("enter", "")
-	if model.(manageModel).mode != modeTarget {
+	if _, ok := openScreen[targetScreen](model.(manageModel)); !ok {
 		t.Fatal("a relative target must be refused")
 	}
 	screen = model.(manageModel)
@@ -233,14 +233,14 @@ func TestRestoreNeedsTargetAndTheJobNameThenShowsTheLoadCommand(t *testing.T) {
 	screen = typeText(t, screen, "/tmp/restore")
 	model, _ = screen.onKey("enter", "")
 	screen = model.(manageModel)
-	if screen.mode != modeConfirm || !strings.Contains(plain(screen.render()), "/tmp/restore") {
-		t.Fatalf("confirm screen missing (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if _, ok := openScreen[confirmScreen](screen); !ok || !strings.Contains(plain(screen.render()), "/tmp/restore") {
+		t.Fatalf("confirm screen missing (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 
 	screen = typeText(t, screen, "wrong")
 	model, cmd = screen.onKey("enter", "")
 	screen = model.(manageModel)
-	if cmd != nil || len(fake.restored) != 0 || screen.inputError == "" {
+	if asked, _ := openScreen[confirmScreen](screen); cmd != nil || len(fake.restored) != 0 || asked.problem == "" {
 		t.Fatal("a wrong job name must not start the restore")
 	}
 	for range "wrong" {
@@ -254,11 +254,11 @@ func TestRestoreNeedsTargetAndTheJobNameThenShowsTheLoadCommand(t *testing.T) {
 		t.Fatalf("restore call: %v to %q", fake.restored, fake.restoreTo)
 	}
 	view := plain(screen.render())
-	if screen.mode != modeResult || !strings.Contains(view, "Đã restore older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
-		t.Errorf("result screen (mode %d):\n%s", screen.mode, view)
+	if _, ok := openScreen[resultScreen](screen); !ok || !strings.Contains(view, "Đã restore older000") || !strings.Contains(view, "pg_restore -d appdb /tmp/restore/appdb.dump") {
+		t.Errorf("result screen (screens %d):\n%s", len(screen.screens), view)
 	}
 	model, _ = screen.onKey("x", "x")
-	if model.(manageModel).mode != modeSnapshots {
+	if _, ok := openScreen[snapshotsScreen](model.(manageModel)); !ok {
 		t.Error("a key after a successful restore returns to the snapshot list")
 	}
 }
@@ -275,7 +275,7 @@ func TestRestoreFailureIsShown(t *testing.T) {
 	screen = typeText(t, model.(manageModel), "appdb")
 	model, cmd = screen.onKey("enter", "")
 	screen = feed(t, model.(manageModel), messagesOf(cmd))
-	if !screen.resultBad || !strings.Contains(plain(screen.render()), "Restore thất bại: disk full") {
+	if failed, _ := openScreen[resultScreen](screen); !failed.bad || !strings.Contains(plain(screen.render()), "Restore thất bại: disk full") {
 		t.Errorf("failure missing:\n%s", plain(screen.render()))
 	}
 }
@@ -298,11 +298,11 @@ func TestEscapeBacksOutOfRestore(t *testing.T) {
 	screen = feed(t, model.(manageModel), messagesOf(cmd))
 	model, _ = screen.onKey("enter", "")
 	model, _ = model.(manageModel).onKey("esc", "")
-	if model.(manageModel).mode != modeSnapshots {
+	if _, ok := openScreen[snapshotsScreen](model.(manageModel)); !ok {
 		t.Error("esc in the target prompt returns to the snapshot list")
 	}
 	model, _ = model.(manageModel).onKey("esc", "")
-	if model.(manageModel).mode != modeTable {
+	if !model.(manageModel).onTabs() {
 		t.Error("esc in the snapshot list returns to the tabs")
 	}
 }
@@ -310,13 +310,13 @@ func TestEscapeBacksOutOfRestore(t *testing.T) {
 func TestCtrlCCancelsARunningActionButQDoesNotQuit(t *testing.T) {
 	screen := modelWith(t, &fakeActions{})
 	ctx, cancel := context.WithCancel(context.Background())
-	screen.mode, screen.cancelBusy = modeBusy, cancel
+	screen = screen.push(busyScreen{text: "đang chạy", cancel: cancel})
 	model, cmd := screen.onKey("q", "q")
 	if cmd != nil || model.(manageModel).quitting {
 		t.Error("q must not quit while an action runs")
 	}
 	model, _ = model.(manageModel).onKey("ctrl+c", "")
-	if ctx.Err() == nil || !strings.Contains(model.(manageModel).busyText, "đang huỷ") {
+	if busy, _ := openScreen[busyScreen](model.(manageModel)); ctx.Err() == nil || !strings.Contains(busy.text, "đang huỷ") {
 		t.Error("ctrl+c must cancel the running action")
 	}
 }

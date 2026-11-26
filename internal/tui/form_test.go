@@ -515,10 +515,10 @@ func TestTabCompletesTheRestoreFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	screen := loadedModel(t)
-	screen.mode, screen.target = modeTarget, root+"/res"
+	screen = screen.push(targetScreen{target: root + "/res"})
 	screen, _ = press(t, screen, "tab")
-	if screen.target != root+"/restore-here/" {
-		t.Errorf("target = %q", screen.target)
+	if asked, _ := openScreen[targetScreen](screen); asked.target != root+"/restore-here/" {
+		t.Errorf("target = %q", asked.target)
 	}
 }
 

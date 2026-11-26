@@ -1,14 +1,10 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"sentinel/internal/backup"
 )
 
 func (m manageModel) View() tea.View {
@@ -36,16 +32,6 @@ func (m manageModel) renderScreen() []string {
 		return open.render(m)
 	}
 	switch m.mode {
-	case modeBusy:
-		return m.renderBusy()
-	case modeSnapshots:
-		return m.renderSnapshots()
-	case modeTarget:
-		return m.renderTarget()
-	case modeConfirm:
-		return m.renderConfirm()
-	case modeResult:
-		return m.renderResult()
 	case modeForm:
 		return m.renderForm()
 	case modeBrowse:
@@ -197,94 +183,6 @@ func (m manageModel) keyChipsText(chips []keyChip, withLabels bool, screenRow in
 // wrap breaks text into lines of at most width cells (at least 20), on spaces.
 func wrap(text string, width int) string {
 	return strings.Join(wrapLines(text, max(width, 20)), "\n")
-}
-
-// renderBusy, renderSnapshots, renderTarget, renderConfirm and renderResult are the
-// screens other than the three tabs.
-
-func (m manageModel) renderBusy() []string {
-	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	elapsed := time.Since(m.busyStart).Round(time.Second)
-	return []string{
-		lipglossAccent(frames[m.busyFrame%len(frames)]) + " " + m.busyText + dimStyle.Render("  "+elapsed.String()),
-		"",
-		m.keyBar(2, "ctrl+c", "huỷ"),
-	}
-}
-
-func (m manageModel) renderSnapshots() []string {
-	screenLines := []string{titleStyle.Render(fmt.Sprintf("Snapshots của %s trong %s", m.snapshotJob, m.snapshotRepo)), ""}
-	if len(m.snapshots) == 0 {
-		return append(screenLines, dimStyle.Render("Chưa có snapshot nào của job này trong repository này."), "", m.keyBar(len(screenLines)+2, "esc", "quay lại"))
-	}
-	visible := max(m.height-8, 3)
-	first := firstVisible(m.snapshotCursor, visible)
-	screenLines = append(screenLines, "  "+headerStyle.Render(fmt.Sprintf("%-10s %-17s %s", "SNAPSHOT", "THỜI GIAN", "KÍCH THƯỚC")))
-	for i := first; i < min(first+visible, len(m.snapshots)); i++ {
-		snapshot := m.snapshots[i]
-		size := ""
-		if snapshot.Summary != nil {
-			size = backup.HumanBytes(snapshot.Summary.TotalBytes)
-		}
-		line := fmt.Sprintf("%-10s %-17s %s", shortID(snapshot.ID), snapshot.Time.Local().Format("2006-01-02 15:04"), size)
-		m.hits.add(len(screenLines), 0, m.width, fmt.Sprintf("snap:%d", i))
-		if i == m.snapshotCursor {
-			text := "› " + line
-			screenLines = append(screenLines, selectedStyle.Render(text+strings.Repeat(" ", max(m.width-lipgloss.Width(text), 0))))
-		} else {
-			screenLines = append(screenLines, "  "+line)
-		}
-	}
-	if hidden := len(m.snapshots) - (first + visible); hidden > 0 {
-		screenLines = append(screenLines, dimStyle.Render(fmt.Sprintf("  … còn %d", hidden)))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "↑↓", "chọn", "enter", "restore…", "esc", "quay lại"))
-}
-
-func (m manageModel) renderTarget() []string {
-	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s của %s", shortID(m.chosen.ID), m.snapshotJob)),
-		"",
-		"Thư mục để restore vào (đường dẫn tuyệt đối):",
-		"  " + m.target + lipglossAccent("▏"),
-	}
-	if len(m.targetOptions) > 0 {
-		screenLines = append(screenLines, "  "+dimStyle.Render(truncate(strings.Join(m.targetOptions, "  "), max(m.width-4, 10))))
-	}
-	if m.inputError != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "tab", "điền", "enter", "tiếp tục", "esc", "quay lại"))
-}
-
-func (m manageModel) renderConfirm() []string {
-	screenLines := []string{
-		titleStyle.Render(fmt.Sprintf("Restore %s của %s", shortID(m.chosen.ID), m.snapshotJob)),
-		"",
-		wrap(fmt.Sprintf("Snapshot %s (%s) từ %s sẽ được restore vào %s.",
-			shortID(m.chosen.ID), m.chosen.Time.Local().Format("2006-01-02 15:04"), m.snapshotRepo, m.target), m.width-2),
-	}
-	if m.target == "/" {
-		screenLines = append(screenLines, "", severityStyle(sevWarn).Render("Đích là / : file được restore tại chỗ và ghi đè dữ liệu hiện có."))
-	}
-	screenLines = append(screenLines, "", "Gõ tên job ("+m.snapshotJob+") để xác nhận:", "  "+m.confirm+lipglossAccent("▏"))
-	if m.inputError != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "restore", "esc", "huỷ"))
-}
-
-func (m manageModel) renderResult() []string {
-	style := severityStyle(sevOK)
-	if m.resultBad {
-		style = severityStyle(sevBad)
-	}
-	first, rest, _ := strings.Cut(m.resultText, "\n")
-	screenLines := []string{style.Render(wrap(first, m.width-2))}
-	if rest != "" {
-		screenLines = append(screenLines, rest)
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "phím bất kỳ", "tiếp tục"))
 }
 
 func lipglossAccent(text string) string {

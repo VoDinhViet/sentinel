@@ -326,12 +326,12 @@ func TestTestKeySendsAMessageThroughTheSelectedNotifier(t *testing.T) {
 	screen = goTo(t, screen, secNotifier, "telegram")
 	model, cmd := screen.onKey("t", "t")
 	screen = model.(manageModel)
-	if screen.mode != modeBusy || !strings.Contains(screen.busyText, "telegram") {
-		t.Fatalf("mode %d busy %q: the test runs in the background", screen.mode, screen.busyText)
+	if busy, ok := openScreen[busyScreen](screen); !ok || !strings.Contains(busy.text, "telegram") {
+		t.Fatalf("busy screen %v %q: the test runs in the background", ok, busy.text)
 	}
 	screen = feed(t, screen, messagesOf(cmd))
-	if strings.Join(configFile.tested, ",") != "telegram" || screen.mode != modeTable || screen.noticeBad || !strings.Contains(screen.notice, "Đã gửi tin thử tới telegram") {
-		t.Errorf("tested %v mode %d notice %q (bad %v)", configFile.tested, screen.mode, screen.notice, screen.noticeBad)
+	if strings.Join(configFile.tested, ",") != "telegram" || !screen.onTabs() || screen.noticeBad || !strings.Contains(screen.notice, "Đã gửi tin thử tới telegram") {
+		t.Errorf("tested %v screens %d notice %q (bad %v)", configFile.tested, len(screen.screens), screen.notice, screen.noticeBad)
 	}
 
 	configFile.testErr = errors.New("telegram: 401 Unauthorized")

@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -64,10 +63,7 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		return m, tea.Batch(m.reload(), m.scheduleRefresh())
 	case spinMsg:
-		if m.mode == modeBusy {
-			m.busyFrame++
-			return m, m.spin()
-		}
+		return m.onSpin()
 	case backupStartedMsg:
 		return m.afterBackupStarted(msg)
 	case backupStopRequestedMsg:
@@ -93,53 +89,12 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m manageModel) spin() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg { return spinMsg{} })
-}
-
-// startBusy switches to the busy screen and returns the context the action runs
-// with; ctrl+c on the busy screen cancels it.
-func (m *manageModel) startBusy(text string) context.Context {
-	ctx, cancel := context.WithCancel(m.ctx)
-	m.mode, m.busyText, m.busyStart, m.busyFrame, m.cancelBusy = modeBusy, text, time.Now(), 0, cancel
-	m.notice = ""
-	return ctx
-}
-
-func (m *manageModel) endBusy() {
-	if m.cancelBusy != nil {
-		m.cancelBusy()
-	}
-	m.cancelBusy = nil
-}
-
-// onTabs says the tabs are on show: no screen is open over them.
-func (m manageModel) onTabs() bool { return len(m.screens) == 0 && m.mode == modeTable }
-
 func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 	if open := m.top(); open != nil {
 		next, cmd := open.onKey(m, key, text)
 		return next, cmd
 	}
 	switch m.mode {
-	case modeBusy:
-		if key == "ctrl+c" && m.cancelBusy != nil {
-			m.cancelBusy()
-			m.busyText += " (đang huỷ: restic có thể mất tới 30 giây để dừng gọn)"
-		}
-		return m, nil
-	case modeResult:
-		m.mode = modeTable
-		if m.snapshotJob != "" && !m.resultBad {
-			m.mode = modeSnapshots
-		}
-		return m, nil
-	case modeSnapshots:
-		return m.onSnapshotsKey(key)
-	case modeTarget:
-		return m.onTargetKey(key, text)
-	case modeConfirm:
-		return m.onConfirmKey(key, text)
 	case modeForm:
 		return m.onFormKey(key, text)
 	case modeBrowse:
@@ -272,38 +227,6 @@ func (m manageModel) afterBackupStopRequested(msg backupStopRequestedMsg) (tea.M
 	return m, m.reload()
 }
 
-func (m manageModel) afterSnapshots(msg snapshotsMsg) manageModel {
-	m.endBusy()
-	if msg.err != nil {
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s → %s: %v", msg.job, msg.repository, msg.err), true
-		return m
-	}
-	m.mode, m.snapshotJob, m.snapshotRepo, m.snapshots, m.snapshotCursor = modeSnapshots, msg.job, msg.repository, msg.snapshots, 0
-	return m
-}
-
-func (m manageModel) onSnapshotsKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "?":
-		m = m.push(snapshotsHelp())
-	case "esc", "q":
-		m.mode = modeTable
-	case "down", "j":
-		m.snapshotCursor = min(m.snapshotCursor+1, max(len(m.snapshots)-1, 0))
-	case "up", "k":
-		m.snapshotCursor = max(m.snapshotCursor-1, 0)
-	case "g", "home":
-		m.snapshotCursor = 0
-	case "G", "end":
-		m.snapshotCursor = max(len(m.snapshots)-1, 0)
-	case "enter", "r":
-		if len(m.snapshots) > 0 {
-			m.chosen, m.mode, m.target, m.inputError = m.snapshots[m.snapshotCursor], modeTarget, "", ""
-		}
-	}
-	return m, nil
-}
-
 // editText applies one key to a single-line text field.
 func editText(field, key, text string) string {
 	switch {
@@ -314,65 +237,4 @@ func editText(field, key, text string) string {
 		return field + text
 	}
 	return field
-}
-
-func (m manageModel) onTargetKey(key, text string) (tea.Model, tea.Cmd) {
-	if key != "tab" {
-		m.targetOptions = nil
-	}
-	switch key {
-	case "tab":
-		completed, options := completePath(m.target)
-		if completed != m.target || len(options) == 0 {
-			m.target = completed
-		}
-		m.targetOptions = options
-	case "esc":
-		m.mode = modeSnapshots
-	case "enter":
-		target := strings.TrimSpace(m.target)
-		if !strings.HasPrefix(target, "/") {
-			m.inputError = "nhập đường dẫn tuyệt đối, ví dụ /tmp/restore"
-			return m, nil
-		}
-		m.target, m.mode, m.confirm, m.inputError = target, modeConfirm, "", ""
-	default:
-		m.target, m.inputError = editText(m.target, key, text), ""
-	}
-	return m, nil
-}
-
-func (m manageModel) onConfirmKey(key, text string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		m.mode = modeSnapshots
-	case "enter":
-		if m.confirm != m.snapshotJob {
-			m.inputError = "tên không khớp"
-			return m, nil
-		}
-		ctx := m.startBusy(fmt.Sprintf("Đang restore %s của %s vào %s", shortID(m.chosen.ID), m.snapshotJob, m.target))
-		job, repository, snapshot, target, actions := m.snapshotJob, m.snapshotRepo, m.chosen, m.target, m.actions
-		return m, tea.Batch(m.spin(), func() tea.Msg {
-			hint, err := actions.restore(ctx, job, repository, snapshot, target)
-			return restoreDoneMsg{hint: hint, err: err}
-		})
-	default:
-		m.confirm, m.inputError = editText(m.confirm, key, text), ""
-	}
-	return m, nil
-}
-
-func (m manageModel) afterRestore(msg restoreDoneMsg) manageModel {
-	m.endBusy()
-	m.mode, m.resultBad = modeResult, msg.err != nil
-	if msg.err != nil {
-		m.resultText = "Restore thất bại: " + msg.err.Error()
-		return m
-	}
-	m.resultText = fmt.Sprintf("Đã restore %s của %s từ %s vào %s.", shortID(m.chosen.ID), m.snapshotJob, m.snapshotRepo, m.target)
-	if msg.hint != "" {
-		m.resultText += "\n\nNạp lại bằng lệnh:\n  " + msg.hint + "\n\nLệnh này thay thế dữ liệu hiện có: hãy thử trên database hoặc server tạm trước."
-	}
-	return m
 }

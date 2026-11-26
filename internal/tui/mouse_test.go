@@ -109,8 +109,8 @@ func TestMouseTargetsFollowAScrolledTableAndNarrowFooter(t *testing.T) {
 			t.Errorf("target %q reaches column %d on a 44-column screen", action, target.to)
 		}
 	}
-	if m2, cmd := clickOn(t, modelWithNarrow(t), "s"); m2.mode != modeBusy || cmd == nil {
-		t.Errorf("clicking the s chip lists the snapshots (mode %d)", m2.mode)
+	if m2, cmd := clickOn(t, modelWithNarrow(t), "s"); !isBusy(m2) || cmd == nil {
+		t.Errorf("clicking the s chip lists the snapshots (screens %d)", len(m2.screens))
 	}
 }
 
@@ -157,28 +157,28 @@ func TestMouseSecondClickOpensTheJobSnapshots(t *testing.T) {
 	fake := &fakeActions{}
 	m := modelWith(t, fake)
 	m, _ = clickOn(t, m, "row:1")
-	if m.mode != modeTable || m.cursor != 1 {
+	if !m.onTabs() || m.cursor != 1 {
 		t.Fatal("a click on another line only selects it")
 	}
 	m, cmd := clickOn(t, m, "row:1")
-	if m.mode != modeBusy || cmd == nil {
-		t.Fatalf("a second click on the selected job opens it (mode %d)", m.mode)
+	if !isBusy(m) || cmd == nil {
+		t.Fatalf("a second click on the selected job opens it (screens %d)", len(m.screens))
 	}
 	m = feed(t, m, messagesOf(cmd))
-	if m.mode != modeSnapshots {
-		t.Fatalf("snapshot list missing (mode %d)", m.mode)
+	if _, ok := openScreen[snapshotsScreen](m); !ok {
+		t.Fatalf("snapshot list missing (screens %d)", len(m.screens))
 	}
 
 	if row := screenRow(m, targetFor(t, m, "snap:0").row); !strings.Contains(row, "newest00") {
 		t.Fatalf("snapshot 0 is not at its target row: %q\n%s", row, plain(m.render()))
 	}
 	m, _ = clickOn(t, m, "snap:1")
-	if m.snapshotCursor != 1 {
-		t.Errorf("clicking a snapshot selects it: %d", m.snapshotCursor)
+	if list, _ := openScreen[snapshotsScreen](m); list.cursor != 1 {
+		t.Errorf("clicking a snapshot selects it: %d", list.cursor)
 	}
 	m, _ = clickOn(t, m, "snap:1")
-	if m.mode != modeTarget || m.chosen.ID != "older00000000000" {
-		t.Errorf("a second click starts the restore (mode %d, chosen %q)", m.mode, m.chosen.ID)
+	if asked, ok := openScreen[targetScreen](m); !ok || asked.snap.ID != "older00000000000" {
+		t.Errorf("a second click starts the restore (screens %d, chosen %q)", len(m.screens), asked.snap.ID)
 	}
 }
 
@@ -245,7 +245,7 @@ func TestHelpOpensFromTheJobsAndSnapshotsAndClosesOnAnyKey(t *testing.T) {
 		t.Errorf("snapshot help:\n%s", view)
 	}
 	model, _ = m2.onKey("esc", "")
-	if model.(manageModel).mode != modeSnapshots {
+	if _, ok := openScreen[snapshotsScreen](model.(manageModel)); !ok {
 		t.Error("closing the help returns to the snapshot list")
 	}
 }

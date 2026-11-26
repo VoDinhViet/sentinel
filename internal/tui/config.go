@@ -379,7 +379,6 @@ func (m manageModel) configTestNotifier() (tea.Model, tea.Cmd) {
 
 func (m manageModel) afterNotifierTest(msg notifierTestedMsg) manageModel {
 	m.endBusy()
-	m.mode = modeTable
 	if msg.err != nil {
 		m.notice, m.noticeBad = fmt.Sprintf("Gửi thử tới %s thất bại: %v", msg.kind, msg.err), true
 		return m

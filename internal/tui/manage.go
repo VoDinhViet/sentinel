@@ -93,14 +93,9 @@ type tableSection struct {
 type manageMode int
 
 const (
-	modeTable     manageMode = iota // the three tabs
-	modeSnapshots                   // snapshots of the selected job and repository
-	modeTarget                      // typing the directory to restore into
-	modeConfirm                     // typing the job name to confirm a restore
-	modeBusy                        // a backup, snapshot listing or restore is running
-	modeResult                      // the outcome of a restore
-	modeForm                        // adding or editing a database job
-	modeBrowse                      // choosing folders for a Paths field
+	modeTable  manageMode = iota // the three tabs
+	modeForm                     // adding or editing a database job
+	modeBrowse                   // choosing folders for a Paths field
 )
 
 type manageModel struct {
@@ -124,25 +119,10 @@ type manageModel struct {
 	notice    string
 	noticeBad bool
 
-	snapshotJob, snapshotRepo string
-	snapshots                 []restic.Snapshot // newest first
-	snapshotCursor            int
-	chosen                    restic.Snapshot
-	target, confirm           string
-	inputError                string
-	targetOptions             []string // candidates the last Tab listed for the restore folder
-
 	// stopAsked is the job whose stop was asked for once; a second x confirms it.
 	stopAsked string
 
-	busyText   string
-	busyStart  time.Time
-	busyFrame  int
 	connectSeq int // the number of connection tests started, so a late answer to an old one is ignored
-	cancelBusy context.CancelFunc
-
-	resultText string
-	resultBad  bool
 
 	form   form
 	browse browseState

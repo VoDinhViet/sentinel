@@ -123,10 +123,9 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if index, ok := actionIndex(action, "snap:"); ok {
-		if index == m.snapshotCursor {
-			return m.onSnapshotsKey("enter")
+		if list, ok := m.top().(snapshotsScreen); ok {
+			return list.click(m, index)
 		}
-		m.snapshotCursor = index
 		return m, nil
 	}
 	if m.mode == modeBrowse {
@@ -161,9 +160,6 @@ func (m manageModel) clickedAction(col, row int) (string, bool) {
 
 // onWheel moves the selection by wheelStep lines in the current list.
 func (m manageModel) onWheel(up, down bool) manageModel {
-	if len(m.screens) > 0 {
-		return m
-	}
 	step := 0
 	switch {
 	case up:
@@ -171,11 +167,15 @@ func (m manageModel) onWheel(up, down bool) manageModel {
 	case down:
 		step = wheelStep
 	}
+	if list, ok := m.top().(snapshotsScreen); ok {
+		return list.scroll(m, step)
+	}
+	if len(m.screens) > 0 {
+		return m
+	}
 	switch m.mode {
 	case modeTable:
 		m.cursor = min(max(m.cursor+step, 0), max(len(m.tabs()[m.tab].lines)-1, 0))
-	case modeSnapshots:
-		m.snapshotCursor = min(max(m.snapshotCursor+step, 0), max(len(m.snapshots)-1, 0))
 	}
 	return m
 }

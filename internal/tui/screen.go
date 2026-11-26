@@ -42,3 +42,6 @@ func (m manageModel) replaceTop(next screen) manageModel {
 	m.screens = append(slices.Clone(m.screens[:len(m.screens)-1]), next)
 	return m
 }
+
+// onTabs says the tabs are on show: no screen is open over them.
+func (m manageModel) onTabs() bool { return len(m.screens) == 0 && m.mode == modeTable }
