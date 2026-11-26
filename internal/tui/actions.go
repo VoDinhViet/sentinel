@@ -47,6 +47,8 @@ type manageActions struct {
 	// testNotifier sends a test message through the notifier of that kind, as the config file
 	// has it now (a notifier added a minute ago works without restarting the manager).
 	testNotifier func(ctx context.Context, kind string) error
+	// host reads how the machine is doing (CPU, memory, disks, failed units).
+	host func(ctx context.Context) app.HostReport
 	// initialize writes a first config file (`sentinel init`).
 	initialize func(initial configedit.Initial) error
 }
@@ -72,5 +74,6 @@ func newManageActions(svc *app.Service) manageActions {
 		saveSettings:     svc.SaveSettings,
 		testConnection:   svc.TestConnection,
 		testNotifier:     svc.TestNotifier,
+		host:             svc.Host,
 	}
 }

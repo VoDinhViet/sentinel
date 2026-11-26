@@ -128,6 +128,8 @@ type manageModel struct {
 
 	doctor doctorState
 
+	server serverState
+
 	hits *hitMap // where a click lands, rebuilt by every render
 }
 

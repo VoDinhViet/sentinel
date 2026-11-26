@@ -13,14 +13,14 @@ import (
 	"sentinel/internal/schedule"
 )
 
-// The tabs of the manager; doctorTab and configTab are declared next to their code.
+// The tabs of the manager; doctorTab, configTab and serverTab are declared next to their code.
 const (
 	backupsTab = iota
 	uptimeTab
 	alertsTab
 )
 
-// tabs turns the report into the five manager tabs.
+// tabs turns the report into the six manager tabs.
 func (m manageModel) tabs() []manageTab {
 	now := m.report.GeneratedAt
 	// Columns are ordered by importance: a narrow screen drops the last ones.
@@ -85,7 +85,7 @@ func (m manageModel) tabs() []manageTab {
 		})
 	}
 	alerts.count, alerts.alarm = len(alerts.lines), len(alerts.lines) > 0
-	return []manageTab{backups, checks, alerts, m.buildDoctorTab(), m.buildConfigTab()}
+	return []manageTab{backups, checks, alerts, m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab()}
 }
 
 // hasSeverity says some line has that severity.

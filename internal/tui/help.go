@@ -30,7 +30,7 @@ func (s helpScreen) render(m manageModel) []string {
 // tabHelp is the key list for the tab on show.
 func (m manageModel) tabHelp() helpScreen {
 	common := []keyHelp{
-		{"tab  1-5", "chuyển giữa Backups, Uptime, Alerts, Doctor và Config"},
+		{"tab  1-6", "chuyển giữa Backups, Uptime, Alerts, Doctor, Config và Server"},
 		{"↑ ↓  j k", "chọn một dòng"},
 		{"g  G", "dòng đầu và dòng cuối"},
 		{"click  wheel", "bấm vào tab hoặc dòng; cuộn bằng wheel"},
@@ -51,6 +51,8 @@ func (m manageModel) tabHelp() helpScreen {
 		}
 	case doctorTab:
 		ownKeys = []keyHelp{{"r", "chạy lại các check"}}
+	case serverTab:
+		ownKeys = []keyHelp{{"r", "đọc lại tình trạng máy ngay (tab này tự đọc lại mỗi 5 giây khi đang mở)"}}
 	case configTab:
 		ownKeys = []keyHelp{
 			{"a", "thêm một mục vào nhóm của dòng đang chọn"},

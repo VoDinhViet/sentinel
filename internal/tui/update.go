@@ -45,6 +45,7 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next.onTabs() && !next.config.loaded { // the schedules in the Backups tab and the Config tab come from the file
 		next = next.refreshConfig()
 	}
+	next, cmd = next.startServerIfNeeded(cmd)
 	return next.startDoctorIfNeeded(cmd)
 }
 
@@ -76,8 +77,12 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doctorMsg:
 		m.doctor.running, m.doctor.findings = false, msg.findings
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+	case hostReadMsg:
+		m.server.reading, m.server.report = false, msg.report
+		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case refreshMsg:
-		return m, m.reloadPeriodic()
+		next, readHost := m.refreshServer()
+		return next, tea.Batch(m.reloadPeriodic(), readHost)
 	case spinMsg:
 		return m.onSpin()
 	case backupStartedMsg:

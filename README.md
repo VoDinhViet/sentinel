@@ -11,7 +11,7 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 
 - **HTTP API** (tùy chọn, mặc định tắt): đặt `api.listen` và `api.token`, daemon mở API JSON để xem trạng thái, liệt kê snapshot, bắt đầu hoặc dừng backup từ máy khác hoặc từ script. Xem mục [HTTP API](#http-api).
 
-Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM (dùng công cụ giám sát riêng cho việc đó; chỉ cảnh báo khi ổ đĩa sắp đầy). Phiên bản hiện tại: v0.1.0.
+Sentinel không có web UI, không có server trung tâm và không lưu lịch sử CPU/RAM và không cảnh báo về chúng (tab **Server** chỉ cho xem tình trạng máy lúc này; cần theo dõi dài hạn thì dùng công cụ giám sát riêng; Sentinel chỉ cảnh báo khi ổ đĩa sắp đầy). Phiên bản hiện tại: v0.1.0.
 
 ## Cài đặt
 
@@ -196,12 +196,14 @@ Job `files` thì file nằm ngay trong `--target`.
 
 ## Màn hình quản lý
 
-`sentinel manage` mở trong terminal với năm tab (phím `1`-`5`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**. Màn hình chia thành các khung (panel):
+`sentinel manage` mở trong terminal với sáu tab (phím `1`-`6`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**, **Server**. Màn hình chia thành các khung (panel):
 
 - **Hàng khung trên cùng** (màn hình từ 110 cột, 28 dòng): *tổng quan* (số job ổn / cảnh báo / lỗi, alert đang mở, số repository và dung lượng), *đang chạy* (thanh tiến độ của backup đang chạy, hoặc job sẽ chạy kế tiếp) và *uptime* (mỗi check một dòng, kèm biểu đồ độ trễ các lần gần nhất; lần lỗi là `✗`). Khung nào có vấn đề thì viền đỏ. Màn hình nhỏ hơn chỉ có một dòng tóm tắt.
 - **Khung bảng** với tên các tab trên viền (tab có vấn đề tô đỏ, số bên cạnh là số dòng, riêng Doctor là số lỗi và cảnh báo). Cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải), cột LẦN TỚI là lần chạy theo lịch kế tiếp. Job lỗi hoặc đang chạy có thêm một dòng mờ `└ …` ngay dưới (lỗi, hoặc dung lượng, tốc độ, thời gian còn lại).
 - **Khung chi tiết** dưới bảng: dòng đang chọn dạng nhãn và giá trị (loại, nguồn, lịch, lần tới, giữ bao nhiêu bản…), kết quả hoặc lỗi đầy đủ, và kết quả của thao tác vừa làm.
 - **Tab Config** chia theo mục đích: *Repository* (nơi lưu backup), *Job*, *Uptime check*, *Notifier* (nơi gửi cảnh báo) và *Cài đặt chung*, mỗi nhóm có cột riêng. Nhóm chưa có gì hiện một dòng mờ `+ … bấm a để thêm`. Dòng phím ở dưới cùng chỉ hiện phím dùng được cho mục đang chọn (ví dụ `t gửi thử` chỉ có ở Notifier).
+
+- **Tab Server** (chỉ đọc) cho biết máy đang thế nào: *Hệ thống* (hostname, hệ điều hành, kernel, uptime, load, CPU, RAM, swap), *Ổ đĩa* (dung lượng trống của từng ổ thật; đỏ khi dưới `disk.min_free_percent`, vàng khi dưới gấp đôi mức đó) và *Dịch vụ* (trạng thái `sentinel.service` và các systemd unit đang `failed`; không hiện trên máy không có systemd). Số liệu chỉ đọc khi tab đang mở (đọc lại mỗi 5 giây hoặc bấm `r`), không lưu lại và không gửi cảnh báo. Load từ 1 CPU trở lên thì vàng, từ 2 thì đỏ; RAM khả dụng dưới 10% vàng, dưới 5% đỏ; swap dùng quá 50% vàng.
 
 Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 
@@ -213,7 +215,7 @@ Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); 
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
 | `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
 | `ctrl+t` | (trong form job database) thử kết nối: chạy đúng công cụ dump với host, cổng, user, mật khẩu của form rồi dừng ngay khi nó bắt đầu ghi (chỉ đọc), hiện `✓ kết nối được` hoặc lý do lỗi của công cụ; cũng là nút `[ Kết nối thử ]` dưới ô mật khẩu |
-| `r` | làm mới / chạy lại Doctor |
+| `r` | làm mới / chạy lại Doctor / đọc lại tình trạng máy (tab Server) |
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 

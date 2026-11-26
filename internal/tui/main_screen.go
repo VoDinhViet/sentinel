@@ -23,11 +23,11 @@ const (
 	maxPanelItems = 4
 )
 
-// renderDashboard is the main screen: a title line, the overview panels (or one summary line on a
+// renderMain is the main screen: a title line, the overview panels (or one summary line on a
 // small screen), the tabbed table, the detail of the selected line and the key bar. It fills the
 // whole terminal; every panel is drawn by panel(), so no line is ever wider than the screen.
 // Click targets are recorded with absolute screen positions.
-func (m manageModel) renderDashboard() []string {
+func (m manageModel) renderMain() []string {
 	width, height := m.width+frameCols, m.height+frameRows
 	tabs := m.tabs()
 	tab := tabs[m.tab]
@@ -202,6 +202,8 @@ func (m manageModel) emptyText(tab int) string {
 		return "Không có alert nào đang mở."
 	case doctorTab:
 		return m.doctorWaitText()
+	case serverTab:
+		return m.serverWaitText()
 	}
 	return "Không đọc được config."
 }

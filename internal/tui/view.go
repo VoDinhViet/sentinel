@@ -20,7 +20,7 @@ func (m manageModel) render() string {
 	}
 	m.hits.reset()
 	if m.onTabs() {
-		return strings.Join(m.renderDashboard(), "\n")
+		return strings.Join(m.renderMain(), "\n")
 	}
 	m.hits.offset = 1 // the blank line under the frame's top border
 	return m.frame(append([]string{""}, m.pinKeyBar(m.renderScreen())...))
