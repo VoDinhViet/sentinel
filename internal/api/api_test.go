@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -207,9 +208,17 @@ func TestDoctorFindingsCarryALevel(t *testing.T) {
 
 func TestServeStopsWhenItsContextIsDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, "127.0.0.1:0", http.NotFoundHandler()) }()
-	time.Sleep(100 * time.Millisecond)
+	go func() { done <- Serve(ctx, ln, http.NotFoundHandler()) }()
+	resp, err := http.Get("http://" + ln.Addr().String() + "/anything")
+	if err != nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("the server does not answer: %v %v", resp, err)
+	}
+	resp.Body.Close()
 	cancel()
 	select {
 	case err := <-done:

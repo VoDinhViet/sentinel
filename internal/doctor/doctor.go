@@ -172,7 +172,23 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 		notifierFinding.Err, notifierFinding.Warn = errors.New("none configured: alerts will only be logged"), true
 		notifierFinding.Hint = "add telegram, smtp, discord or slack under notifiers: in the config"
 	}
-	return append(findings, notifierFinding, heartbeatFinding(cfg))
+	findings = append(findings, notifierFinding, heartbeatFinding(cfg))
+	if cfg.API.Listen != "" {
+		findings = append(findings, apiFinding(cfg))
+	}
+	return findings
+}
+
+// apiFinding warns when the API can be reached from other machines: the token travels in clear text.
+func apiFinding(cfg *config.Config) Finding {
+	if cfg.API.Loopback() {
+		return Finding{Name: "api", Info: "listens on " + cfg.API.Listen + " (this machine only)"}
+	}
+	return Finding{
+		Name: "api", Warn: true,
+		Err:  fmt.Errorf("listens on %s, which other machines can reach, and the token is sent without TLS", cfg.API.Listen),
+		Hint: "listen on 127.0.0.1 and put a TLS reverse proxy or an SSH tunnel in front, or firewall the port",
+	}
 }
 
 // heartbeatFinding warns when nothing outside the server would notice the daemon stopping: its own

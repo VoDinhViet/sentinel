@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -56,10 +57,10 @@ func (s *Server) Handler() http.Handler {
 // shutdownWait is how long Serve lets running requests finish once its context is done.
 const shutdownWait = 5 * time.Second
 
-// Serve listens on addr and answers with handler until ctx is done, then shuts down gracefully.
-func Serve(ctx context.Context, addr string, handler http.Handler) error {
+// Serve answers on ln with handler until ctx is done, then shuts down gracefully. The caller
+// listens, so a port that is taken is found at startup and not in the background.
+func Serve(ctx context.Context, ln net.Listener, handler http.Handler) error {
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -67,7 +68,7 @@ func Serve(ctx context.Context, addr string, handler http.Handler) error {
 		IdleTimeout:       time.Minute,
 	}
 	failed := make(chan error, 1)
-	go func() { failed <- srv.ListenAndServe() }()
+	go func() { failed <- srv.Serve(ln) }()
 	select {
 	case err := <-failed:
 		return err

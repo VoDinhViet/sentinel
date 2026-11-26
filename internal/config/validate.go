@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -127,6 +128,11 @@ func (c *Config) validate() error {
 			add("heartbeat: %s", problem)
 		}
 	}
+	if c.API.Listen != "" {
+		if problem := apiProblem(c.API); problem != "" {
+			add("api: %s", problem)
+		}
+	}
 	if c.Disk.MinFree() < 0 || c.Disk.MinFree() > 90 {
 		add("disk.min_free_percent: must be between 0 (off) and 90")
 	}
@@ -205,6 +211,21 @@ func heartbeatProblem(heartbeat Heartbeat) string {
 		return "url must start with https://"
 	case heartbeat.Every < time.Minute:
 		return "every must be at least 1m"
+	}
+	return ""
+}
+
+// apiProblem says what is wrong with the API settings, "" when nothing is. The token is required
+// even on the loopback: every user of the server can reach it there.
+func apiProblem(api API) string {
+	if _, _, err := net.SplitHostPort(api.Listen); err != nil {
+		return "listen must be host:port, e.g. 127.0.0.1:9311"
+	}
+	if api.Token == "" {
+		return "token is required: write token: ${SENTINEL_API_TOKEN} and put the value in the env file"
+	}
+	if !strings.Contains(api.Token, "${") && len(api.Token) < MinTokenLength {
+		return fmt.Sprintf("token must be at least %d characters", MinTokenLength)
 	}
 	return ""
 }

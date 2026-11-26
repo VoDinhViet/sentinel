@@ -85,3 +85,14 @@ func TestHeartbeatFindingWarnsWhenNothingWatchesTheDaemon(t *testing.T) {
 		t.Errorf("with a heartbeat: %+v", on)
 	}
 }
+
+func TestAPIFindingWarnsOnlyWhenOtherMachinesCanReachIt(t *testing.T) {
+	local := apiFinding(&config.Config{API: config.API{Listen: "127.0.0.1:9311"}})
+	if local.Err != nil || !strings.Contains(local.Info, "this machine only") {
+		t.Errorf("loopback: %+v", local)
+	}
+	open := apiFinding(&config.Config{API: config.API{Listen: "0.0.0.0:9311"}})
+	if open.Err == nil || !open.Warn || open.Hint == "" {
+		t.Errorf("all interfaces: %+v, want a warning with a hint", open)
+	}
+}

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ type Config struct {
 	Alert          AlertSettings         `yaml:"alert"`
 	Disk           DiskSettings          `yaml:"disk"`
 	Heartbeat      Heartbeat             `yaml:"heartbeat"`
+	API            API                   `yaml:"api"`
 	Repositories   map[string]Repository `yaml:"repositories"`
 	Jobs           []Job                 `yaml:"jobs"`
 	VerifySchedule string                `yaml:"verify_schedule"`
@@ -104,6 +107,31 @@ const DefaultHeartbeatEvery = 5 * time.Minute
 type Heartbeat struct {
 	URL   string        `yaml:"url"`
 	Every time.Duration `yaml:"every"`
+}
+
+// API is the HTTP API of the daemon (package api). It is off when Listen is empty.
+type API struct {
+	// Listen is the host:port to listen on, e.g. 127.0.0.1:9311.
+	Listen string `yaml:"listen"`
+	// Token is the bearer token every /api/ request must carry; write it as ${SENTINEL_API_TOKEN} and
+	// keep the value in the env file.
+	Token string `yaml:"token"`
+}
+
+// MinTokenLength is the shortest API token accepted.
+const MinTokenLength = 16
+
+// Loopback says the API listens on this machine only: 127.0.0.0/8, ::1 or localhost.
+func (a API) Loopback() bool {
+	host, _, err := net.SplitHostPort(a.Listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
 }
 
 // DefaultMinFreePercent is the share of a file system that must stay free before the daemon raises

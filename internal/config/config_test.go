@@ -153,6 +153,12 @@ disk: { min_free_percent: -5 }`, "disk.min_free_percent: must be between 0"},
 disk: { paths: [data] }`, "disk.paths[0]"},
 		"heartbeat over http": {`
 heartbeat: { url: "http://hc.example.com/ping/x" }`, "heartbeat: url must start with https://"},
+		"api without a token": {`
+api: { listen: "127.0.0.1:9311" }`, "api: token is required"},
+		"api with a short token": {`
+api: { listen: "127.0.0.1:9311", token: short }`, "api: token must be at least 16 characters"},
+		"api listen without a port": {`
+api: { listen: "127.0.0.1", token: "0123456789abcdef" }`, "api: listen must be host:port"},
 		"heartbeat too often": {`
 heartbeat: { url: "https://hc.example.com/ping/x", every: 10s }`, "heartbeat: every must be at least 1m"},
 		"negative default retention": {`
@@ -471,5 +477,29 @@ func TestHeartbeatIsOffWithoutAURLAndDefaultsToFiveMinutes(t *testing.T) {
 	cfg, err = Parse([]byte(""))
 	if err != nil || cfg.Heartbeat.URL != "" || cfg.Heartbeat.Every != 0 {
 		t.Errorf("heartbeat without a url = %+v, %v; want it off", cfg.Heartbeat, err)
+	}
+}
+
+func TestAPIIsOffUnlessItListens(t *testing.T) {
+	cfg, err := Parse([]byte("server_name: x"))
+	if err != nil || cfg.API.Listen != "" {
+		t.Errorf("api = %+v, %v; want it off", cfg.API, err)
+	}
+	cfg, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef' }"))
+	if err != nil || cfg.API.Listen != "127.0.0.1:9311" || !cfg.API.Loopback() {
+		t.Errorf("api = %+v, %v", cfg.API, err)
+	}
+}
+
+func TestAPILoopback(t *testing.T) {
+	tests := map[string]bool{
+		"127.0.0.1:9311": true, "[::1]:9311": true, "localhost:9311": true, "127.5.5.5:1": true,
+		"0.0.0.0:9311": false, ":9311": false, "[::]:9311": false, "10.0.0.5:9311": false, "example.com:9311": false,
+		"": false, "no-port": false,
+	}
+	for listen, want := range tests {
+		if got := (API{Listen: listen}).Loopback(); got != want {
+			t.Errorf("Loopback(%q) = %v, want %v", listen, got, want)
+		}
 	}
 }

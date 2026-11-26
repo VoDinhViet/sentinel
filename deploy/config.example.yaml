@@ -88,6 +88,13 @@ verify_schedule: weekly sun 04:00    # `restic check` of every repository; this 
 #   url: ${HEARTBEAT_URL}
 #   every: 5m
 
+# HTTP API of the daemon, off by default: status, jobs, snapshots, start and stop a backup (see the README).
+# The token is required, even on 127.0.0.1; keep the value in the env file next to this config.
+# Listen on 127.0.0.1 and reach it through an SSH tunnel or a TLS reverse proxy: the token is sent without TLS.
+# api:
+#   listen: 127.0.0.1:9311
+#   token: ${SENTINEL_API_TOKEN}
+
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;
 # min_free_percent: 0 turns the alert off.

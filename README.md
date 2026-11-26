@@ -9,6 +9,8 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 - **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, báo khi một job quá lâu chưa backup thành công, và báo khi ổ đĩa đang chứa state, cache restic hoặc repository local còn trống dưới 10% (đổi bằng `disk.min_free_percent`, `0` để tắt). Tin không gửi được tới kênh nào được lưu lại và gửi lại sau tối đa 5 phút.
 - **Heartbeat**: lỗi duy nhất Sentinel không tự báo được là chính daemon dừng. Đặt `heartbeat.url` (healthchecks.io, push monitor của Uptime Kuma; chỉ https): daemon gọi URL đó lúc khởi động rồi mỗi `heartbeat.every` (mặc định 5m), dịch vụ bên ngoài báo cho bạn khi các lần gọi ngừng. `sentinel doctor` nhắc nếu chưa đặt.
 
+- **HTTP API** (tùy chọn, mặc định tắt): đặt `api.listen` và `api.token`, daemon mở API JSON để xem trạng thái, liệt kê snapshot, bắt đầu hoặc dừng backup từ máy khác hoặc từ script. Xem mục [HTTP API](#http-api).
+
 Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM (dùng công cụ giám sát riêng cho việc đó; chỉ cảnh báo khi ổ đĩa sắp đầy). Phiên bản hiện tại: v0.1.0.
 
 ## Cài đặt
@@ -141,6 +143,35 @@ sentinel backup run appdb --detach -o json   # {job, pid, log}
 `sentinel manage` và `sentinel init` là màn hình tương tác, script không dùng được.
 
 Chạy tay ngoài systemd thì nạp biến trước: `set -a; . /etc/sentinel/sentinel.env; set +a`.
+
+## HTTP API
+
+Tắt theo mặc định. Bật bằng khối `api:` trong config, rồi chạy lại daemon (`sentinel run`):
+
+```yaml
+api:
+  listen: 127.0.0.1:9311
+  token: ${SENTINEL_API_TOKEN}   # giá trị (từ 16 ký tự) để trong sentinel.env
+```
+
+Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. Token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
+
+| Route | Việc |
+|---|---|
+| `GET /healthz` | daemon còn sống |
+| `GET /api/v1/status` | cùng JSON với `sentinel status --output json` |
+| `GET /api/v1/alerts` | các cảnh báo đang mở |
+| `GET /api/v1/jobs` | các cặp job và repository trong config |
+| `GET /api/v1/jobs/{job}/snapshots?repository=<tên>` | snapshot của job, mới nhất trước |
+| `POST /api/v1/jobs/{job}/backups[?repository=<tên>]` | chạy backup nền, trả `202` kèm pid và đường dẫn log |
+| `DELETE /api/v1/jobs/{job}/backups/running` | yêu cầu backup đang chạy dừng |
+| `GET /api/v1/doctor` | kết quả `sentinel doctor` |
+
+Lỗi trả về dạng `{"error": "..."}`: `404` khi job hoặc repository không có, `409` khi job đang chạy (hoặc không có gì để dừng). Lỗi khác chỉ ghi vào log của daemon. Restore và sửa config chưa có qua API; dùng `sentinel manage`.
+
+```sh
+curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:9311/api/v1/status
+```
 
 ## Khôi phục dữ liệu
 
