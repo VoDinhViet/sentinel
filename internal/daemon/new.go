@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"sentinel/internal/alert"
@@ -33,6 +34,6 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*Daemon, err
 			Config: cfg, Store: st,
 			LockRetries: 3, LockRetryDelay: 5 * time.Minute,
 		},
-		Tasks: uptimeTasks(cfg, st, alerts),
+		Tasks: slices.Concat(uptimeTasks(cfg, st, alerts), diskTask(cfg, alerts)),
 	}, nil
 }

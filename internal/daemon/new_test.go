@@ -27,7 +27,8 @@ func TestNewSchedulesOneTaskPerUptimeCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(d.Tasks) != 2 || d.Tasks[0].Name != "uptime:web" || d.Tasks[1].Name != "uptime:db" {
+	// One task per uptime check, then the disk watcher that is on unless disk.min_free_percent is 0.
+	if len(d.Tasks) != 3 || d.Tasks[0].Name != "uptime:web" || d.Tasks[1].Name != "uptime:db" || d.Tasks[2].Name != "disk" {
 		t.Errorf("tasks = %+v", d.Tasks)
 	}
 	if d.Runner.LockRetries != 3 || d.Alerts == nil {

@@ -21,3 +21,6 @@ func UptimeKey(check string) string { return "uptime:" + check }
 
 // CertKey is the alert for a TLS certificate that expires soon.
 func CertKey(check string) string { return "cert:" + check }
+
+// DiskKey is the alert for a file system that is nearly full; path is the first path watched on it.
+func DiskKey(path string) string { return "disk:" + path }

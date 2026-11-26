@@ -12,6 +12,7 @@ type Config struct {
 	StorePath      string                `yaml:"store"`
 	Notifiers      Notifiers             `yaml:"notifiers"`
 	Alert          AlertSettings         `yaml:"alert"`
+	Disk           DiskSettings          `yaml:"disk"`
 	Repositories   map[string]Repository `yaml:"repositories"`
 	Jobs           []Job                 `yaml:"jobs"`
 	VerifySchedule string                `yaml:"verify_schedule"`
@@ -94,6 +95,29 @@ type AlertSettings struct {
 	Cooldown time.Duration `yaml:"cooldown"`
 	// NotifySuccess sends a message after every successful backup.
 	NotifySuccess bool `yaml:"notify_success"`
+}
+
+// DefaultMinFreePercent is the share of a file system that must stay free before the daemon raises
+// a disk alert, when the config does not set min_free_percent.
+const DefaultMinFreePercent = 10
+
+// DiskSettings tells the daemon when a file system it writes to is too full. A backup that runs out of
+// space fails half way, and so does the restic cache or the state database.
+type DiskSettings struct {
+	// MinFreePercent is the share of free space (0-90) below which the alert opens; 0 turns the alert
+	// off. Unset means DefaultMinFreePercent, which is why it is a pointer.
+	MinFreePercent *int `yaml:"min_free_percent"`
+	// Paths are file systems to watch besides the ones Sentinel always watches (the state database, the
+	// restic cache and each local repository).
+	Paths []string `yaml:"paths"`
+}
+
+// MinFree is the share of free space below which the disk alert opens, 0 when it is off.
+func (d DiskSettings) MinFree() int {
+	if d.MinFreePercent == nil {
+		return DefaultMinFreePercent
+	}
+	return *d.MinFreePercent
 }
 
 type Repository struct {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -119,6 +120,14 @@ func (c *Config) validate() error {
 	}
 	if c.ShutdownWait < 0 {
 		add("shutdown_wait: must not be negative")
+	}
+	if c.Disk.MinFree() < 0 || c.Disk.MinFree() > 90 {
+		add("disk.min_free_percent: must be between 0 (off) and 90")
+	}
+	for i, path := range c.Disk.Paths {
+		if !filepath.IsAbs(path) {
+			add("disk.paths[%d]: %q must be an absolute path", i, path)
+		}
 	}
 
 	seenChecks := map[string]bool{}

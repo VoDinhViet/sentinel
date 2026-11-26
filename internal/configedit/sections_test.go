@@ -308,3 +308,17 @@ func TestResourceSettingsAreWrittenAndRemovedWhenEmpty(t *testing.T) {
 		}
 	}
 }
+
+// The editor knows nothing about the disk alert; saving the settings must not drop it from the file.
+func TestSaveSettingsKeepsTheDiskBlock(t *testing.T) {
+	path := writeConfig(t, sectionsConfig+"\ndisk:\n  min_free_percent: 20\n  paths: [/data]\n")
+	if err := SaveSettings(path, Settings{ServerName: "web-02", Cooldown: "30m"}); err != nil {
+		t.Fatal(err)
+	}
+	saved := readFile(t, path)
+	for _, want := range []string{"disk:", "min_free_percent: 20", "paths: [/data]"} {
+		if !strings.Contains(saved, want) {
+			t.Errorf("saved lacks %q:\n%s", want, saved)
+		}
+	}
+}

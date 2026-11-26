@@ -6,7 +6,7 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 
 - **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên thư mục, S3 (AWS, MinIO, R2, Wasabi…), sftp hoặc Google Drive (qua [rclone](https://rclone.org)); có retention và `restic check` hằng tuần (mặc định chủ nhật 04:00; đổi bằng `verify_schedule`, tắt bằng `verify_schedule: manual`).
 - **Uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
-- **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, và báo khi một job quá lâu chưa backup thành công.
+- **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, báo khi một job quá lâu chưa backup thành công, và báo khi ổ đĩa đang chứa state, cache restic hoặc repository local còn trống dưới 10% (đổi bằng `disk.min_free_percent`, `0` để tắt). Tin không gửi được tới kênh nào được lưu lại và gửi lại sau tối đa 5 phút.
 
 Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM/disk (dùng công cụ giám sát riêng cho việc đó). Phiên bản hiện tại: v0.1.0.
 

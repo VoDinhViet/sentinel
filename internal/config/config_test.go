@@ -142,6 +142,12 @@ jobs:
 repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
   - { name: a, type: files, paths: [/x], repositories: [r], retention: { daily: -7 } }`, "retention.daily must not be negative"},
+		"disk threshold too high": {`
+disk: { min_free_percent: 95 }`, "disk.min_free_percent: must be between 0"},
+		"disk threshold negative": {`
+disk: { min_free_percent: -5 }`, "disk.min_free_percent: must be between 0"},
+		"disk path relative": {`
+disk: { paths: [data] }`, "disk.paths[0]"},
 		"negative default retention": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 defaults: { retention: { monthly: -2 } }`, "defaults.retention.monthly must not be negative"},
@@ -435,5 +441,26 @@ jobs:
 		if _, err := Parse([]byte(base + bad + "\n")); err == nil {
 			t.Errorf("%q must be refused", bad)
 		}
+	}
+}
+
+func TestDiskAlertIsOnUnlessZero(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want int
+	}{
+		"not set": {"", DefaultMinFreePercent},
+		"own":     {"disk: { min_free_percent: 20 }", 20},
+		"off":     {"disk: { min_free_percent: 0 }", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Disk.MinFree(); got != tc.want {
+				t.Errorf("MinFree = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
