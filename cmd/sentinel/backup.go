@@ -11,12 +11,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sentinel/internal/app"
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/restic"
 )
 
-func (a *app) backupCmd() *cobra.Command {
+func (a *cliApp) backupCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "backup", Short: "Chạy và quản lý backup"}
 	var repoFlag string
 
@@ -87,7 +88,7 @@ func (a *app) backupCmd() *cobra.Command {
 				return err
 			}
 			if detach {
-				pid, logPath, err := startDetachedBackup(cfg, a.configPath, job.Name, repoFlag)
+				pid, logPath, err := app.New(cfg, nil, a.configPath).StartBackup(job.Name, repoFlag)
 				if err != nil {
 					return err
 				}
@@ -151,7 +152,7 @@ func (a *app) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stopped, err := stopBackup(cfg, job.Name, 30*time.Second)
+			stopped, err := app.New(cfg, nil, a.configPath).StopBackup(job.Name, 30*time.Second)
 			if err != nil {
 				return err
 			}

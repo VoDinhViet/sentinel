@@ -47,7 +47,7 @@ func (s *terminalScript) terminal(interactive bool) terminalIO {
 	}
 }
 
-func secretsApp(t *testing.T, script *terminalScript, interactive bool) (*app, string) {
+func secretsApp(t *testing.T, script *terminalScript, interactive bool) (*cliApp, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -57,7 +57,7 @@ func secretsApp(t *testing.T, script *terminalScript, interactive bool) (*app, s
 	t.Setenv("SECRET_TEST_PW", "")
 	os.Unsetenv("SECRET_TEST_PW")
 	t.Cleanup(func() { os.Unsetenv("SECRET_TEST_PW") })
-	return &app{configPath: path, term: script.terminal(interactive)}, filepath.Join(dir, config.EnvFileName)
+	return &cliApp{configPath: path, term: script.terminal(interactive)}, filepath.Join(dir, config.EnvFileName)
 }
 
 func TestLoadConfigAsksForAMissingPasswordAndSavesIt(t *testing.T) {
@@ -82,7 +82,7 @@ func TestLoadConfigAsksForAMissingPasswordAndSavesIt(t *testing.T) {
 	}
 	// The next run reads it without asking.
 	os.Unsetenv("SECRET_TEST_PW")
-	again := &app{configPath: cli.configPath, term: (&terminalScript{existsFor: script.existsFor}).terminal(true)}
+	again := &cliApp{configPath: cli.configPath, term: (&terminalScript{existsFor: script.existsFor}).terminal(true)}
 	if cfg, err = again.loadConfig(); err != nil || cfg.Repositories["local"].Password != "s3cret" {
 		t.Errorf("second load: %v, %v", cfg, err)
 	}
@@ -133,9 +133,9 @@ func TestLoadConfigNewRepositoryNeedsTheSamePasswordTwice(t *testing.T) {
 }
 
 func TestLoadConfigWithoutATerminalAndReadConfigNeverAsk(t *testing.T) {
-	for name, load := range map[string]func(*app) (*config.Config, error){
-		"loadConfig, no terminal": (*app).loadConfig,
-		"readConfig, a terminal":  (*app).readConfig,
+	for name, load := range map[string]func(*cliApp) (*config.Config, error){
+		"loadConfig, no terminal": (*cliApp).loadConfig,
+		"readConfig, a terminal":  (*cliApp).readConfig,
 	} {
 		script := &terminalScript{replies: []string{"never"}, existsFor: func(string) (bool, error) { return true, nil }}
 		cli, envFile := secretsApp(t, script, name == "readConfig, a terminal")
@@ -165,7 +165,7 @@ func TestLoadConfigReadsTheEnvFileBesideTheConfig(t *testing.T) {
 }
 
 func TestBareSentinelPrintsHelpWithoutATerminal(t *testing.T) {
-	cli := &app{term: (&terminalScript{}).terminal(false)}
+	cli := &cliApp{term: (&terminalScript{}).terminal(false)}
 	root := newRootCmd()
 	var output strings.Builder
 	root.SetOut(&output)

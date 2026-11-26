@@ -20,7 +20,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-type app struct {
+type cliApp struct {
 	configFlag string // --config as given
 	configPath string // the file actually used, resolved before each command runs
 	configErr  error  // why no config file could be chosen
@@ -39,7 +39,7 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	cli := &app{term: defaultTerminal()}
+	cli := &cliApp{term: defaultTerminal()}
 	root := &cobra.Command{
 		Use:           "sentinel",
 		Short:         "Bảo trì máy chủ: backup, uptime check, cảnh báo",
@@ -67,7 +67,7 @@ func newRootCmd() *cobra.Command {
 
 // runDefault is `sentinel` with no command: on a terminal it opens the form that creates the
 // config when there is none, and the manager when there is one; otherwise it prints the help.
-func (a *app) runDefault(cmd *cobra.Command) error {
+func (a *cliApp) runDefault(cmd *cobra.Command) error {
 	if !a.term.isTerminal() || !stdoutIsTerminal() {
 		return cmd.Help()
 	}
@@ -77,7 +77,7 @@ func (a *app) runDefault(cmd *cobra.Command) error {
 	return a.runManage(cmd)
 }
 
-func (a *app) openStore(cfg *config.Config) (*store.Store, error) {
+func (a *cliApp) openStore(cfg *config.Config) (*store.Store, error) {
 	st, err := store.Open(cfg.StorePath)
 	if err != nil {
 		return nil, fmt.Errorf("open store %s: %w", cfg.StorePath, err)

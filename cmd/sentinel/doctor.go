@@ -58,7 +58,7 @@ func findingsReport(findings []doctor.Finding) doctorReport {
 	return report
 }
 
-func (a *app) doctorCmd() *cobra.Command {
+func (a *cliApp) doctorCmd() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "doctor",

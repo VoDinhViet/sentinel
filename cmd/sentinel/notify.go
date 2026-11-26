@@ -10,7 +10,7 @@ import (
 	"sentinel/internal/notify"
 )
 
-func (a *app) notifyCmd() *cobra.Command {
+func (a *cliApp) notifyCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "notify", Short: "Kênh gửi thông báo"}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "test",

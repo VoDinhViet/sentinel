@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"sentinel/internal/app"
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
 )
@@ -19,7 +20,7 @@ const (
 	minColumn            = 6
 )
 
-func (a *app) manageCmd() *cobra.Command {
+func (a *cliApp) manageCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "manage",
 		Aliases: []string{"tui"},
@@ -30,7 +31,7 @@ func (a *app) manageCmd() *cobra.Command {
 }
 
 // runManage opens the terminal manager on the loaded config.
-func (a *app) runManage(cmd *cobra.Command) error {
+func (a *cliApp) runManage(cmd *cobra.Command) error {
 	if !stdoutIsTerminal() {
 		return fmt.Errorf("manage cần chạy trong terminal; trong script hãy dùng `sentinel status --output json`")
 	}
@@ -44,8 +45,9 @@ func (a *app) runManage(cmd *cobra.Command) error {
 	}
 	defer st.Close()
 	ctx := cmd.Context()
-	load := func() (status.Report, error) { return status.Build(ctx, cfg, st, time.Now()) }
-	model := newManageModel(ctx, load, newManageActions(cfg, st, a.configPath), configuredJobRepositories(cfg))
+	svc := app.New(cfg, st, a.configPath)
+	load := func() (status.Report, error) { return svc.Status(ctx, time.Now()) }
+	model := newManageModel(ctx, load, newManageActions(svc), configuredJobRepositories(cfg))
 	_, err = tea.NewProgram(model, tea.WithContext(ctx)).Run()
 	return err
 }

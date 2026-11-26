@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"fmt"
@@ -16,17 +16,44 @@ import (
 // logRotateSize is how big a detached backup's log may get before the next run starts a new one.
 const logRotateSize = 1 << 20
 
+// startWait is how long StartBackup waits for the new process to show it is running.
+const startWait = 3 * time.Second
+
+// StartBackup runs a backup of the job in a process of its own, so it goes on when the terminal
+// is closed, the SSH connection drops or the manager is left. repo is one of the job's
+// repositories, or "" for all of them. It returns once the backup has got going, or has failed
+// to start (and says why). The job lock keeps it from overlapping any other run of the job.
+func (s *Service) StartBackup(jobName, repo string) (pid int, logPath string, err error) {
+	job, err := s.cfg.FindJob(jobName)
+	if err != nil {
+		return 0, "", err
+	}
+	if repo != "" {
+		if _, err := job.OnlyRepo(repo); err != nil {
+			return 0, "", err
+		}
+	}
+	return startDetachedBackup(s.cfg, s.configPath, job.Name, repo)
+}
+
+// RequestStop asks the running backup of a job to stop, and does not wait for it to go.
+func (s *Service) RequestStop(jobName string) error {
+	return backup.RequestStop(backup.ProgressDir(s.cfg.StorePath), jobName, time.Now())
+}
+
+// StopBackup asks the running backup of a job to stop and waits up to wait for it to go.
+// stopped is false when it is still shutting down after that.
+func (s *Service) StopBackup(jobName string, wait time.Duration) (stopped bool, err error) {
+	return stopBackup(s.cfg, jobName, wait)
+}
+
 // detachedLogPath is the log of the detached backups of a job, next to the state database.
 func detachedLogPath(cfg *config.Config, jobName string) string {
 	name := strings.NewReplacer("/", "_", "\\", "_", "\x00", "_").Replace(jobName)
 	return filepath.Join(filepath.Dir(cfg.StorePath), "logs", "backup-"+name+".log")
 }
 
-// startDetachedBackup starts `sentinel backup run` for the job in a session of its own, so it
-// goes on when the terminal is closed, the SSH connection drops or the manager is left. It
-// returns once the backup has got going, or has failed to start (and says why). The job lock
-// keeps it from overlapping any other run of the job.
-func startDetachedBackup(cfg *config.Config, configPath, jobName, repository string) (pid int, logPath string, err error) {
+func startDetachedBackup(cfg *config.Config, configPath, jobName, repo string) (pid int, logPath string, err error) {
 	progressDir := backup.ProgressDir(cfg.StorePath)
 	for _, running := range backup.ReadRunning(progressDir, time.Now()) {
 		if running.Job == jobName {
@@ -38,15 +65,15 @@ func startDetachedBackup(cfg *config.Config, configPath, jobName, repository str
 		return 0, "", fmt.Errorf("find the sentinel binary: %w", err)
 	}
 	args := []string{"backup", "run", jobName, "--config", configPath}
-	if repository != "" {
-		args = append(args, "--repository", repository)
+	if repo != "" {
+		args = append(args, "--repository", repo)
 	}
 	logPath = detachedLogPath(cfg, jobName)
 	pid, exited, err := spawnDetached(exe, args, logPath)
 	if err != nil {
 		return 0, logPath, err
 	}
-	return pid, logPath, awaitStart(progressDir, jobName, pid, exited, logPath, 3*time.Second)
+	return pid, logPath, awaitStart(progressDir, jobName, pid, exited, logPath, startWait)
 }
 
 // spawnDetached starts a command in a new session with its output appended to logPath (0600),
@@ -121,7 +148,6 @@ func lastLogLines(path string, count int) string {
 	return strings.Join(lines[max(len(lines)-count, 0):], "; ")
 }
 
-// stopBackup asks the running backup of a job to stop and waits a little for it to go.
 func stopBackup(cfg *config.Config, jobName string, wait time.Duration) (stopped bool, err error) {
 	progressDir := backup.ProgressDir(cfg.StorePath)
 	if err := backup.RequestStop(progressDir, jobName, time.Now()); err != nil {

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -65,12 +64,12 @@ func defaultTerminal() terminalIO {
 }
 
 // loadConfig reads the config; on a terminal it asks for the ${VAR}s that are not set yet.
-func (a *app) loadConfig() (*config.Config, error) { return a.load(true) }
+func (a *cliApp) loadConfig() (*config.Config, error) { return a.load(true) }
 
 // readConfig reads the config and never asks (the daemon, scripts).
-func (a *app) readConfig() (*config.Config, error) { return a.load(false) }
+func (a *cliApp) readConfig() (*config.Config, error) { return a.load(false) }
 
-func (a *app) load(mayAsk bool) (*config.Config, error) {
+func (a *cliApp) load(mayAsk bool) (*config.Config, error) {
 	if a.configErr != nil {
 		return nil, a.configErr
 	}
@@ -116,7 +115,7 @@ func (a *app) load(mayAsk bool) (*config.Config, error) {
 }
 
 // askMissing reads each unset variable from the terminal and sets it for this process only.
-func (a *app) askMissing(raw []byte, missing []string) (map[string]string, error) {
+func (a *cliApp) askMissing(raw []byte, missing []string) (map[string]string, error) {
 	repoByVar := map[string]string{}
 	passwordVars, err := config.PasswordVars(raw)
 	if err != nil {
@@ -153,7 +152,7 @@ func (a *app) askMissing(raw []byte, missing []string) (map[string]string, error
 // verifyAsked checks each repository password that was just typed: a wrong one is asked for
 // again, and a repository that does not exist yet needs the password typed twice, because it
 // becomes the repository's password at `sentinel backup init`.
-func (a *app) verifyAsked(raw []byte, cfg *config.Config, asked map[string]string) (*config.Config, map[string]string, error) {
+func (a *cliApp) verifyAsked(raw []byte, cfg *config.Config, asked map[string]string) (*config.Config, map[string]string, error) {
 	passwordVars, err := config.PasswordVars(raw)
 	if err != nil {
 		return nil, nil, err
@@ -218,7 +217,7 @@ func (a *app) verifyAsked(raw []byte, cfg *config.Config, asked map[string]strin
 }
 
 // offerSave keeps the typed values in the env file beside the config when the user agrees.
-func (a *app) offerSave(envFile string, asked map[string]string) {
+func (a *cliApp) offerSave(envFile string, asked map[string]string) {
 	if !a.term.confirm(fmt.Sprintf("Save to %s (readable only by you)?", envFile)) {
 		return
 	}
@@ -235,7 +234,7 @@ func (a *app) offerSave(envFile string, asked map[string]string) {
 // refuses a file other users can write (or that belongs to someone else), and warns about one
 // they can read. A file this user cannot read is skipped: the variables may already be set.
 func loadEnvFile(envFile string, referenced []string) error {
-	info, err := checkEnvFile(envFile)
+	info, err := config.CheckEnvFile(envFile)
 	if err != nil || info == nil {
 		return err
 	}
@@ -250,42 +249,4 @@ func loadEnvFile(envFile string, referenced []string) error {
 		return fmt.Errorf("read %s: %w", envFile, err)
 	}
 	return nil
-}
-
-// checkEnvFile refuses an env file other users could have written or that belongs to someone
-// else. It returns nil, nil for a file that does not exist.
-func checkEnvFile(envFile string) (os.FileInfo, error) {
-	info, err := os.Stat(envFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", envFile, err)
-	}
-	if info.Mode().Perm()&0o022 != 0 {
-		return nil, fmt.Errorf("%s can be written by other users: run chmod 600 %s", envFile, envFile)
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != 0 && int(stat.Uid) != os.Geteuid() {
-		return nil, fmt.Errorf("%s belongs to another user", envFile)
-	}
-	return info, nil
-}
-
-// refreshEnv loads from the env file beside the config the variables it refers to that are
-// still unset, so a variable added while the manager is open (and a value put in the file since)
-// is found by a test. It logs nothing, since a screen is open, and does nothing if the file is
-// not safe to read: the test then reports the variable as unset.
-func refreshEnv(configPath string) {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return
-	}
-	referenced, err := config.RefVars(raw)
-	if err != nil {
-		return
-	}
-	envFile := filepath.Join(filepath.Dir(configPath), config.EnvFileName)
-	if info, err := checkEnvFile(envFile); err == nil && info != nil {
-		_, _ = config.LoadEnvFile(envFile, referenced)
-	}
 }

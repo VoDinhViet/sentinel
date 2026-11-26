@@ -28,7 +28,7 @@ type probeOutcome struct {
 	CertExpiry *time.Time `json:"cert_expiry,omitempty"`
 }
 
-func (a *app) checkCmd() *cobra.Command {
+func (a *cliApp) checkCmd() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -43,7 +43,7 @@ func (a *app) checkCmd() *cobra.Command {
 }
 
 // runCheck probes every uptime check once, prints the outcomes and fails when any check is down.
-func (a *app) runCheck(cmd *cobra.Command, output string) error {
+func (a *cliApp) runCheck(cmd *cobra.Command, output string) error {
 	if err := checkOutput(output); err != nil {
 		return err
 	}

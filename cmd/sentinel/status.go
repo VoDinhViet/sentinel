@@ -12,7 +12,7 @@ import (
 	"sentinel/internal/status"
 )
 
-func (a *app) statusCmd() *cobra.Command {
+func (a *cliApp) statusCmd() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "status",

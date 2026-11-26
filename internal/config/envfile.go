@@ -2,11 +2,14 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // EnvFileName is the file beside the config that holds the secrets its ${VAR} references name.
@@ -81,4 +84,42 @@ func parseEnvValue(value string) (string, error) {
 		return "", fmt.Errorf("unterminated quote")
 	}
 	return value, nil
+}
+
+// CheckEnvFile refuses an env file other users could have written or that belongs to someone
+// else. It returns nil, nil for a file that does not exist.
+func CheckEnvFile(envFile string) (os.FileInfo, error) {
+	info, err := os.Stat(envFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", envFile, err)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("%s can be written by other users: run chmod 600 %s", envFile, envFile)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != 0 && int(stat.Uid) != os.Geteuid() {
+		return nil, fmt.Errorf("%s belongs to another user", envFile)
+	}
+	return info, nil
+}
+
+// RefreshEnv loads from the env file beside the config the variables it refers to that are
+// still unset, so a variable added while the manager is open (and a value put in the file since)
+// is found by a test. It logs nothing, since a screen may be open, and does nothing if the file is
+// not safe to read: the test then reports the variable as unset.
+func RefreshEnv(configPath string) {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	referenced, err := RefVars(raw)
+	if err != nil {
+		return
+	}
+	envFile := filepath.Join(filepath.Dir(configPath), EnvFileName)
+	if info, err := CheckEnvFile(envFile); err == nil && info != nil {
+		_, _ = LoadEnvFile(envFile, referenced)
+	}
 }

@@ -18,7 +18,7 @@ import (
 )
 
 // runInitForm shows the init form and tells what was written.
-func (a *app) runInitForm(cmd *cobra.Command, force bool) error {
+func (a *cliApp) runInitForm(cmd *cobra.Command, force bool) error {
 	root := os.Geteuid() == 0
 	path := config.DefaultLocations(a.configFlag).WritePath(root)
 	if _, err := os.Stat(path); err == nil && !force {
@@ -47,7 +47,7 @@ type initOutcome struct {
 	notifierVars  []string // the variables of that channel the user still has to set
 }
 
-func (a *app) initCmd() *cobra.Command {
+func (a *cliApp) initCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",

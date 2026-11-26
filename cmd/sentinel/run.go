@@ -12,7 +12,7 @@ import (
 	"sentinel/internal/doctor"
 )
 
-func (a *app) runCmd() *cobra.Command {
+func (a *cliApp) runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
 		Short: "Chạy daemon: backup theo lịch và uptime check",
