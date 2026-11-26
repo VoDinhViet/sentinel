@@ -93,7 +93,7 @@ func Open(path string) (*Store, error) {
 			return nil, err
 		}
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
@@ -162,23 +162,36 @@ func (s *Store) migrate() error {
 			version, len(migrations))
 	}
 	for i := version; i < len(migrations); i++ {
-		tx, err := s.db.Begin()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", i+1, err)
-		}
-		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
+		if err := s.applyMigration(i); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// applyMigration runs migrations[i] unless another process already did. The transaction takes the
+// write lock when it starts (see Open), and the version is read inside it, so two processes opening an
+// old database together (the daemon after a restart, and `sentinel status`) do not both apply it.
+func (s *Store) applyMigration(i int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op once committed
+	var version int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version > i {
+		return nil
+	}
+	if _, err := tx.Exec(migrations[i]); err != nil {
+		return fmt.Errorf("migration %d: %w", i+1, err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type BackupRun struct {

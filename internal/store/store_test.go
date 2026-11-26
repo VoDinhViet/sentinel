@@ -436,3 +436,42 @@ func TestModeUnsupported(t *testing.T) {
 		}
 	}
 }
+
+// The daemon after a restart and `sentinel status` can open an old database at the same moment: each
+// migration must be applied once, not fail the second opener with "duplicate column".
+func TestOpenOldDatabaseFromManyProcessesAtOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"pending_level", "pending_title", "pending_body"} { // back to version 3
+		if _, err := s.db.Exec(`ALTER TABLE alerts DROP COLUMN ` + column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 3`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	const openers = 8
+	errs := make(chan error, openers)
+	start := make(chan struct{})
+	for range openers {
+		go func() {
+			<-start
+			opened, err := Open(path)
+			if err == nil {
+				err = opened.Close()
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	for range openers {
+		if err := <-errs; err != nil {
+			t.Errorf("open: %v", err)
+		}
+	}
+}
