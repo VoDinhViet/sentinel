@@ -22,18 +22,43 @@ func (d *Daemon) ReconcileBackups(ctx context.Context) {
 		slog.Error("reconcile backups", "error", err)
 		return
 	}
-	unreported := map[string][]store.BackupRun{}
+	var jobNames []string
 	for _, run := range latest {
-		if d.configured(run) && !d.reported(run) && !d.jobRunning(run.Job) {
-			unreported[run.Job] = append(unreported[run.Job], run)
+		if d.configured(run) && !d.reported(run) && !slices.Contains(jobNames, run.Job) {
+			jobNames = append(jobNames, run.Job)
 		}
 	}
-	for jobName, runs := range unreported {
+	for _, jobName := range jobNames {
 		if ctx.Err() != nil {
 			return
 		}
-		slog.Info("reporting backups run outside the daemon", "job", jobName, "runs", len(runs))
-		d.reportRuns(ctx, jobName, runs)
+		d.reconcileJob(ctx, jobName)
+	}
+}
+
+// reconcileJob reports the latest runs of one job that its alerts do not tell yet. It holds the job's lock
+// while it reads them and reports them: RunBackup cannot start the job meanwhile and report something
+// newer that these would then overwrite, and a job RunBackup is running now is left to RunBackup.
+func (d *Daemon) reconcileJob(ctx context.Context, jobName string) {
+	jobLock, _ := d.running.LoadOrStore(jobName, new(sync.Mutex))
+	if !jobLock.(*sync.Mutex).TryLock() {
+		return
+	}
+	defer jobLock.(*sync.Mutex).Unlock()
+	latest, err := d.Store.LatestBackups(ctx)
+	if err != nil {
+		slog.Error("reconcile backups", "job", jobName, "error", err)
+		return
+	}
+	var unreported []store.BackupRun
+	for _, run := range latest {
+		if run.Job == jobName && d.configured(run) && !d.reported(run) {
+			unreported = append(unreported, run)
+		}
+	}
+	if len(unreported) > 0 {
+		slog.Info("reporting backups run outside the daemon", "job", jobName, "runs", len(unreported))
+		d.reportRuns(ctx, jobName, unreported)
 	}
 }
 
@@ -59,14 +84,4 @@ func (d *Daemon) reported(run store.BackupRun) bool {
 	}
 	retentionFailed := run.Error != ""
 	return !failing && d.Alerts.Firing(alert.RetentionKey(run.Job, run.Repository)) == retentionFailed
-}
-
-// jobRunning says RunBackup is running the job now: it reports the outcome itself when it ends.
-func (d *Daemon) jobRunning(jobName string) bool {
-	jobLock, _ := d.running.LoadOrStore(jobName, new(sync.Mutex))
-	if jobLock.(*sync.Mutex).TryLock() {
-		jobLock.(*sync.Mutex).Unlock()
-		return false
-	}
-	return true
 }

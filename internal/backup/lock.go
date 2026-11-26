@@ -126,9 +126,16 @@ type heldSlot struct {
 // take waits for a slot and holds it until free.
 func (s *heldSlot) take(ctx context.Context) error {
 	release, err := s.runner.acquireSlot(ctx, s.job)
+	if err != nil {
+		s.release = nil
+		return err
+	}
 	s.release = release
-	return err
+	return nil
 }
+
+// held says the job has a slot now.
+func (s *heldSlot) held() bool { return s.release != nil }
 
 // free gives the slot back. It is safe to call without one, and twice.
 func (s *heldSlot) free() {

@@ -43,7 +43,7 @@ func TestSecondRunAfter(t *testing.T) {
 			}
 		})
 	}
-	for _, bad := range []string{"", "manual", "not a cron"} {
+	for _, bad := range []string{"", "manual", "not a cron", "0 3 30 2 *"} { // the last never fires
 		if _, ok := SecondRunAfter(bad, now); ok {
 			t.Errorf("SecondRunAfter accepted %q", bad)
 		}

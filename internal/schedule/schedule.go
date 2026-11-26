@@ -166,5 +166,6 @@ func SecondRunAfter(spec string, last time.Time) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	return cronSchedule.Next(cronSchedule.Next(last)), true
+	second := cronSchedule.Next(cronSchedule.Next(last))
+	return second, !second.IsZero() // a schedule that never fires again (the 30th of February) has no second run
 }

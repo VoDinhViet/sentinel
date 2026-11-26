@@ -117,3 +117,29 @@ func TestJobWaitingForARepositoryLockGivesItsSlotToAnotherJob(t *testing.T) {
 		t.Fatalf("the waiting job must take a slot again and finish: %+v", runs)
 	}
 }
+
+func TestRunInterruptedByShutdownIsRecordedAsStoppedNotAsAFailure(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "restic")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 3600\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := &config.Config{ServerName: "h", Repositories: map[string]config.Repository{"r": {URL: "/r", Password: "p"}}}
+	job := config.Job{Name: "f", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Hour, Repositories: []string{"r"}}
+
+	ctx, shutdown := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, shutdown)
+	runs := (&Runner{Config: cfg, Store: st, Bin: bin}).Run(ctx, &job)
+	if len(runs) != 1 || runs[0].Success || runs[0].Error != Stopped {
+		t.Fatalf("a run cut short by the shutdown is not a failure to alert about: %+v", runs)
+	}
+	latest, err := st.LatestBackups(context.Background())
+	if err != nil || len(latest) != 1 || latest[0].Error != Stopped {
+		t.Errorf("the stored run must say the same, or the daemon would alert about it at its next start: %+v %v", latest, err)
+	}
+}
