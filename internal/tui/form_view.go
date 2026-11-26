@@ -203,7 +203,10 @@ func (m manageModel) renderForm() []string {
 			m.hits.add(screenRow, 0, valueColumn, fmt.Sprintf("focus:%d", index))
 		default: // text, number, time
 			text := field.value
-			if focused {
+			switch {
+			case focused && field.editsText():
+				text = withCursor(field.value, field.back)
+			case focused:
 				text += lipglossAccent("▏")
 			}
 			if field.value == "" && field.placeholder != "" {

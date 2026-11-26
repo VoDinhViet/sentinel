@@ -55,6 +55,7 @@ type formField struct {
 	hint    string
 	kind    fieldKind
 	value   string // text, number, choice and schedule
+	back    int    // text, number and paths: how many characters follow the cursor (see textedit.go)
 	choices []string
 	ticked  []bool    // checklist: one per choice
 	counts  [5]string // retention: last daily weekly monthly yearly
@@ -459,7 +460,7 @@ func (f *form) completeFocused() bool {
 	completed, options := completeList(field.value, field.kind == fieldPaths)
 	listed := len(options) > 0 && !slices.Equal(options, field.options)
 	changed := completed != field.value
-	field.value, field.options = completed, options
+	field.value, field.options, field.back = completed, options, 0
 	f.touched[field.key] = true
 	return changed || listed
 }

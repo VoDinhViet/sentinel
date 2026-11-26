@@ -42,6 +42,7 @@ func (m manageModel) formOpen() bool {
 // focusOn moves the focus, remembering that the field it leaves has been visited.
 func (f *form) focusOn(index int) {
 	f.touched[f.fields[f.focus].key] = true
+	f.fields[f.focus].back = 0
 	f.focus = index
 }
 
@@ -131,13 +132,20 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 		}
 		move(1)
 	case "alt+up", "alt+down", "alt+left", "alt+right":
-		if focused.kind == fieldSchedule {
+		switch {
+		case focused.editsText(): // a word left or right
+			focused.edit(keyPress(key, ""))
+		case focused.kind == fieldSchedule:
 			timeSteps, dayDelta := map[string]int{"alt+up": 1, "alt+down": -1}[key], map[string]int{"alt+right": 1, "alt+left": -1}[key]
 			if adjusted, ok := schedule.Adjust(focused.value, timeSteps, dayDelta); ok {
 				focused.value = adjusted
 			}
 		}
 	case "left", "right":
+		if focused.editsText() {
+			focused.edit(keyPress(key, ""))
+			break
+		}
 		m.form.step(m.form.focus, map[string]int{"left": -1, "right": 1}[key])
 	case " ":
 		switch focused.kind {
@@ -145,7 +153,9 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 			m.form.advancedOpen = !m.form.advancedOpen
 		case fieldChecklist:
 			m.form.toggle(m.form.focus, focused.sub)
-		case fieldText, fieldSchedule, fieldPaths:
+		case fieldText, fieldPaths:
+			focused.edit(keyPress(" ", " "))
+		case fieldSchedule:
 			focused.value += " "
 		}
 	default:
@@ -168,12 +178,10 @@ func (f *form) typeInto(field *formField, key, text string) {
 	}
 	digits := text != "" && strings.Trim(text, "0123456789") == ""
 	switch field.kind {
-	case fieldText, fieldSchedule, fieldPaths:
+	case fieldText, fieldPaths, fieldNumber:
+		field.edit(keyPress(key, text))
+	case fieldSchedule:
 		field.value = editText(field.value, key, text)
-	case fieldNumber:
-		if key == "backspace" || digits {
-			field.value = editText(field.value, key, text)
-		}
 	case fieldRetention:
 		if (key == "backspace" || digits) && len([]rune(field.counts[field.sub])) < 4 || key == "backspace" {
 			field.counts[field.sub] = editText(field.counts[field.sub], key, text)
@@ -202,7 +210,7 @@ func (f *form) suggest(index int, number string) {
 	if err != nil || choice < 1 || choice > len(suggestions) {
 		return
 	}
-	field.value = addPath(field.value, suggestions[choice-1])
+	field.value, field.back = addPath(field.value, suggestions[choice-1]), 0
 	f.touched[field.key] = true
 }
 
@@ -390,4 +398,19 @@ func (f form) sharedPasswordEnv(actions manageActions) string {
 		}
 	}
 	return "RESTIC_PASSWORD"
+}
+
+// onPaste puts pasted text into the text field of the open form; anywhere else a paste does nothing.
+func (m manageModel) onPaste(content string) manageModel {
+	if !m.formOpen() {
+		return m
+	}
+	field := &m.form.fields[m.form.focus]
+	if !field.editsText() {
+		return m
+	}
+	field.edit(tea.PasteMsg{Content: content})
+	m.form.touched[field.key] = true
+	m.form.problem = ""
+	return m
 }

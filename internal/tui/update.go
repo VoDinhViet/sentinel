@@ -77,6 +77,8 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterConnect(msg), nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg.String(), msg.Text)
+	case tea.PasteMsg:
+		return m.onPaste(msg.Content), nil
 	case tea.MouseClickMsg:
 		return m.onClick(msg.X, msg.Y, msg.Button == tea.MouseLeft)
 	case tea.MouseWheelMsg:
