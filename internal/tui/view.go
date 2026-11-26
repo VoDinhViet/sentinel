@@ -48,8 +48,6 @@ func (m manageModel) renderScreen() []string {
 		return m.renderResult()
 	case modeForm:
 		return m.renderForm()
-	case modeDelete:
-		return m.renderDelete()
 	case modeBrowse:
 		return m.renderBrowse()
 	}

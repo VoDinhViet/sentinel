@@ -36,3 +36,9 @@ func (m manageModel) pop() manageModel {
 	}
 	return m
 }
+
+// replaceTop swaps the screen on show for next, to save what the screen changed in itself.
+func (m manageModel) replaceTop(next screen) manageModel {
+	m.screens = append(slices.Clone(m.screens[:len(m.screens)-1]), next)
+	return m
+}

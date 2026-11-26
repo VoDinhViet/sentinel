@@ -142,8 +142,6 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 		return m.onConfirmKey(key, text)
 	case modeForm:
 		return m.onFormKey(key, text)
-	case modeDelete:
-		return m.onDeleteKey(key, text)
 	case modeBrowse:
 		return m.onBrowseKey(key, text)
 	}

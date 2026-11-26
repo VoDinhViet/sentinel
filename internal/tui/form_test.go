@@ -399,13 +399,13 @@ func TestRemoveNeedsTheJobName(t *testing.T) {
 	screen, configFile := formModel(t)
 	model, _ := screen.onKey("d", "")
 	screen = model.(manageModel)
-	if screen.mode != modeDelete || !strings.Contains(plain(screen.render()), "Xoá appdb") {
-		t.Fatalf("delete screen missing (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if _, ok := screen.top().(deleteScreen); !ok || !strings.Contains(plain(screen.render()), "Xoá appdb") {
+		t.Fatalf("delete screen missing (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 	screen = typeText(t, screen, "nope")
 	model, _ = screen.onKey("enter", "")
 	screen = model.(manageModel)
-	if len(configFile.deleted) != 0 || screen.inputError == "" {
+	if open, _ := screen.top().(deleteScreen); len(configFile.deleted) != 0 || open.problem == "" {
 		t.Fatal("a wrong name must not remove the job")
 	}
 	for range "nope" {
@@ -415,8 +415,8 @@ func TestRemoveNeedsTheJobName(t *testing.T) {
 	screen = typeText(t, screen, "appdb")
 	model, _ = screen.onKey("enter", "")
 	screen = model.(manageModel)
-	if len(configFile.deleted) != 1 || configFile.deleted[0] != "appdb" || screen.mode != modeTable || !strings.Contains(screen.notice, "snapshot đã có vẫn nằm") {
-		t.Errorf("deleted %v mode %d notice %q", configFile.deleted, screen.mode, screen.notice)
+	if len(configFile.deleted) != 1 || configFile.deleted[0] != "appdb" || !screen.onTabs() || !strings.Contains(screen.notice, "snapshot đã có vẫn nằm") {
+		t.Errorf("deleted %v screens %d notice %q", configFile.deleted, len(screen.screens), screen.notice)
 	}
 }
 

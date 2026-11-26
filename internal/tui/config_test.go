@@ -194,8 +194,8 @@ func TestRemoveRepositoryRefusesOneInUse(t *testing.T) {
 	}
 	screen = goTo(t, screen, secRepository, "local")
 	screen = keys(t, screen, "d")
-	if screen.mode != modeDelete {
-		t.Fatalf("mode %d: %s", screen.mode, screen.notice)
+	if _, ok := screen.top().(deleteScreen); !ok {
+		t.Fatalf("screens %d: %s", len(screen.screens), screen.notice)
 	}
 	screen = typeText(t, screen, "local")
 	screen = keys(t, screen, "enter")

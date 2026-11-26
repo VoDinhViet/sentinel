@@ -100,7 +100,6 @@ const (
 	modeBusy                        // a backup, snapshot listing or restore is running
 	modeResult                      // the outcome of a restore
 	modeForm                        // adding or editing a database job
-	modeDelete                      // typing the job name to confirm its removal
 	modeBrowse                      // choosing folders for a Paths field
 )
 
@@ -145,12 +144,8 @@ type manageModel struct {
 	resultText string
 	resultBad  bool
 
-	form       form
-	browse     browseState
-	deleteName string
-	// deleteWhat is "job", "repository"...; deleteNote tells what stays; deleteAction removes it.
-	deleteWhat, deleteNote string
-	deleteAction           func() error
+	form   form
+	browse browseState
 
 	config configData
 

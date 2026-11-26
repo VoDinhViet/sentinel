@@ -102,44 +102,56 @@ func (m manageModel) deleteJobNamed(name string) manageModel {
 
 // confirmRemoval opens the screen that asks for the entry's name before remove runs.
 func (m manageModel) confirmRemoval(what, name, note string, remove func() error) manageModel {
-	m.mode, m.deleteWhat, m.deleteName, m.deleteNote, m.deleteAction, m.confirm, m.inputError = modeDelete, what, name, note, remove, "", ""
-	return m
+	return m.push(deleteScreen{what: what, name: name, note: note, remove: remove})
 }
 
-func (m manageModel) onDeleteKey(key, text string) (tea.Model, tea.Cmd) {
+// deleteScreen asks for the name of a job, repository, uptime check or notifier before it leaves the
+// config. what is that kind, note tells what stays behind, and remove does it.
+type deleteScreen struct {
+	what, name, note string
+	remove           func() error
+	typed, problem   string
+}
+
+func (s deleteScreen) onKey(m manageModel, key, text string) (manageModel, tea.Cmd) {
 	switch key {
 	case "esc":
-		m.mode = modeTable
+		return m.pop(), nil
 	case "enter":
-		if m.confirm != m.deleteName {
-			m.inputError = "tên không khớp"
-			return m, nil
-		}
-		if err := m.deleteAction(); err != nil {
-			m.mode, m.notice, m.noticeBad = modeTable, "Không xoá được "+m.deleteWhat+": "+err.Error(), true
-			return m, nil
-		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("Đã xoá %s %s khỏi config. %s Khởi động lại daemon (sentinel run) để áp dụng.", m.deleteWhat, m.deleteName, m.deleteNote), false
-		m = m.refreshJobRepositories().refreshConfig()
-		m.cursor = max(min(m.cursor, len(m.tabs()[m.tab].lines)-1), 0)
-		return m, m.reload()
-	default:
-		m.confirm, m.inputError = editText(m.confirm, key, text), ""
+		return s.confirm(m)
 	}
-	return m, nil
+	s.typed, s.problem = editText(s.typed, key, text), ""
+	return m.replaceTop(s), nil
 }
 
-func (m manageModel) renderDelete() []string {
-	screenLines := []string{
-		titleStyle.Render("Xoá " + m.deleteName),
-		"",
-		wrap(fmt.Sprintf("Thao tác này xoá %s khỏi file config. %s", m.deleteWhat, m.deleteNote), m.width-2),
-		"",
-		"Gõ tên (" + m.deleteName + ") để xác nhận:",
-		"  " + m.confirm + lipglossAccent("▏"),
+// confirm removes the entry when the typed name matches, and leaves the screen.
+func (s deleteScreen) confirm(m manageModel) (manageModel, tea.Cmd) {
+	if s.typed != s.name {
+		s.problem = "tên không khớp"
+		return m.replaceTop(s), nil
 	}
-	if m.inputError != "" {
-		screenLines = append(screenLines, "", severityStyle(sevBad).Render(m.inputError))
+	m = m.pop()
+	if err := s.remove(); err != nil {
+		m.notice, m.noticeBad = "Không xoá được "+s.what+": "+err.Error(), true
+		return m, nil
+	}
+	m.notice, m.noticeBad = fmt.Sprintf("Đã xoá %s %s khỏi config. %s Khởi động lại daemon (sentinel run) để áp dụng.", s.what, s.name, s.note), false
+	m = m.refreshJobRepositories().refreshConfig()
+	m.cursor = max(min(m.cursor, len(m.tabs()[m.tab].lines)-1), 0)
+	return m, m.reload()
+}
+
+func (s deleteScreen) render(m manageModel) []string {
+	screenLines := []string{
+		titleStyle.Render("Xoá " + s.name),
+		"",
+		wrap(fmt.Sprintf("Thao tác này xoá %s khỏi file config. %s", s.what, s.note), m.width-2),
+		"",
+		"Gõ tên (" + s.name + ") để xác nhận:",
+		"  " + s.typed + lipglossAccent("▏"),
+	}
+	if s.problem != "" {
+		screenLines = append(screenLines, "", severityStyle(sevBad).Render(s.problem))
 	}
 	return append(screenLines, "", m.keyBar(len(screenLines)+1, "enter", "xoá", "esc", "huỷ"))
 }
