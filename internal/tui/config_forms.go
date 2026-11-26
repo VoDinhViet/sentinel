@@ -9,6 +9,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/notify"
 )
 
 // The forms of the Config tab: repository, uptime check, notifier and settings. They use
@@ -208,11 +209,11 @@ func newNotifierForm(notifier configedit.Notifier, original string) form {
 		title = "Sửa " + original
 	}
 	if notifier.Kind == "" {
-		notifier.Kind = configedit.NotifierKinds[0]
+		notifier.Kind = notify.Kinds()[0]
 	}
-	fields := []formField{{key: "kind", label: "Notifier", hint: "← → để chọn", kind: fieldChoice, value: notifier.Kind, choices: configedit.NotifierKinds, fixed: original != ""}}
-	for _, kind := range configedit.NotifierKinds {
-		for _, spec := range configedit.NotifierFields(kind) {
+	fields := []formField{{key: "kind", label: "Notifier", hint: "← → để chọn", kind: fieldChoice, value: notifier.Kind, choices: notify.Kinds(), fixed: original != ""}}
+	for _, kind := range notify.Kinds() {
+		for _, spec := range notify.FieldsOf(kind) {
 			field := formField{key: kind + "." + spec.Key, label: spec.Label, hint: notifierHint(spec), value: notifier.Values[spec.Key], onField: "kind", only: []string{kind}}
 			if kind != notifier.Kind {
 				field.value = ""
@@ -232,7 +233,7 @@ func newNotifierForm(notifier configedit.Notifier, original string) form {
 	return form{kind: formNotifier, title: title, original: original, touched: map[string]bool{}, fields: fields, kept: literalKeys(notifier)}
 }
 
-func notifierHint(spec configedit.NotifierField) string {
+func notifierHint(spec notify.Field) string {
 	switch {
 	case spec.Secret:
 		return "tên env var chứa giá trị này, vd. TG_TOKEN (không bao giờ nhập chính secret)"
@@ -260,7 +261,7 @@ func literalKeys(notifier configedit.Notifier) map[string]string {
 func (f form) notifier() configedit.Notifier {
 	kind := f.field("kind").value
 	notifier := configedit.Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
-	for _, spec := range configedit.NotifierFields(kind) {
+	for _, spec := range notify.FieldsOf(kind) {
 		value := strings.TrimSpace(f.field(kind + "." + spec.Key).value)
 		notifier.Values[spec.Key] = value
 		if spec.Secret && value == "" && f.original == kind && f.kept[spec.Key] == "literal" {

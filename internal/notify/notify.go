@@ -68,17 +68,10 @@ type Notifier interface {
 // FromConfig builds one notifier per configured notifier setting.
 func FromConfig(settings config.Notifiers) []Notifier {
 	var notifiers []Notifier
-	if settings.Telegram != nil {
-		notifiers = append(notifiers, &Telegram{Token: settings.Telegram.Token, ChatID: settings.Telegram.ChatID})
-	}
-	if settings.SMTP != nil {
-		notifiers = append(notifiers, &SMTP{Config: *settings.SMTP})
-	}
-	if settings.Discord != nil {
-		notifiers = append(notifiers, &Discord{URL: settings.Discord.URL})
-	}
-	if settings.Slack != nil {
-		notifiers = append(notifiers, &Slack{URL: settings.Slack.URL})
+	for _, k := range kinds {
+		if notifier := k.build(settings); notifier != nil {
+			notifiers = append(notifiers, notifier)
+		}
 	}
 	return notifiers
 }

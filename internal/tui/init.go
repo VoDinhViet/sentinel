@@ -12,6 +12,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/notify"
 	"sentinel/internal/status"
 )
 
@@ -37,7 +38,7 @@ func RunInit(ctx context.Context, path string, root, force bool) (*InitOutcome, 
 		outcome.JobName, outcome.RepoName, outcome.PasswordEnv = initial.Job.Name, initial.Repository.Name, initial.Repository.PasswordEnv
 		if notifier := initial.Notifier; notifier != nil {
 			outcome.NotifierKind = notifier.Kind
-			for _, spec := range configedit.NotifierFields(notifier.Kind) {
+			for _, spec := range notify.FieldsOf(notifier.Kind) {
 				if spec.Secret {
 					outcome.NotifierVars = append(outcome.NotifierVars, notifier.Values[spec.Key])
 				}
@@ -110,7 +111,7 @@ func (f form) initNotifier() *configedit.Notifier {
 		return nil
 	}
 	notifier := configedit.Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
-	for _, spec := range configedit.NotifierFields(kind) {
+	for _, spec := range notify.FieldsOf(kind) {
 		notifier.Values[spec.Key] = strings.TrimSpace(f.field("notify_" + kind + "." + spec.Key).value)
 	}
 	return &notifier

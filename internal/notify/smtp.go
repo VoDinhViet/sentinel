@@ -12,62 +12,7 @@ import (
 	"time"
 
 	"sentinel/internal/config"
-	"sentinel/internal/termtext"
 )
-
-type Telegram struct {
-	Token  string
-	ChatID string
-	// BaseURL overrides https://api.telegram.org (tests).
-	BaseURL string
-}
-
-func (t *Telegram) Name() string { return "telegram" }
-
-func (t *Telegram) Send(ctx context.Context, msg Message) error {
-	baseURL := t.BaseURL
-	if baseURL == "" {
-		baseURL = "https://api.telegram.org"
-	}
-	return postJSON(ctx, baseURL+"/bot"+t.Token+"/sendMessage", map[string]any{
-		"chat_id":                  t.ChatID,
-		"text":                     truncate(msg.Text(), 4096),
-		"disable_web_page_preview": true,
-	})
-}
-
-type Discord struct{ URL string }
-
-func (d *Discord) Name() string { return "discord" }
-
-func (d *Discord) Send(ctx context.Context, msg Message) error {
-	// The subject is Sentinel's own; the body quotes outside text. Clean first: escaping "[" before an
-	// escape sequence would turn it into "ESC \", the end of a string sequence, and swallow the backslash.
-	msg.Body = discordEscape(termtext.Clean(msg.Body))
-	return postJSON(ctx, d.URL, map[string]any{
-		"content": truncate(msg.Text(), 2000),
-		// An empty parse list pings nobody: a file name with @everyone in an error must not notify the channel.
-		"allowed_mentions": map[string]any{"parse": []string{}},
-	})
-}
-
-// discordEscape escapes "[", which every [text](url) link needs, so a file name cannot make a link that
-// shows one address and opens another.
-func discordEscape(text string) string {
-	return strings.ReplaceAll(text, "[", `\[`)
-}
-
-type Slack struct{ URL string }
-
-func (s *Slack) Name() string { return "slack" }
-
-func (s *Slack) Send(ctx context.Context, msg Message) error {
-	return postJSON(ctx, s.URL, map[string]any{"text": truncate(slackEscape(msg.Text()), 3000)})
-}
-
-// slackEscape escapes the three characters Slack gives a meaning to (<!channel>, <https://x|label>), as its
-// documentation asks for text that is not markup.
-var slackEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
 
 // SMTP sends mail with STARTTLS when offered, or implicit TLS on port 465.
 type SMTP struct {
@@ -160,4 +105,19 @@ func buildMail(from string, to []string, msg Message) string {
 	mail.WriteString(strings.ReplaceAll(msg.Text(), "\n", "\r\n"))
 	mail.WriteString("\r\n")
 	return mail.String()
+}
+
+var smtpKind = kind{
+	name: "smtp",
+	fields: []Field{
+		{Key: "host", Label: "Host", Required: true}, {Key: "port", Label: "Port", Number: true},
+		{Key: "user", Label: "User"}, {Key: "pass", Label: "Password", Secret: true},
+		{Key: "from", Label: "From"}, {Key: "to", Label: "To", Required: true, List: true},
+	},
+	build: func(settings config.Notifiers) Notifier {
+		if settings.SMTP == nil {
+			return nil
+		}
+		return &SMTP{Config: *settings.SMTP}
+	},
 }

@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"sentinel/internal/config"
+	"sentinel/internal/notify"
 	"sentinel/internal/schedule"
 )
 
@@ -45,41 +46,12 @@ type Uptime struct {
 	CertExpiryDays, FailAfter string
 }
 
-// Notifier is one notifier of notifiers:. Values holds each field of NotifierFields(Kind); a
+// Notifier is one notifier of notifiers:. Values holds each field of notify.FieldsOf(Kind); a
 // secret field holds the name of the environment variable, never the secret.
 type Notifier struct {
 	Kind    string
 	Values  map[string]string
 	Literal map[string]bool // secret fields that hold a literal value in the file (kept unless replaced)
-}
-
-// NotifierField describes one field of a notifier.
-type NotifierField struct {
-	Key, Label string
-	Secret     bool // the form asks for an environment variable name
-	Required   bool
-	Number     bool
-	List       bool // comma separated
-}
-
-// NotifierKinds are the notifiers, in the order they are shown.
-var NotifierKinds = []string{"telegram", "smtp", "discord", "slack"}
-
-// NotifierFields are the fields of a notifier kind.
-func NotifierFields(kind string) []NotifierField {
-	switch kind {
-	case "telegram":
-		return []NotifierField{{Key: "token", Label: "Bot token", Secret: true, Required: true}, {Key: "chat_id", Label: "Chat id", Required: true}}
-	case "smtp":
-		return []NotifierField{
-			{Key: "host", Label: "Host", Required: true}, {Key: "port", Label: "Port", Number: true},
-			{Key: "user", Label: "User"}, {Key: "pass", Label: "Password", Secret: true},
-			{Key: "from", Label: "From"}, {Key: "to", Label: "To", Required: true, List: true},
-		}
-	case "discord", "slack":
-		return []NotifierField{{Key: "webhook", Label: "Webhook URL", Secret: true, Required: true}}
-	}
-	return nil
 }
 
 // Settings are the general options.
@@ -176,13 +148,13 @@ func Read(path string) (Overview, error) {
 			}
 		}
 		notifiers := mapGet(root, "notifiers")
-		for _, kind := range NotifierKinds {
+		for _, kind := range notify.Kinds() {
 			notifierNode := mapGet(notifiers, kind)
 			if notifiers == nil || notifierNode == nil || notifierNode.Kind != yaml.MappingNode {
 				continue
 			}
 			notifier := Notifier{Kind: kind, Values: map[string]string{}, Literal: map[string]bool{}}
-			for _, field := range NotifierFields(kind) {
+			for _, field := range notify.FieldsOf(kind) {
 				switch {
 				case field.Secret:
 					name, literal := secretOf(text(notifierNode, field.Key))
@@ -505,9 +477,9 @@ func DeleteUptime(path, name string) error {
 
 // ValidateNotifier checks a notifier's fields; the error names the field at fault.
 func ValidateNotifier(notifier Notifier) error {
-	fields := NotifierFields(notifier.Kind)
+	fields := notify.FieldsOf(notifier.Kind)
 	if fields == nil {
-		return fieldError("kind", "notifier phải là một trong %s", strings.Join(NotifierKinds, ", "))
+		return fieldError("kind", "notifier phải là một trong %s", strings.Join(notify.Kinds(), ", "))
 	}
 	for _, field := range fields {
 		value := strings.TrimSpace(notifier.Values[field.Key])
@@ -533,7 +505,7 @@ func SaveNotifier(path string, notifier Notifier) error {
 		if err := ValidateNotifier(notifier); err != nil {
 			return err
 		}
-		fields := NotifierFields(notifier.Kind)
+		fields := notify.FieldsOf(notifier.Kind)
 		notifiersNode := ensureMapping(root, "notifiers", 0)
 		notifierNode := mapGet(notifiersNode, notifier.Kind)
 		if notifierNode == nil || notifierNode.Kind != yaml.MappingNode {

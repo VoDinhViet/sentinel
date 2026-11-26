@@ -3,6 +3,7 @@ package configedit
 import (
 	"errors"
 	"os"
+	"sentinel/internal/notify"
 	"strings"
 	"testing"
 
@@ -223,7 +224,7 @@ func TestNotifiersKeepSecretsAsVariableNames(t *testing.T) {
 			t.Errorf("%s: err = %v", field, err)
 		}
 	}
-	for _, kind := range NotifierKinds {
+	for _, kind := range notify.Kinds() {
 		if err := DeleteNotifier(path, kind); err != nil && !errors.Is(err, ErrNotFound) {
 			t.Fatal(err)
 		}

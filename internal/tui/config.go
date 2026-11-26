@@ -10,6 +10,7 @@ import (
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
+	"sentinel/internal/notify"
 	"sentinel/internal/schedule"
 	"sentinel/internal/uptime"
 )
@@ -188,7 +189,7 @@ func (m manageModel) buildConfigTab() manageTab {
 	for _, notifier := range overview.Notifiers {
 		var parts []string
 		var fields [][2]string
-		for _, spec := range configedit.NotifierFields(notifier.Kind) {
+		for _, spec := range notify.FieldsOf(notifier.Kind) {
 			switch {
 			case spec.Secret:
 				value := envOrNone(notifier.Values[spec.Key], notifier.Literal[spec.Key])
@@ -274,7 +275,7 @@ func (m manageModel) configAdd() manageModel {
 		return m.openEntryForm(newUptimeForm(configedit.Uptime{}, ""))
 	case secNotifier:
 		next := configedit.Notifier{}
-		for _, kind := range configedit.NotifierKinds {
+		for _, kind := range notify.Kinds() {
 			if !slices.ContainsFunc(m.config.overview.Notifiers, func(existing configedit.Notifier) bool { return existing.Kind == kind }) {
 				next.Kind = kind
 				break
