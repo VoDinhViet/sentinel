@@ -18,6 +18,7 @@
 #   --version TAG      install this release (default: the latest)
 #   --no-db-clients    do not install the PostgreSQL and MariaDB client tools
 #   --no-mongo         do not install mongodump
+#   --no-restart       do not restart a running sentinel service after installing
 #   -h, --help         show this text
 #
 # Environment: SENTINEL_REPO (default Cong-ty-ThoMi-Group/gm-backup), SENTINEL_BASE_URL (where release
@@ -29,7 +30,8 @@
 # mongodump against the hash pinned below (from MongoDB's release manifest).
 #
 # Idempotent: running it again upgrades the binary and keeps /etc/sentinel/config.yaml and
-# /etc/sentinel/sentinel.env. POSIX sh, no bashisms.
+# /etc/sentinel/sentinel.env. An upgrade keeps the binary it replaces as /usr/local/bin/sentinel.prev
+# (to roll back) and restarts a running sentinel service. POSIX sh, no bashisms.
 #
 # All the work is in main(), called on the last line: a download that is cut off halfway
 # defines some functions and runs nothing.
@@ -47,6 +49,7 @@ MONGO_SHA256_ARM64=02e492384155af7d0623148668bc9eaf228529c32555e33d450b3ec18c8dc
 VERSION=latest
 DB_CLIENTS=1
 MONGO=1
+RESTART=1
 BIN_SRC=
 
 usage() {
@@ -61,7 +64,10 @@ Options:
   --version TAG      install this release (default: the latest)
   --no-db-clients    do not install the PostgreSQL and MariaDB client tools
   --no-mongo         do not install mongodump
+  --no-restart       do not restart a running sentinel service after installing
   -h, --help         show this text
+
+An upgrade keeps the binary it replaces as /usr/local/bin/sentinel.prev, to roll back to.
 
 Environment: SENTINEL_REPO, SENTINEL_BASE_URL (https only), RESTIC_VERSION, RCLONE_VERSION,
 MONGO_TOOLS_VERSION (and MONGO_TOOLS_SHA256 when it is not the default version).
@@ -82,6 +88,43 @@ fetch() { curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3
 # verify_sum DIR NAME SUMS: NAME in DIR must match its line ("<sha256>  <name>") in the file SUMS in DIR.
 verify_sum() {
 	(cd "$1" && grep " $2\$" "$3" | sha256sum -c - >/dev/null) || die "checksum mismatch for $2: not installing"
+}
+
+# install_binary: put $BIN_SRC at /usr/local/bin/sentinel. The binary it replaces is kept as
+# sentinel.prev so a bad release can be rolled back; installing the same binary again keeps the
+# earlier .prev instead of overwriting it with a copy of the new one.
+install_binary() {
+	target=/usr/local/bin/sentinel
+	if [ -x "$target" ] && ! cmp -s "$BIN_SRC" "$target"; then
+		cp -p "$target" "$target.prev"
+		echo "kept the previous binary as $target.prev ($("$target.prev" --version 2>/dev/null || echo unknown version))"
+	fi
+	install -m 0755 "$BIN_SRC" "$target"
+}
+
+# restart_service: a daemon keeps running the old binary until it is restarted. The restart does not
+# wait for the stop: the daemon lets a running backup finish (up to shutdown_wait) before it exits.
+restart_service() {
+	systemctl is-active --quiet sentinel || return 0
+	if [ "$RESTART" -eq 1 ]; then
+		systemctl try-restart --no-block sentinel
+		echo "restarting sentinel to run the new version; a running backup finishes first (journalctl -u sentinel -f)"
+	else
+		echo "sentinel is still running the old version: sudo systemctl restart sentinel"
+	fi
+}
+
+# rollback_hint: how to go back to the binary an upgrade replaced, when there is one.
+rollback_hint() {
+	[ -x /usr/local/bin/sentinel.prev ] || return 0
+	cat <<'EOT'
+
+Roll back to the previous version:
+  sudo install -m 0755 /usr/local/bin/sentinel.prev /usr/local/bin/sentinel && sudo systemctl restart sentinel
+  If the new version changed the state database, the old one refuses it ("written by a newer sentinel"):
+  move the `store:` file (default /var/lib/sentinel/state.db, with its -wal and -shm files) aside first.
+  Run and alert history then start empty; the backups themselves are untouched.
+EOT
 }
 
 # restic_usable: a restic of 0.17 or newer (the first with --stdin-from-command) is on PATH.
@@ -118,6 +161,7 @@ main() {
 			;;
 		--no-db-clients) DB_CLIENTS=0 ;;
 		--no-mongo) MONGO=0 ;;
+		--no-restart) RESTART=0 ;;
 		-h | --help)
 			usage
 			exit 0
@@ -229,7 +273,7 @@ main() {
 
 	# ---- Install.
 	say "installing sentinel"
-	install -m 0755 "$BIN_SRC" /usr/local/bin/sentinel
+	install_binary
 
 	install -d -m 0750 /etc/sentinel
 	if [ ! -f /etc/sentinel/config.yaml ]; then
@@ -244,11 +288,13 @@ main() {
 	if [ -d /run/systemd/system ]; then
 		install -m 0644 "$DEPLOY_DIR/sentinel.service" /etc/systemd/system/sentinel.service
 		systemctl daemon-reload
+		restart_service
 	else
 		echo "note: systemd is not running here; the unit was not installed" >&2
 	fi
 
 	say "installed: $(/usr/local/bin/sentinel --version)"
+	rollback_hint
 	cat <<'EOF'
 
 Next steps:

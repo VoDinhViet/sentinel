@@ -31,6 +31,14 @@ Mọi thứ script tải về (restic, rclone, mongodump, và Sentinel khi chạ
 
 Để nâng cấp: `git pull`, build lại, chạy lại đúng lệnh cài (`config.yaml` và `sentinel.env` được giữ nguyên). Thêm sau đường dẫn binary: `--no-mongo` bỏ `mongodump`, `--no-db-clients` bỏ client PostgreSQL/MariaDB. Client PostgreSQL phải cùng major version với server (`sentinel doctor` báo khi thiếu).
 
+**Nâng cấp và rollback.** Để nâng cấp: `git pull`, build lại, chạy lại đúng lệnh cài (`config.yaml` và `sentinel.env` được giữ nguyên). Script giữ binary cũ ở `/usr/local/bin/sentinel.prev` và restart service `sentinel` nếu nó đang chạy (thêm `--no-restart` để tự restart sau). Restart không chặn: daemon cho backup đang chạy xong (tối đa `shutdown_wait`) rồi mới dừng, trong lúc đó lịch và uptime check tạm ngưng. Rollback:
+
+```sh
+sudo install -m 0755 /usr/local/bin/sentinel.prev /usr/local/bin/sentinel && sudo systemctl restart sentinel
+```
+
+Nếu bản mới đã đổi cấu trúc file trạng thái, bản cũ sẽ không mở nó và báo `written by a newer sentinel`. Khi đó dời file `store:` (mặc định `/var/lib/sentinel/state.db`, cùng `-wal` và `-shm`) sang chỗ khác trước khi restart: lịch sử chạy và trạng thái cảnh báo bắt đầu lại từ trống, còn dữ liệu backup trong repository không bị ảnh hưởng.
+
 Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi
 
 ```sh
