@@ -121,9 +121,10 @@ rollback_hint() {
 
 Roll back to the previous version:
   sudo install -m 0755 /usr/local/bin/sentinel.prev /usr/local/bin/sentinel && sudo systemctl restart sentinel
-  If the new version changed the state database, the old one refuses it ("written by a newer sentinel"):
-  move the `store:` file (default /var/lib/sentinel/state.db, with its -wal and -shm files) aside first.
-  Run and alert history then start empty; the backups themselves are untouched.
+  Only if the old version then stops with "written by a newer sentinel" (it will not open a state
+  database a newer version changed): move the `store:` file (default /var/lib/sentinel/state.db, with
+  its -wal and -shm files) aside and restart. Run and alert history then start empty; the backups
+  themselves are untouched.
 EOT
 }
 

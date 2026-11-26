@@ -37,7 +37,7 @@ Mọi thứ script tải về (restic, rclone, mongodump, và Sentinel khi chạ
 sudo install -m 0755 /usr/local/bin/sentinel.prev /usr/local/bin/sentinel && sudo systemctl restart sentinel
 ```
 
-Nếu bản mới đã đổi cấu trúc file trạng thái, bản cũ sẽ không mở nó và báo `written by a newer sentinel`. Khi đó dời file `store:` (mặc định `/var/lib/sentinel/state.db`, cùng `-wal` và `-shm`) sang chỗ khác trước khi restart: lịch sử chạy và trạng thái cảnh báo bắt đầu lại từ trống, còn dữ liệu backup trong repository không bị ảnh hưởng.
+Chỉ khi bản cũ dừng với lỗi `written by a newer sentinel` (nó không mở file trạng thái mà bản mới hơn đã đổi cấu trúc), dời file `store:` (mặc định `/var/lib/sentinel/state.db`, cùng `-wal` và `-shm`) sang chỗ khác rồi restart: lịch sử chạy và trạng thái cảnh báo bắt đầu lại từ trống, còn dữ liệu backup trong repository không bị ảnh hưởng.
 
 Sau khi cài: sửa `/etc/sentinel/config.yaml` và `sentinel.env`, rồi
 

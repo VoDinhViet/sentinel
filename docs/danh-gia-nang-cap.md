@@ -78,6 +78,7 @@ Ba vấn đề phụ khi nâng cấp và cấu hình: `install.sh` không restar
 | D8 | `install.sh` không được test hay shellcheck | `.claude/rules/deploy-ops.md:12` |
 | D9 | Hai đường release (`make dist` và goreleaser), chưa nói đường nào chính thức; chưa có CHANGELOG | `Makefile:31`, `.goreleaser.yaml` |
 | D10 | Repo private nên tải release không đăng nhập không dùng được; Docker không có image đã publish | `README.md:15`, `deploy/docker-compose.yml:3` |
+| D11 | `make test` đỏ ở bước govulncheck: toolchain Go 1.27.1 có nhiều lỗ hổng thư viện chuẩn (net/http, crypto/tls, crypto/x509, net/textproto; bản vá từ go1.27.2 tới go1.27.4) và `golang.org/x/net` v0.58.0 cần v0.60.0. Binary build bằng toolchain này mang các lỗi đó, và Sentinel có gọi tới các đường bị ảnh hưởng (gửi alert, heartbeat, probe HTTP) | `go.mod:3`, chạy `make vuln`. **Đã xử lý**: go 1.27.4 và x/net v0.60.0, `make test` xanh |
 
 ## Lộ trình
 
@@ -91,6 +92,13 @@ Ba vấn đề phụ khi nâng cấp và cấu hình: `install.sh` không restar
 6. `install.sh` giữ bản cũ và restart service khi nâng cấp (D4).
 7. Chặn `timeout` và retention âm (B13).
 8. Probe kết nối database không truyền secret không liên quan (B14).
+
+Rà soát an toàn sau khi làm P1 đã tìm ra và sửa thêm:
+
+- `restic check` hằng tuần và `forget --prune` của job có thể va khóa nhau: cả hai nay chờ khóa tối đa 30 phút (`--retry-lock`).
+- Tin alert gửi lại không bị gửi trùng khi một lần gửi còn đang chạy, và thứ tự lưu vào SQLite theo đúng thứ tự thay đổi.
+- Alert đĩa của đường dẫn đã bị bỏ khỏi config được đóng lại thay vì mở mãi.
+- Hai tiến trình mở DB cũ cùng lúc (daemon vừa restart và `sentinel status`) không còn làm migration chạy hai lần.
 
 ### P2
 
