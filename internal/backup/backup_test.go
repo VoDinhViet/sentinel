@@ -411,3 +411,46 @@ func TestBackupDoesNotTurnAFolderWithOtherFilesIntoARepository(t *testing.T) {
 		t.Errorf("the folder was touched: %v", entries)
 	}
 }
+
+// Under the daemon a backup only forgets: the prune of the repository runs on prune_schedule. Without a
+// daemon (the CLI, a detached run) nobody else would prune, so the backup does it as it always did.
+func TestBackupPrunesAfterRetentionOnlyWhenNoDaemonPrunesLater(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		deferPrune bool
+		wantPrune  bool
+	}{{"cli", false, true}, {"daemon", true, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			argsFile, bin := filepath.Join(dir, "args"), filepath.Join(dir, "restic")
+			script := "#!/bin/sh\necho \"$*\" >> " + argsFile + "\n" +
+				"echo '{\"message_type\":\"summary\",\"snapshot_id\":\"abcdef123456\"}'\n"
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{ServerName: "h", Repositories: map[string]config.Repository{"r": {URL: "/r", Password: "p"}}}
+			job := config.Job{Name: "f", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute,
+				Repositories: []string{"r"}, Retention: config.Retention{Daily: 7}}
+			runs := (&Runner{Config: cfg, Bin: bin, DeferPrune: tc.deferPrune}).Run(context.Background(), &job)
+			if len(runs) != 1 || !runs[0].Success {
+				t.Fatalf("runs = %+v", runs)
+			}
+			recorded, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var forget string
+			for _, command := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
+				if strings.Contains(command, "forget") {
+					forget = command
+				}
+			}
+			if forget == "" {
+				t.Fatalf("restic never ran forget: %s", recorded)
+			}
+			if got := strings.Contains(forget, "--prune"); got != tc.wantPrune {
+				t.Errorf("forget has --prune = %v, want %v: %s", got, tc.wantPrune, forget)
+			}
+		})
+	}
+}

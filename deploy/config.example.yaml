@@ -80,6 +80,7 @@ jobs:
     retention: { daily: 7, weekly: 4 }
 
 verify_schedule: weekly sun 04:00    # `restic check` of every repository; this is the default, `manual` turns it off
+prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a backup only forgets old snapshots); this is the default, `manual` turns it off
 
 # The one failure Sentinel cannot report itself is the daemon stopping. Give it a URL (healthchecks.io, an
 # Uptime Kuma push monitor): it is requested at start and then every `every`, and the service on the other end

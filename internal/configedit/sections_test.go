@@ -238,20 +238,20 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	path := writeConfig(t, sectionsConfig)
 	settings := Settings{
 		ServerName: "web-02", Store: "/var/lib/sentinel/state.db", Cooldown: "30m", NotifySuccess: true,
-		VerifySchedule: "weekly sun 04:00", ShutdownWait: "90m", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
+		VerifySchedule: "weekly sun 04:00", PruneSchedule: "daily 05:00", ShutdownWait: "90m", DefaultSchedule: "daily 02:00", DefaultRepositories: []string{"s3"},
 		DefaultRetention: config.Retention{Daily: 7, Weekly: 4},
 	}
 	if err := SaveSettings(path, settings); err != nil {
 		t.Fatal(err)
 	}
 	saved := readFile(t, path)
-	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "shutdown_wait: 90m", "notify_success: true", "verify_schedule: weekly sun 04:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
+	for _, want := range []string{"server_name: web-02", "# the name in alerts", "cooldown: 30m", "shutdown_wait: 90m", "notify_success: true", "verify_schedule: weekly sun 04:00", "prune_schedule: daily 05:00", "schedule: daily 02:00", "repositories: [s3]", "daily: 7"} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("saved lacks %q:\n%s", want, saved)
 		}
 	}
 	overview, err := Read(path)
-	if err != nil || overview.Settings.DefaultSchedule != "daily 02:00" || overview.Settings.DefaultRetention.Weekly != 4 || !overview.Settings.NotifySuccess || overview.Settings.Cooldown != "30m" {
+	if err != nil || overview.Settings.PruneSchedule != "daily 05:00" || overview.Settings.DefaultSchedule != "daily 02:00" || overview.Settings.DefaultRetention.Weekly != 4 || !overview.Settings.NotifySuccess || overview.Settings.Cooldown != "30m" {
 		t.Errorf("read back: %+v %v", overview.Settings, err)
 	}
 
@@ -259,7 +259,7 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleared := readFile(t, path)
-	for _, gone := range []string{"alert:", "defaults:", "cooldown", "verify_schedule", "store:"} {
+	for _, gone := range []string{"alert:", "defaults:", "cooldown", "verify_schedule", "prune_schedule", "store:"} {
 		if strings.Contains(cleared, gone) {
 			t.Errorf("an empty value removes %q:\n%s", gone, cleared)
 		}
@@ -276,6 +276,9 @@ func TestSettingsWriteOnlyWhatIsSet(t *testing.T) {
 	}
 	if err := SaveSettings(path, Settings{VerifySchedule: "weekly someday 04:00"}); !errors.As(err, &invalid) {
 		t.Errorf("bad schedule = %v", err)
+	}
+	if err := SaveSettings(path, Settings{PruneSchedule: "weekly someday 04:00"}); !errors.As(err, &invalid) || invalid.Field != "prune_schedule" {
+		t.Errorf("bad prune schedule = %v", err)
 	}
 }
 

@@ -60,6 +60,7 @@ type Settings struct {
 	Cooldown          string
 	NotifySuccess     bool
 	VerifySchedule    string
+	PruneSchedule     string
 	ShutdownWait      string
 	// Priority is "", "low" or "normal"; MaxParallel and UploadLimitKiB are numbers or "".
 	Priority, MaxParallel, UploadLimitKiB string
@@ -171,7 +172,7 @@ func Read(path string) (Overview, error) {
 		overview.Settings = Settings{
 			ServerName: text(root, "server_name"), Store: text(root, "store"),
 			Cooldown: text(mapGet(root, "alert"), "cooldown"), NotifySuccess: text(mapGet(root, "alert"), "notify_success") == "true",
-			VerifySchedule: text(root, "verify_schedule"), ShutdownWait: text(root, "shutdown_wait"),
+			VerifySchedule: text(root, "verify_schedule"), PruneSchedule: text(root, "prune_schedule"), ShutdownWait: text(root, "shutdown_wait"),
 			Priority: text(mapGet(root, "resources"), "priority"), MaxParallel: text(mapGet(root, "resources"), "max_parallel"), UploadLimitKiB: text(mapGet(root, "resources"), "upload_limit_kib"),
 			DefaultSchedule: text(defaults, "schedule"), DefaultRepositories: listOf(defaults, "repositories"),
 			DefaultRetention: retentionOf(mapGet(defaults, "retention")),
@@ -592,6 +593,11 @@ func ValidateSettings(settings Settings) error {
 			return fieldError("verify_schedule", "%v", err)
 		}
 	}
+	if !schedule.IsManual(settings.PruneSchedule) {
+		if _, err := schedule.Parse(settings.PruneSchedule); err != nil {
+			return fieldError("prune_schedule", "%v", err)
+		}
+	}
 	if !schedule.IsManual(settings.DefaultSchedule) {
 		if _, err := schedule.Parse(settings.DefaultSchedule); err != nil {
 			return fieldError("default_schedule", "%v", err)
@@ -614,6 +620,7 @@ func SaveSettings(path string, settings Settings) error {
 		setText(root, "server_name", settings.ServerName)
 		setText(root, "store", settings.Store)
 		setText(root, "verify_schedule", settings.VerifySchedule)
+		setText(root, "prune_schedule", settings.PruneSchedule)
 		setText(root, "shutdown_wait", settings.ShutdownWait)
 
 		resources := ensureMapping(root, "resources", 0)

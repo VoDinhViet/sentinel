@@ -104,7 +104,7 @@ Rà soát an toàn sau khi làm P1 đã tìm ra và sửa thêm:
 
 - CI trên GitHub Actions chạy `make test`, thêm e2e khi có docker (D1).
 - Một đường release duy nhất (goreleaser) có checksum ký, SBOM và CHANGELOG (D2, D9).
-- Tách prune khỏi mỗi lần backup: `prune_schedule` và `--max-unused` (B4).
+- Tách prune khỏi mỗi lần backup: đã làm `prune_schedule` (daemon prune từng repository theo lịch; CLI vẫn prune sau mỗi backup). Còn lại: `--max-unused` (B4).
 - Lưu kết quả `restic check` và hiện trong `status`; thêm `--read-data-subset` và lệnh chạy tay (B1, B2).
 - Kiểm tra restore định kỳ cho job database (B3).
 - `sentinel backup run` cũng gửi alert (B7).

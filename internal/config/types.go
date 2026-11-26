@@ -20,6 +20,8 @@ type Config struct {
 	Repositories   map[string]Repository `yaml:"repositories" validate:"dive"`
 	Jobs           []Job                 `yaml:"jobs" validate:"dive"`
 	VerifySchedule string                `yaml:"verify_schedule"`
+	// PruneSchedule is when the data that forgotten snapshots held is removed from each repository.
+	PruneSchedule string `yaml:"prune_schedule"`
 	// Resources limits how much of the server a backup may take.
 	Resources Resources `yaml:"resources"`
 	// ShutdownWait is how long the daemon lets running backups finish when it is stopped.

@@ -14,6 +14,11 @@ const DefaultJobTimeout = 6 * time.Hour
 // verify_schedule. "manual" turns it off.
 const DefaultVerifySchedule = "weekly sun 04:00"
 
+// DefaultPruneSchedule is when the daemon runs `restic prune` on every repository when the config sets no
+// prune_schedule. "manual" turns it off. Pruning reads the whole repository and locks it, so it runs once
+// a week, not after every backup; a day apart from the check so that the two do not wait for each other.
+const DefaultPruneSchedule = "weekly sat 03:00"
+
 func (c *Config) applyDefaults() {
 	if c.ServerName == "" {
 		c.ServerName, _ = os.Hostname()
@@ -29,6 +34,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.VerifySchedule == "" {
 		c.VerifySchedule = DefaultVerifySchedule
+	}
+	if c.PruneSchedule == "" {
+		c.PruneSchedule = DefaultPruneSchedule
 	}
 	if c.Heartbeat.URL != "" && c.Heartbeat.Every == 0 {
 		c.Heartbeat.Every = DefaultHeartbeatEvery

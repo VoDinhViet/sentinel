@@ -106,6 +106,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		cronRunner.Schedule(cronSchedule, cron.FuncJob(func() { d.CheckRepositories(jobCtx) }))
 	}
 
+	if !schedule.IsManual(d.Config.PruneSchedule) {
+		cronSchedule, err := schedule.Parse(d.Config.PruneSchedule)
+		if err != nil {
+			return fmt.Errorf("schedule repo prune: %w", err)
+		}
+		cronRunner.Schedule(cronSchedule, cron.FuncJob(func() { d.PruneRepositories(jobCtx) }))
+	}
+
 	tasks := append(d.builtinTasks(), d.Tasks...)
 	for _, task := range tasks {
 		cronRunner.Schedule(cron.Every(task.Every), cron.FuncJob(func() { task.Run(jobCtx) }))
@@ -225,15 +233,43 @@ func (d *Daemon) verifyTimeout() time.Duration {
 // defaultVerifyTimeout is the default job timeout, and the least a repository check is given.
 const defaultVerifyTimeout = 6 * time.Hour
 
-// CheckRepositories runs `restic check` on every repository used by a job.
-func (d *Daemon) CheckRepositories(ctx context.Context) {
+// usedRepositories are the repositories some job backs up to, by name.
+func (d *Daemon) usedRepositories() []string {
 	usedRepos := map[string]bool{}
 	for _, job := range d.Config.Jobs {
 		for _, repoName := range job.Repositories {
 			usedRepos[repoName] = true
 		}
 	}
-	for _, repoName := range slices.Sorted(maps.Keys(usedRepos)) {
+	return slices.Sorted(maps.Keys(usedRepos))
+}
+
+// PruneRepositories removes the data of the snapshots that retention forgot, once per repository. A job
+// only forgets (see backup.Runner.DeferPrune): prune reads the whole repository and holds its lock, which
+// is too much to do after every backup.
+func (d *Daemon) PruneRepositories(ctx context.Context) {
+	for _, repoName := range d.usedRepositories() {
+		resticClient, err := d.Runner.Restic(repoName)
+		if err == nil {
+			pruneCtx, cancel := context.WithTimeout(ctx, d.verifyTimeout())
+			err = resticClient.Prune(pruneCtx)
+			cancel()
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		key := alert.PruneKey(repoName)
+		if err != nil {
+			d.Alerts.Fire(ctx, key, notify.Warning, "Repository prune failed: "+repoName, err.Error())
+		} else {
+			d.Alerts.Resolve(ctx, key, "Repository prune succeeded: "+repoName, "")
+		}
+	}
+}
+
+// CheckRepositories runs `restic check` on every repository used by a job.
+func (d *Daemon) CheckRepositories(ctx context.Context) {
+	for _, repoName := range d.usedRepositories() {
 		resticClient, err := d.Runner.Restic(repoName)
 		if err == nil {
 			verifyCtx, cancel := context.WithTimeout(ctx, d.verifyTimeout())

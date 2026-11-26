@@ -33,6 +33,7 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*Daemon, err
 		Runner: &backup.Runner{
 			Config: cfg, Store: st,
 			LockRetries: 3, LockRetryDelay: 5 * time.Minute,
+			DeferPrune: true, // the daemon prunes each repository once, on prune_schedule
 		},
 		Tasks: slices.Concat(uptimeTasks(cfg, st, alerts), diskTask(cfg, alerts), heartbeatTask(cfg)),
 	}, nil

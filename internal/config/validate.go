@@ -92,6 +92,9 @@ func (c *Config) scheduleErrors() []error {
 	if err := checkSchedule(c.VerifySchedule); err != nil {
 		errs = append(errs, fmt.Errorf("verify_schedule: %w", err))
 	}
+	if err := checkSchedule(c.PruneSchedule); err != nil {
+		errs = append(errs, fmt.Errorf("prune_schedule: %w", err))
+	}
 	if rule := c.Defaults.Retention.negativeRule(); rule != "" {
 		errs = append(errs, fmt.Errorf("defaults.retention.%s must not be negative", rule))
 	}

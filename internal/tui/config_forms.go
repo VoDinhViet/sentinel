@@ -299,6 +299,7 @@ func newSettingsForm(settings configedit.Settings, listing configedit.Listing) f
 		{key: "notify_success", label: "Báo thành công", hint: "cũng gửi tin sau mỗi backup thành công", kind: fieldChoice, value: notifySuccess, choices: []string{"no", "yes"}},
 	}
 	fields = append(fields, scheduleFields("verify_schedule", "Kiểm tra repo", "khi nào chạy `restic check` trên mọi repository. Để trống = mặc định, gõ manual để tắt. "+scheduleHint, settings.VerifySchedule, "hàng tuần, chủ nhật 04:00 (mặc định)", "")...)
+	fields = append(fields, scheduleFields("prune_schedule", "Dọn repo", "khi nào chạy `restic prune` trên mọi repository để xoá dữ liệu của các snapshot đã hết hạn giữ. Để trống = mặc định, gõ manual để tắt. "+scheduleHint, settings.PruneSchedule, "hàng tuần, thứ bảy 03:00 (mặc định)", "")...)
 	fields = append(fields, scheduleFields("default_schedule", "Schedule mặc định", "cho job không đặt schedule. "+scheduleHint, settings.DefaultSchedule, "chưa có: job chạy bằng tay", "")...)
 	fields = append(fields, []formField{
 		{key: "default_repositories", label: "Repo mặc định", hint: "space hoặc click để tick; cho job không liệt kê repository. Không tick gì mà chỉ có một repository = repository đó", kind: fieldChecklist, choices: listing.Repositories, ticked: ticked},
@@ -315,7 +316,7 @@ func (f form) settings() (configedit.Settings, error) {
 		Cooldown: strings.TrimSpace(f.field("cooldown").value), ShutdownWait: strings.TrimSpace(f.field("shutdown_wait").value),
 		// low is the default: the key is left out.
 		Priority: strings.TrimPrefix(f.field("priority").value, "low"), MaxParallel: strings.TrimSpace(f.field("max_parallel").value), UploadLimitKiB: strings.TrimSpace(f.field("upload_limit_kib").value), NotifySuccess: f.field("notify_success").value == "yes",
-		VerifySchedule: strings.TrimSpace(f.field("verify_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
+		VerifySchedule: strings.TrimSpace(f.field("verify_schedule").value), PruneSchedule: strings.TrimSpace(f.field("prune_schedule").value), DefaultSchedule: strings.TrimSpace(f.field("default_schedule").value),
 	}
 	repositories := f.field("default_repositories")
 	for i, name := range repositories.choices {

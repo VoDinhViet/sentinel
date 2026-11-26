@@ -113,6 +113,28 @@ func TestStatusLinesAreNotKeptSoALongBackupDoesNotGrowMemory(t *testing.T) {
 	}
 }
 
+func TestForgetPrunesOnlyWhenAsked(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	bin := filepath.Join(t.TempDir(), "restic")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$*\" >> "+argsFile+"\necho '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{Bin: bin, Host: "h"}
+	for _, prune := range []bool{false, true} {
+		if err := client.Forget(context.Background(), []string{"job=a"}, config.Retention{Last: 3}, prune); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recorded, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	if len(commands) != 2 || strings.Contains(commands[0], "--prune") || !strings.Contains(commands[1], "--prune") {
+		t.Errorf("forget without prune, then with it: %q", commands)
+	}
+}
+
 // The weekly check and a job's prune can start in the same hour: both wait for the other's lock instead of failing.
 func TestCheckAndPruneWaitForARepositoryAnotherResticHolds(t *testing.T) {
 	argsFile := filepath.Join(t.TempDir(), "args")
@@ -125,7 +147,10 @@ func TestCheckAndPruneWaitForARepositoryAnotherResticHolds(t *testing.T) {
 	if err := client.Verify(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Forget(context.Background(), []string{"job=a"}, config.Retention{Last: 3}); err != nil {
+	if err := client.Forget(context.Background(), []string{"job=a"}, config.Retention{Last: 3}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Prune(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := os.ReadFile(argsFile)
@@ -133,7 +158,7 @@ func TestCheckAndPruneWaitForARepositoryAnotherResticHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	commands := strings.Split(strings.TrimSpace(string(recorded)), "\n")
-	if len(commands) != 2 {
+	if len(commands) != 3 {
 		t.Fatalf("restic ran %d times: %q", len(commands), commands)
 	}
 	for _, command := range commands {

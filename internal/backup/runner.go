@@ -29,6 +29,10 @@ type Runner struct {
 	// (from another goroutine). The same progress is written to a file next to the state
 	// database for other processes to read: see ReadRunning.
 	OnProgress func(Progress)
+	// DeferPrune makes a backup only forget the snapshots retention drops: the data they held is removed
+	// by Client.Prune, which the daemon runs on prune_schedule. Without it (the CLI and the detached runs,
+	// which have no daemon behind them) every backup prunes after its retention, as restic's own docs show.
+	DeferPrune bool
 	// TrustRestoreTarget skips the owner and mode checks of a restore target (see PrepareRestoreTarget).
 	TrustRestoreTarget bool
 }
@@ -220,7 +224,7 @@ func (r *Runner) runOne(ctx context.Context, job *config.Job, repoName string, s
 
 	run.Success = true
 	progress.phase(PhaseRetention)
-	if err := client.Forget(ctx, JobTags(job), job.Retention); err != nil {
+	if err := client.Forget(ctx, JobTags(job), job.Retention, !r.DeferPrune); err != nil {
 		// The new snapshot is safe, so the backup counts as successful; Error
 		// carries the retention failure and retention catches up next run.
 		run.Error = fmt.Sprintf("retention failed: %v", err)

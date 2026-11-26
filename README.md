@@ -97,6 +97,8 @@ defaults:
   retention: { daily: 7, weekly: 4, monthly: 6 }
 ```
 
+Mỗi backup chỉ `forget` các snapshot hết hạn giữ; dung lượng của chúng được trả lại khi daemon chạy `restic prune` trên từng repository, mặc định mỗi tuần một lần (`prune_schedule: weekly sat 03:00`, đặt `manual` để tắt). Prune đọc cả repository và giữ khoá độc quyền nên không chạy sau mỗi backup. Backup chạy bằng CLI (`backup run`, kể cả `--detach`) không có daemon đứng sau nên vẫn prune ngay sau retention như trước. Prune lỗi thì có cảnh báo `prune:<repository>`.
+
 ### Google Drive
 
 Chạy bằng root (vì service chạy bằng root):

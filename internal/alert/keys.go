@@ -13,6 +13,9 @@ func RetentionKey(job, repo string) string { return "retention:" + job + ":" + r
 // VerifyKey is the alert for a repository that failed its integrity check.
 func VerifyKey(repo string) string { return "verify:" + repo }
 
+// PruneKey is the alert for a repository whose prune failed.
+func PruneKey(repo string) string { return "prune:" + repo }
+
 // StaleKey is the alert for a job with no recent successful backup.
 func StaleKey(job string) string { return "stale:" + job }
 

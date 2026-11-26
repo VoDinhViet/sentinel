@@ -371,13 +371,17 @@ func (c *Client) Backup(ctx context.Context, opts BackupOptions) (Summary, error
 	return sum, nil
 }
 
-// Forget applies the retention policy to snapshots with the given tags on
-// this host, then prunes unreferenced data.
-func (c *Client) Forget(ctx context.Context, tags []string, retention config.Retention) error {
+// Forget applies the retention policy to snapshots with the given tags on this host. With prune it also
+// removes the data no snapshot uses any more, which reads the whole repository and locks it for as long as
+// it takes: the daemon leaves that to Prune, run once per repository on a schedule of its own.
+func (c *Client) Forget(ctx context.Context, tags []string, retention config.Retention, prune bool) error {
 	if retention.Empty() {
 		return nil
 	}
-	args := []string{"forget", "--json", "--prune", "--retry-lock", lockRetry, "--host", c.Host, "--group-by", "host,tags"}
+	args := []string{"forget", "--json", "--retry-lock", lockRetry, "--host", c.Host, "--group-by", "host,tags"}
+	if prune {
+		args = append(args, "--prune")
+	}
 	if len(tags) > 0 {
 		args = append(args, "--tag", strings.Join(tags, ","))
 	}
@@ -436,8 +440,14 @@ func (c *Client) Exists(ctx context.Context) (bool, error) {
 	return err == nil, err
 }
 
-// lockRetry is how long `check` and `forget --prune` wait for a repository that another restic
-// holds, instead of failing at once: the weekly check and a job's prune both run in the small hours.
+// Prune removes the data of the repository that no snapshot uses any more (the snapshots `forget` dropped).
+func (c *Client) Prune(ctx context.Context) error {
+	_, err := c.run(ctx, "prune", "--retry-lock", lockRetry)
+	return err
+}
+
+// lockRetry is how long `check`, `forget` and `prune` wait for a repository that another restic holds,
+// instead of failing at once: the weekly check, the prune and the backups all run in the small hours.
 const lockRetry = "30m"
 
 // Verify checks repository integrity (structure only, no data read).

@@ -366,6 +366,28 @@ func TestVerifyScheduleDefaultsToWeekly(t *testing.T) {
 	}
 }
 
+// Prune is on unless the config turns it off, once a week: a retention that never frees space only moves the problem.
+func TestPruneScheduleDefaultsToWeeklyAndIsValidated(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"not set": {"", DefaultPruneSchedule},
+		"own":     {"prune_schedule: daily 05:00", "daily 05:00"},
+		"manual":  {"prune_schedule: manual", "manual"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.PruneSchedule != tc.want {
+				t.Errorf("PruneSchedule = %q, want %q", cfg.PruneSchedule, tc.want)
+			}
+		})
+	}
+	if _, err := Parse([]byte("prune_schedule: weekly someday 03:00")); err == nil || !strings.Contains(err.Error(), "prune_schedule") {
+		t.Errorf("a bad prune_schedule: %v", err)
+	}
+}
+
 func TestDefaultsAreValidated(t *testing.T) {
 	_, err := Parse([]byte(`
 repositories: { r: { url: /tmp/r, password: p } }
