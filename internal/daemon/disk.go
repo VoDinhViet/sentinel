@@ -18,6 +18,9 @@ import (
 	"sentinel/internal/notify"
 )
 
+// diskKeyPrefix starts the alert key of every disk alert (see alert.DiskKey).
+const diskKeyPrefix = "disk:"
+
 // checkDisksEvery is how often the file systems are looked at.
 const checkDisksEvery = 15 * time.Minute
 
@@ -125,9 +128,15 @@ func (w *DiskWatcher) Check(ctx context.Context) {
 		}
 		group.holds = append(group.holds, volume.Holds)
 	}
+	if len(groups) == 0 {
+		return // nothing could be read: do not close alerts on the strength of that
+	}
+	var keys []string
 	for _, group := range groups {
 		w.report(ctx, group)
+		keys = append(keys, alert.DiskKey(group.path))
 	}
+	w.Alerts.ResolveMissing(ctx, diskKeyPrefix, keys, "Disk no longer watched")
 }
 
 func (w *DiskWatcher) report(ctx context.Context, group *diskGroup) {

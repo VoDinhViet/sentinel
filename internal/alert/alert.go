@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type Manager struct {
 
 	mu         sync.Mutex
 	alertByKey map[string]store.Alert
+	sending    map[string]bool // keys whose waiting message is being delivered now
 }
 
 func (m *Manager) now() time.Time {
@@ -73,15 +75,17 @@ func (m *Manager) update(ctx context.Context, key string, change func(alert *sto
 		alert.Pending = &store.PendingMessage{Level: int(msg.Level), Title: msg.Title, Body: msg.Body}
 	}
 	m.alertByKey[key] = alert
+	m.saveLocked(ctx, alert)
 	m.mu.Unlock()
 
-	m.save(ctx, alert)
 	if msg != nil {
 		m.deliverPending(ctx, key)
 	}
 }
 
-func (m *Manager) save(ctx context.Context, alert store.Alert) {
+// saveLocked persists alert. The caller holds mu, so two saves of the same alert reach the store in
+// the order the changes were made and a stale copy cannot overwrite a newer one.
+func (m *Manager) saveLocked(ctx context.Context, alert store.Alert) {
 	if m.Store == nil {
 		return
 	}
@@ -90,33 +94,79 @@ func (m *Manager) save(ctx context.Context, alert store.Alert) {
 	}
 }
 
-// deliverPending sends the message waiting on key's alert and clears it once a notifier took it.
-// When it fails the message stays, for the next RetryPending.
+// deliverPending sends the messages waiting on key's alert, one after the other, and clears each
+// once a notifier took it. When one fails it stays, for the next RetryPending. One delivery per alert
+// runs at a time: another caller (a retry while the first send is still in progress) returns at once,
+// because the running one also sends what was stored after it started.
 func (m *Manager) deliverPending(ctx context.Context, key string) {
 	m.mu.Lock()
-	sent := m.alertByKey[key].Pending
-	m.mu.Unlock()
-	if sent == nil {
+	if m.sending[key] {
+		m.mu.Unlock()
 		return
 	}
+	if m.sending == nil {
+		m.sending = map[string]bool{}
+	}
+	m.sending[key] = true
+	m.mu.Unlock()
+	for m.deliverOne(ctx, key) {
+	}
+}
+
+// deliverOne sends the message now waiting on key's alert. It returns true when a newer one was
+// stored while this one was being sent, so the caller sends that too; otherwise it has ended the
+// delivery of this alert.
+func (m *Manager) deliverOne(ctx context.Context, key string) (newerWaiting bool) {
+	m.mu.Lock()
+	sent := m.alertByKey[key].Pending
+	if sent == nil {
+		delete(m.sending, key)
+		m.mu.Unlock()
+		return false
+	}
+	m.mu.Unlock()
+
 	slog.Info("alert", "level", notify.Level(sent.Level), "title", sent.Title)
 	if m.Notifier != nil {
 		msg := notify.Message{Level: notify.Level(sent.Level), Server: m.Server, Title: sent.Title, Body: sent.Body}
 		if err := m.Notifier.Deliver(context.WithoutCancel(ctx), msg); err != nil {
 			slog.Warn("alert not delivered, will try again", "key", key, "error", err)
-			return
+			m.mu.Lock()
+			delete(m.sending, key)
+			m.mu.Unlock()
+			return false
 		}
 	}
+
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	alert := m.alertByKey[key]
-	if alert.Pending == nil || *alert.Pending != *sent { // a newer message replaced it and has its own delivery
-		m.mu.Unlock()
-		return
+	if alert.Pending != nil && *alert.Pending != *sent {
+		return true // a newer message replaced it meanwhile
 	}
 	alert.Pending = nil
 	m.alertByKey[key] = alert
+	m.saveLocked(ctx, alert)
+	delete(m.sending, key)
+	return false
+}
+
+// ResolveMissing resolves the open alerts whose key starts with prefix and is not in current: the
+// thing they were about is no longer watched (a disk that left the config), so nothing else would
+// ever close them.
+func (m *Manager) ResolveMissing(ctx context.Context, prefix string, current []string, title string) {
+	m.mu.Lock()
+	var missing []string
+	for key, alert := range m.alertByKey {
+		if alert.Firing && strings.HasPrefix(key, prefix) && !slices.Contains(current, key) {
+			missing = append(missing, key)
+		}
+	}
 	m.mu.Unlock()
-	m.save(ctx, alert)
+	slices.Sort(missing)
+	for _, key := range missing {
+		m.Resolve(ctx, key, title+": "+strings.TrimPrefix(key, prefix), "")
+	}
 }
 
 // RetryPending sends again every message that no notifier has taken, in key order.

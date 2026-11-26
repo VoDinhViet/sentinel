@@ -248,3 +248,73 @@ func TestNoNotifierLeavesNothingPending(t *testing.T) {
 		t.Fatalf("stored = %+v, %v; want one alert with nothing pending", stored, err)
 	}
 }
+
+// blocking is a notifier whose first Deliver waits until it is released, like a slow notifier.
+type blocking struct {
+	recorder
+	entered chan struct{}
+	release chan struct{}
+	first   sync.Once
+}
+
+func (b *blocking) Deliver(ctx context.Context, msg notify.Message) error {
+	b.first.Do(func() {
+		close(b.entered)
+		<-b.release
+	})
+	return b.recorder.Deliver(ctx, msg)
+}
+
+// A retry that lands while a message is still being sent must not send it a second time, and a newer message
+// stored meanwhile goes out right after, not at the next retry.
+func TestRetryDuringASlowSendDoesNotRepeatAndTheNewerMessageFollows(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slow := &blocking{entered: make(chan struct{}), release: make(chan struct{})}
+	m := &Manager{Notifier: slow, Store: st, Server: "web-01", Cooldown: time.Hour}
+	if err := m.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	opened := make(chan struct{})
+	go func() {
+		m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "")
+		close(opened)
+	}()
+	<-slow.entered
+	m.RetryPending(ctx)                           // the retry tick, while the first send is in progress
+	m.Resolve(ctx, "uptime:web", "web is up", "") // stored now, sent by the delivery that is running
+	close(slow.release)
+	<-opened
+
+	got := slow.take()
+	if len(got) != 2 || got[0].Level != notify.Critical || got[1].Level != notify.Resolved {
+		t.Fatalf("delivered %+v, want the opening once and then the resolution once", got)
+	}
+	stored, err := st.Alerts(ctx, false)
+	if err != nil || len(stored) != 1 || stored[0].Pending != nil {
+		t.Fatalf("stored = %+v, %v; want nothing left pending", stored, err)
+	}
+}
+
+func TestResolveMissingClosesOnlyWhatIsNoLongerProduced(t *testing.T) {
+	ctx := context.Background()
+	m, rec, _ := newManager(t, nil)
+	m.Fire(ctx, "disk:/old", notify.Warning, "disk full", "")
+	m.Fire(ctx, "disk:/kept", notify.Warning, "disk full", "")
+	m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "")
+	rec.take()
+
+	m.ResolveMissing(ctx, "disk:", []string{"disk:/kept"}, "Disk no longer watched")
+	got := rec.take()
+	if len(got) != 1 || got[0].Level != notify.Resolved || got[0].Title != "Disk no longer watched: /old" {
+		t.Fatalf("messages = %+v, want only /old resolved", got)
+	}
+	if m.Firing("disk:/old") || !m.Firing("disk:/kept") || !m.Firing("uptime:web") {
+		t.Error("the wrong alerts were closed")
+	}
+}

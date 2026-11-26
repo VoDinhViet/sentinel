@@ -134,3 +134,28 @@ func TestStatDiskReadsARealDirectory(t *testing.T) {
 		t.Error("statDisk accepted a missing directory")
 	}
 }
+
+// A disk that left the config (or whose first path changed) must not keep its alert open for ever.
+func TestDiskAlertOfAPathNoLongerWatchedIsResolved(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	usage := usageByPath{"/var/lib/sentinel": {"sda", 4}, "/srv/old": {"sdb", 2}}
+	watcher := newDiskWatcher(rec, usage,
+		diskVolume{Path: "/var/lib/sentinel", Holds: "state database"},
+		diskVolume{Path: "/srv/old", Holds: "disk.paths"})
+	watcher.Check(ctx)
+	rec.titles()
+
+	watcher.Volumes = watcher.Volumes[:1] // /srv/old was removed from the config
+	watcher.Check(ctx)
+	if got, want := rec.titles(), []string{"RESOLVED Disk no longer watched: /srv/old"}; !slices.Equal(got, want) {
+		t.Fatalf("alerts = %v, want %v", got, want)
+	}
+
+	// When nothing can be read, nothing is closed on that evidence.
+	watcher.Usage = func(string) (diskUsage, error) { return diskUsage{}, errors.New("unreadable") }
+	watcher.Check(ctx)
+	if got := rec.titles(); len(got) != 0 {
+		t.Fatalf("alerts = %v when no path could be read, want none", got)
+	}
+}
