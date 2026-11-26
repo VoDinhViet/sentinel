@@ -36,10 +36,12 @@ func readableDir(path string) bool {
 // suggestFolders lists the common folders that exist on this machine and are not in have yet
 // (the paths already in the field; ${VAR} is expanded before comparing).
 func suggestFolders(have []string) []string {
-	taken := map[string]bool{}
-	for _, path := range have {
-		taken[filepath.Clean(os.ExpandEnv(path))] = true
-	}
+	return pickSuggestions(suggestionCandidates(), have)
+}
+
+// suggestionCandidates are the common folders that exist on this machine and can be read: the one
+// part of suggestFolders that touches the disk.
+func suggestionCandidates() []string {
 	candidates := slices.Clone(suggestionRoots)
 	if users, err := os.ReadDir(homeRoot); err == nil {
 		for _, user := range users {
@@ -48,9 +50,18 @@ func suggestFolders(have []string) []string {
 			}
 		}
 	}
+	return slices.DeleteFunc(candidates, func(folder string) bool { return !readableDir(folder) })
+}
+
+// pickSuggestions keeps the candidates that are not in have yet, at most maxSuggestions.
+func pickSuggestions(candidates, have []string) []string {
+	taken := map[string]bool{}
+	for _, path := range have {
+		taken[filepath.Clean(os.ExpandEnv(path))] = true
+	}
 	var suggestions []string
 	for _, folder := range candidates {
-		if !taken[filepath.Clean(folder)] && readableDir(folder) {
+		if !taken[filepath.Clean(folder)] {
 			suggestions = append(suggestions, folder)
 		}
 		if len(suggestions) == maxSuggestions {

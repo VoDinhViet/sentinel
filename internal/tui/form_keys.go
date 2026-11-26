@@ -19,6 +19,7 @@ func (m manageModel) openForm(job configedit.Job, original string, listing confi
 
 func (m manageModel) openEntryForm(next form) manageModel {
 	m.form = next
+	m.form.disk = &diskMemo{}
 	return m.push(formScreen{})
 }
 
@@ -44,6 +45,7 @@ func (f *form) focusOn(index int) {
 	f.touched[f.fields[f.focus].key] = true
 	f.fields[f.focus].back = 0
 	f.focus = index
+	f.disk.forget()
 }
 
 func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
@@ -206,7 +208,7 @@ func (f *form) typeInto(field *formField, key, text string) {
 func (f *form) suggest(index int, number string) {
 	field := &f.fields[index]
 	choice, err := strconv.Atoi(number)
-	suggestions := suggestFolders(splitList(field.value))
+	suggestions := f.disk.suggestFolders(splitList(field.value))
 	if err != nil || choice < 1 || choice > len(suggestions) {
 		return
 	}

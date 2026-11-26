@@ -113,6 +113,8 @@ type form struct {
 	kept map[string]string
 
 	connect connectState // the last connection test of a database job
+
+	disk *diskMemo // what the form read from this machine; nil = read again at every draw
 }
 
 // connectState is where the connection test of a database job form stands.

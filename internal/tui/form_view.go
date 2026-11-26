@@ -225,7 +225,7 @@ func (m manageModel) renderForm() []string {
 					prefix = dimStyle.Render("→ tự động: " + folder + "  ")
 				}
 			}
-			if note := folderNote(folder); note != "" {
+			if note := m.form.disk.folderNote(folder); note != "" {
 				note = prefix + note
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
@@ -239,7 +239,7 @@ func (m manageModel) renderForm() []string {
 			}
 			screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+dimStyle.Render(truncate(note, max(m.width-formLabelWidth-5, 10))))
 		} else if field.kind == fieldPaths {
-			if note := pathsNote(field.value); note != "" {
+			if note := m.form.disk.pathsNote(field.value); note != "" {
 				screenLines = append(screenLines, "  "+strings.Repeat(" ", formLabelWidth+1)+note)
 			}
 		} else if field.kind == fieldSchedule {
@@ -367,7 +367,7 @@ func (m manageModel) suggestionLines(screenRow, index int, value string) []strin
 		m.hits.add(screenRow, indent, lipgloss.Width(browse), "browse")
 		line, column = line+keyStyle.Render(browse)+"  ", column+lipgloss.Width(browse)+2
 	}
-	suggestions := suggestFolders(splitList(value))
+	suggestions := m.form.disk.suggestFolders(splitList(value))
 	const addLabel = "thêm: "
 	if len(suggestions) > 0 {
 		line, column = line+dimStyle.Render(addLabel), column+lipgloss.Width(addLabel)
