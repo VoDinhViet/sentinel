@@ -67,7 +67,7 @@ func TestServerTabReadsOnFirstVisitAndShowsTheMachine(t *testing.T) {
 		t.Fatalf("readings = %d, reading = %v", *readings, screen.server.reading)
 	}
 	view := plain(screen.render())
-	for _, want := range []string{"web-1", "2 ngày 3 giờ", "RAM", "sentinel.service", "không có unit nào lỗi"} {
+	for _, want := range []string{"web-1", "2 ngày 3 giờ", "RAM", "sentinel.service", "đang chạy", "Không có unit nào lỗi"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the tab lacks %q:\n%s", want, view)
 		}
@@ -117,12 +117,12 @@ func TestServerTabColoursProblems(t *testing.T) {
 	screen, _ := serverModel(t, report)
 	tab := openServerTab(t, screen).tabs()[serverTab]
 
-	levelOf := map[string]severity{}
+	levelOf, reasonOf := map[string]severity{}, map[string]string{}
 	for _, line := range tab.lines {
-		levelOf[line.cells[0]] = line.severity
+		levelOf[line.cells[0]], reasonOf[line.cells[0]] = line.severity, line.sub
 	}
 	want := map[string]severity{
-		"Load": sevBad, "RAM": sevWarn, "/": sevOK, "/srv": sevBad,
+		"CPU": sevBad, "RAM": sevWarn, "Đĩa /": sevOK, "Đĩa /srv": sevBad,
 		"sentinel.service": sevWarn, "nginx.service": sevBad, "Không đọc được": sevWarn,
 	}
 	for name, level := range want {
@@ -130,8 +130,46 @@ func TestServerTabColoursProblems(t *testing.T) {
 			t.Errorf("%s: severity %v, want %v", name, got, level)
 		}
 	}
+	if !strings.Contains(reasonOf["Đĩa /srv"], "10%") || reasonOf["Đĩa /"] != "" {
+		t.Errorf("only a problem explains itself, and a disk names its alert share: %q, %q", reasonOf["Đĩa /srv"], reasonOf["Đĩa /"])
+	}
 	if !tab.alarm || tab.count != 6 {
 		t.Errorf("alarm = %v, count = %d, want an alarm and 6 problems", tab.alarm, tab.count)
+	}
+}
+
+func TestServerTabDrawsUsageBars(t *testing.T) {
+	screen, _ := serverModel(t, healthyHost())
+	screen = openServerTab(t, screen)
+	view := plain(screen.render())
+	for _, want := range []string{"38%", "40%", "12%", "█", "░", "Đĩa /"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the tab lacks %q:\n%s", want, view)
+		}
+	}
+	for _, line := range screen.tabs()[serverTab].lines {
+		if line.cells[1] == "ok" {
+			t.Errorf("%s: a healthy line says nothing, its dot and bar are green", line.cells[0])
+		}
+	}
+}
+
+func TestGaugeText(t *testing.T) {
+	tests := []struct {
+		percent float64
+		width   int
+		want    string
+	}{
+		{50, 20, "████████" + "░░░░░░░" + "  50%"}, // 15 cells of bar: 7.5 rounds to 8
+		{0, 20, "░░░░░░░░░░░░░░░" + "   0%"},
+		{100, 20, "███████████████" + " 100%"},
+		{50, 25, "██████████" + "░░░░░░░░░░" + "  50%"},
+		{100, 6, "█" + " 100%"}, // the narrowest column still shows a cell of bar
+	}
+	for _, tt := range tests {
+		if got := plain(gaugeText(tt.percent, tt.width, sevOK, false)); got != tt.want {
+			t.Errorf("gaugeText(%v, %d) = %q, want %q", tt.percent, tt.width, got, tt.want)
+		}
 	}
 }
 

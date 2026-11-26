@@ -70,6 +70,9 @@ type manageLine struct {
 	// fields are the label/value pairs the detail panel shows for the line; without them the
 	// panel shows detail.
 	fields [][2]string
+	// gauge says the line draws usedPercent as a bar in the tab's gauge column (Server tab only).
+	gauge       bool
+	usedPercent float64
 }
 
 type manageTab struct {
@@ -83,6 +86,9 @@ type manageTab struct {
 	count int
 	// statusCol is the column coloured by severity; historyCol (-1 = none) shows line.history.
 	statusCol, historyCol int
+	// gaugeCol is the column that draws line.usedPercent as a bar on the lines that have one; 0
+	// (the name column, which never holds a bar) means the tab has none.
+	gaugeCol int
 	// alarm colours the tab label red.
 	alarm bool
 }

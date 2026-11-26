@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -13,6 +14,8 @@ const (
 	// keptColumnWidth is the room a column needs to stay on a narrow screen; columns that would
 	// get less are dropped, last first, instead of being squeezed until nothing is readable.
 	keptColumnWidth = 9
+	// gaugeWidth is the room of a usage bar column: fifteen cells of bar and " 100%".
+	gaugeWidth = 20
 )
 
 // tableRow is one screen row of a table. line is the index of the manageLine it belongs to; a
@@ -158,6 +161,9 @@ func tableWidths(tab manageTab, headers []string, sectionLines []manageLine, inn
 		if tab.historyCol >= 0 {
 			widths[tab.historyCol] = max(widths[tab.historyCol], len(line.history))
 		}
+		if line.gauge && tab.gaugeCol > 0 && tab.gaugeCol < len(widths) {
+			widths[tab.gaugeCol] = max(widths[tab.gaugeCol], gaugeWidth)
+		}
 	}
 	if tab.statusCol >= 0 && tab.statusCol < len(widths) {
 		widths[tab.statusCol] += 2 // the status is a badge with a space on each side
@@ -236,6 +242,9 @@ func lineText(tab manageTab, widths []int, line manageLine, selected bool, inner
 
 // cellText is one cell padded to the width of its column: plain text, the status badge or the history glyphs.
 func cellText(tab manageTab, line manageLine, col, width int, selected bool) string {
+	if line.gauge && col == tab.gaugeCol && col > 0 {
+		return gaugeText(line.usedPercent, width, line.severity, selected)
+	}
 	switch col {
 	case tab.historyCol:
 		return historyText(line.history, width, selected)
@@ -268,6 +277,21 @@ func historyText(history []string, width int, selected bool) string {
 		text.WriteString(style.Render(glyph))
 	}
 	return text.String() + paint(strings.Repeat(" ", width-len(glyphs)), selected)
+}
+
+// gaugeText is a usage bar and its percentage, e.g. "█████░░░░░  50%", padded to width. The bar and
+// the percentage take the colour of the level; the empty part of the bar stays dim.
+func gaugeText(percent float64, width int, level severity, selected bool) string {
+	barWidth := max(width-5, 0) // the percentage is a space and up to four cells: " 100%"
+	filled := min(max(int(math.Round(percent/100*float64(barWidth))), 0), barWidth)
+	filledStyle, emptyStyle, textStyle := severityStyle(level), dimStyle, lipgloss.NewStyle()
+	if selected {
+		filledStyle, emptyStyle, textStyle = selectedSeverityStyle(level), selectedDimStyle, selectedStyle
+	}
+	text := fmt.Sprintf(" %3.0f%%", percent)
+	pad := strings.Repeat(" ", max(width-barWidth-lipgloss.Width(text), 0))
+	return filledStyle.Render(strings.Repeat("█", filled)) + emptyStyle.Render(strings.Repeat("░", barWidth-filled)) +
+		textStyle.Render(text) + paint(pad, selected)
 }
 
 // outcomeGlyph is the one-cell symbol and colour of a run outcome in the history column.

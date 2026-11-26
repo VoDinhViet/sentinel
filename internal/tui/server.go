@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"sentinel/internal/app"
 	"sentinel/internal/backup"
+	"sentinel/internal/host"
 )
 
 // serverTab is the index of the Server tab.
@@ -29,10 +31,6 @@ const (
 	loadWarnPerCPU             = 1.0
 	loadBadPerCPU              = 2.0
 )
-
-// addServerLine adds a line to the Server tab: its cells, the sentence under the table and the
-// label/value pairs of the detail panel.
-type addServerLine func(level severity, cells []string, detail string, fields [][2]string)
 
 // hostReadMsg carries the reading started by startServer.
 type hostReadMsg struct{ report app.HostReport }
@@ -116,16 +114,6 @@ func loadSeverity(load float64, cpus int) severity {
 	return levelByThreshold(perCPU, loadWarnPerCPU, loadBadPerCPU)
 }
 
-func severityWord(level severity) string {
-	switch level {
-	case sevBad:
-		return "LỖI"
-	case sevWarn:
-		return "cảnh báo"
-	}
-	return "ok"
-}
-
 // uptimeText is how long the machine has been up, e.g. "12 ngày 3 giờ".
 func uptimeText(uptime time.Duration) string {
 	days, hours, minutes := int(uptime.Hours())/24, int(uptime.Hours())%24, int(uptime.Minutes())%60
@@ -146,34 +134,20 @@ func percentOf(part, whole uint64) float64 {
 }
 
 func (m manageModel) buildServerTab() manageTab {
-	tab := manageTab{title: "Server", statusCol: 1, historyCol: -1}
+	tab := manageTab{title: "Server", statusCol: -1, historyCol: -1, gaugeCol: 1}
 	report := m.server.report
 	if report.CPUs == 0 { // nothing read yet: a reading always has at least one CPU
 		return tab
 	}
-	add := func(level severity, cells []string, detail string, fields [][2]string) {
-		tab.lines = append(tab.lines, manageLine{cells: cells, severity: level, detail: detail, fields: fields})
-	}
+	add := func(line manageLine) { tab.lines = append(tab.lines, line) }
 	section := func(title, hint string, headers []string) {
 		tab.sections = append(tab.sections, tableSection{title: title, hint: hint, headers: headers, first: len(tab.lines)})
 	}
 
-	section("HỆ THỐNG", "máy này lúc này", []string{"MỤC", "TRẠNG THÁI", "GIÁ TRỊ"})
-	addSystemLines(report, add)
-
-	section("Ổ ĐĨA", "báo lỗi khi trống dưới "+fmt.Sprint(report.MinFreePercent)+"%", []string{"MOUNT", "TRẠNG THÁI", "TRỐNG", "TỔNG", "FS"})
-	for _, found := range report.Disks {
-		level := diskSeverity(found.FreePercent(), report.MinFreePercent)
-		free := fmt.Sprintf("%s (%.0f%%)", backup.HumanBytes(int64(found.FreeBytes)), found.FreePercent())
-		total := backup.HumanBytes(int64(found.TotalBytes))
-		add(level, []string{found.Mount, severityWord(level), free, total, found.FSType},
-			fmt.Sprintf("%s: còn trống %s trên %s", found.Mount, free, total),
-			[][2]string{{"Mount", found.Mount}, {"Thiết bị", found.Device}, {"FS", found.FSType}, {"Trống", free}, {"Tổng", total}})
-	}
-	if len(report.Disks) == 0 {
-		add(sevWarn, []string{"không đọc được ổ đĩa nào", "cảnh báo", ""}, "Không liệt kê được ổ đĩa của máy này.", nil)
-	}
-
+	section("MÁY", machineText(report), []string{"MỤC", "ĐANG DÙNG", "CHI TIẾT"})
+	addResourceLines(report, add)
+	addDiskLines(report, add)
+	addReadErrorLines(report, add)
 	if report.Systemd {
 		section("DỊCH VỤ", "systemd", []string{"UNIT", "TRẠNG THÁI", "MÔ TẢ"})
 		addServiceLines(report, add)
@@ -188,53 +162,137 @@ func (m manageModel) buildServerTab() manageTab {
 	return tab
 }
 
-// addSystemLines is the Hệ thống section: the machine, how long it has run, the load, CPU, RAM and
-// swap, then whatever could not be read.
-func addSystemLines(report app.HostReport, add addServerLine) {
-	machine := strings.TrimSpace(report.Hostname + " · " + report.OS + " · kernel " + report.Kernel)
-	add(sevOK, []string{"Máy", "ok", machine}, machine, [][2]string{{"Hostname", report.Hostname}, {"Hệ điều hành", report.OS}, {"Kernel", report.Kernel}})
-	add(sevOK, []string{"Uptime", "ok", uptimeText(report.Uptime)}, "Máy đã chạy liên tục "+uptimeText(report.Uptime)+".", nil)
+// machineText is the hint of the first section: which machine this is and how long it has run. The
+// kernel is longer than a narrow screen has room for, so it sits in the detail panel of the CPU line.
+func machineText(report app.HostReport) string {
+	parts := []string{report.Hostname, report.OS, "chạy " + uptimeText(report.Uptime)}
+	return strings.Join(slices.DeleteFunc(parts, func(part string) bool { return part == "" }), " · ")
+}
 
+// gaugeLine is a line whose second column is a usage bar; the third says in words what the bar counts.
+func gaugeLine(level severity, name string, usedPercent float64, detail string) manageLine {
+	return manageLine{cells: []string{name, "", detail}, severity: level, gauge: true, usedPercent: usedPercent}
+}
+
+// addResourceLines is CPU, RAM and swap, each with a bar of how much is in use.
+func addResourceLines(report app.HostReport, add func(manageLine)) {
 	loadLevel := loadSeverity(report.Load[0], report.CPUs)
-	loadValue := fmt.Sprintf("%.2f %.2f %.2f · %d CPU", report.Load[0], report.Load[1], report.Load[2], report.CPUs)
-	add(loadLevel, []string{"Load", severityWord(loadLevel), loadValue}, "Load trung bình 1, 5, 15 phút: "+loadValue+".", nil)
-
 	cpuLevel := levelByThreshold(report.CPUPercent, cpuWarnPercent, math.Inf(1))
-	cpuValue := fmt.Sprintf("%.0f%%", report.CPUPercent)
-	add(cpuLevel, []string{"CPU", severityWord(cpuLevel), cpuValue}, "CPU bận "+cpuValue+" kể từ lần đọc trước.", nil)
+	cpu := gaugeLine(max(loadLevel, cpuLevel), "CPU", report.CPUPercent,
+		fmt.Sprintf("load %.2f %.2f %.2f · %d CPU", report.Load[0], report.Load[1], report.Load[2], report.CPUs))
+	cpu.sub = cpuReason(report, loadLevel, cpuLevel)
+	cpu.detail = fmt.Sprintf("CPU bận %.0f%% kể từ lần đọc trước; %s.", report.CPUPercent, cpu.cells[2])
+	cpu.fields = [][2]string{{"Bận", fmt.Sprintf("%.0f%%", report.CPUPercent)}, {"Số CPU", fmt.Sprint(report.CPUs)},
+		{"Load 1 phút", fmt.Sprintf("%.2f", report.Load[0])}, {"Load 5 phút", fmt.Sprintf("%.2f", report.Load[1])}, {"Load 15 phút", fmt.Sprintf("%.2f", report.Load[2])}, {"Kernel", report.Kernel}}
+	add(cpu)
 
 	memory := report.Memory
+	used := memory.TotalBytes - min(memory.AvailableBytes, memory.TotalBytes)
 	availablePercent := percentOf(memory.AvailableBytes, memory.TotalBytes)
-	memoryLevel := memorySeverity(availablePercent)
-	memoryValue := fmt.Sprintf("dùng %s / %s · còn %.0f%%", backup.HumanBytes(int64(memory.TotalBytes-min(memory.AvailableBytes, memory.TotalBytes))), backup.HumanBytes(int64(memory.TotalBytes)), availablePercent)
-	add(memoryLevel, []string{"RAM", severityWord(memoryLevel), memoryValue}, "RAM: "+memoryValue+".", nil)
-
-	swapValue, swapLevel := "không có swap", sevOK
-	if memory.SwapTotalBytes > 0 {
-		swapUsed := memory.SwapTotalBytes - min(memory.SwapFreeBytes, memory.SwapTotalBytes)
-		swapLevel = levelByThreshold(percentOf(swapUsed, memory.SwapTotalBytes), swapWarnUsedPercent, math.Inf(1))
-		swapValue = fmt.Sprintf("dùng %s / %s", backup.HumanBytes(int64(swapUsed)), backup.HumanBytes(int64(memory.SwapTotalBytes)))
+	ram := gaugeLine(memorySeverity(availablePercent), "RAM", percentOf(used, memory.TotalBytes),
+		fmt.Sprintf("%s / %s · còn %s", backup.HumanBytes(int64(used)), backup.HumanBytes(int64(memory.TotalBytes)), backup.HumanBytes(int64(memory.AvailableBytes))))
+	ram.detail = "RAM: " + ram.cells[2] + "."
+	ram.fields = [][2]string{{"Đã dùng", backup.HumanBytes(int64(used))}, {"Tổng", backup.HumanBytes(int64(memory.TotalBytes))}, {"Khả dụng", backup.HumanBytes(int64(memory.AvailableBytes))}}
+	if ram.severity != sevOK {
+		ram.sub = fmt.Sprintf("RAM khả dụng còn %.0f%%: vàng dưới %d%%, đỏ dưới %d%%", availablePercent, memoryWarnAvailablePercent, memoryBadAvailablePercent)
 	}
-	add(swapLevel, []string{"Swap", severityWord(swapLevel), swapValue}, "Swap: "+swapValue+".", nil)
+	add(ram)
 
-	for _, err := range report.Errs {
-		add(sevWarn, []string{"Không đọc được", "cảnh báo", firstLine(err.Error())}, err.Error(), nil)
+	add(swapLine(memory))
+}
+
+// swapLine is the swap, or a plain line when the machine has none.
+func swapLine(memory host.Memory) manageLine {
+	if memory.SwapTotalBytes == 0 {
+		return manageLine{cells: []string{"Swap", "không có swap", ""}, detail: "Máy này không có swap."}
+	}
+	used := memory.SwapTotalBytes - min(memory.SwapFreeBytes, memory.SwapTotalBytes)
+	usedPercent := percentOf(used, memory.SwapTotalBytes)
+	swap := gaugeLine(levelByThreshold(usedPercent, swapWarnUsedPercent, math.Inf(1)), "Swap", usedPercent,
+		fmt.Sprintf("%s / %s", backup.HumanBytes(int64(used)), backup.HumanBytes(int64(memory.SwapTotalBytes))))
+	swap.detail = "Swap: " + swap.cells[2] + "."
+	swap.fields = [][2]string{{"Đã dùng", backup.HumanBytes(int64(used))}, {"Tổng", backup.HumanBytes(int64(memory.SwapTotalBytes))}}
+	if swap.severity != sevOK {
+		swap.sub = fmt.Sprintf("swap đã dùng %.0f%%: vàng khi quá %d%%", usedPercent, swapWarnUsedPercent)
+	}
+	return swap
+}
+
+// cpuReason says why the CPU line is yellow or red; it is empty when it is not.
+func cpuReason(report app.HostReport, loadLevel, cpuLevel severity) string {
+	switch {
+	case loadLevel != sevOK:
+		return fmt.Sprintf("load %.2f trên mỗi CPU: vàng từ %.0f, đỏ từ %.0f", report.Load[0]/float64(report.CPUs), loadWarnPerCPU, loadBadPerCPU)
+	case cpuLevel != sevOK:
+		return fmt.Sprintf("CPU bận %.0f%%: vàng từ %d%%", report.CPUPercent, cpuWarnPercent)
+	}
+	return ""
+}
+
+// addDiskLines is one line per disk, in the same table as the CPU and RAM so the bars line up.
+func addDiskLines(report app.HostReport, add func(manageLine)) {
+	for _, found := range report.Disks {
+		freeText, totalText := backup.HumanBytes(int64(found.FreeBytes)), backup.HumanBytes(int64(found.TotalBytes))
+		disk := gaugeLine(diskSeverity(found.FreePercent(), report.MinFreePercent), "Đĩa "+found.Mount, 100-found.FreePercent(),
+			fmt.Sprintf("còn %s / %s · %s", freeText, totalText, found.FSType))
+		disk.detail = fmt.Sprintf("%s: còn trống %s trên %s (%.0f%%).", found.Mount, freeText, totalText, found.FreePercent())
+		disk.sub = diskReason(found, disk.severity, report.MinFreePercent)
+		disk.fields = [][2]string{{"Mount", found.Mount}, {"Thiết bị", found.Device}, {"FS", found.FSType}, {"Trống", freeText}, {"Tổng", totalText},
+			{"Alert khi trống dưới", fmt.Sprintf("%d%%", report.MinFreePercent)}}
+		add(disk)
+	}
+	if len(report.Disks) == 0 {
+		add(manageLine{cells: []string{"Đĩa", "không đọc được ổ đĩa nào", ""}, severity: sevWarn, detail: "Không liệt kê được ổ đĩa của máy này."})
 	}
 }
 
+// diskReason says why a disk is yellow or red; it is empty when it is not.
+func diskReason(found host.Disk, level severity, minFreePercent int) string {
+	switch level {
+	case sevBad:
+		return fmt.Sprintf("còn trống %.0f%%, dưới ngưỡng alert %d%%", found.FreePercent(), minFreePercent)
+	case sevWarn:
+		return fmt.Sprintf("sắp đầy: còn trống %.0f%%, Sentinel báo alert khi dưới %d%%", found.FreePercent(), minFreePercent)
+	}
+	return ""
+}
+
+// addReadErrorLines is whatever could not be read, one line each.
+func addReadErrorLines(report app.HostReport, add func(manageLine)) {
+	for _, err := range report.Errs {
+		add(manageLine{cells: []string{"Không đọc được", firstLine(err.Error()), ""}, severity: sevWarn, detail: err.Error()})
+	}
+}
+
+// unitStateText is the state of a systemd unit in words.
+func unitStateText(state string) string {
+	switch state {
+	case "active":
+		return "đang chạy"
+	case "inactive":
+		return "đã dừng"
+	case "failed":
+		return "lỗi"
+	}
+	return state
+}
+
 // addServiceLines is the Dịch vụ section: Sentinel's own unit, then every unit that failed.
-func addServiceLines(report app.HostReport, add addServerLine) {
+func addServiceLines(report app.HostReport, add func(manageLine)) {
 	sentinelLevel := sevOK
 	if report.Sentinel.Active != "active" {
 		sentinelLevel = sevWarn
 	}
-	add(sentinelLevel, []string{report.Sentinel.Name, report.Sentinel.Active, "daemon backup, uptime check và cảnh báo của Sentinel"},
-		report.Sentinel.Name+": "+report.Sentinel.Active+". Daemon không chạy thì không có backup theo lịch.", nil)
+	add(manageLine{
+		cells:    []string{report.Sentinel.Name, unitStateText(report.Sentinel.Active), "daemon backup, uptime check và cảnh báo của Sentinel"},
+		severity: sentinelLevel,
+		detail:   report.Sentinel.Name + ": " + report.Sentinel.Active + ". Daemon không chạy thì không có backup theo lịch.",
+	})
 	for _, failedUnit := range report.FailedUnits {
-		add(sevBad, []string{failedUnit.Name, failedUnit.Active, failedUnit.Description}, failedUnit.Name+" bị lỗi: "+failedUnit.Description, nil)
+		add(manageLine{cells: []string{failedUnit.Name, unitStateText(failedUnit.Active), failedUnit.Description}, severity: sevBad, detail: failedUnit.Name + " bị lỗi: " + failedUnit.Description})
 	}
 	if len(report.FailedUnits) == 0 {
-		add(sevOK, []string{"không có unit nào lỗi", "ok", ""}, "systemd không báo unit nào ở trạng thái failed.", nil)
+		add(manageLine{cells: []string{"Không có unit nào lỗi", "", ""}, detail: "systemd không báo unit nào ở trạng thái failed."})
 	}
 }
 
