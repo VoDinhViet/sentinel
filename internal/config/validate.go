@@ -73,6 +73,12 @@ func (c *Config) validate() error {
 		default:
 			add("%s: type must be %q, %q, %q or %q", where, JobPostgres, JobMySQL, JobMongoDB, JobFiles)
 		}
+		if job.Timeout < 0 {
+			add("%s: timeout must not be negative", where)
+		}
+		if rule := job.Retention.negativeRule(); rule != "" && !job.Inherited.Retention {
+			add("%s: retention.%s must not be negative", where, rule)
+		}
 		if len(job.Repositories) == 0 {
 			add("%s: at least one repository is required: list repositories: on the job or set defaults.repositories (known: %s)",
 				where, strings.Join(slices.Sorted(maps.Keys(c.Repositories)), ", "))
@@ -87,6 +93,9 @@ func (c *Config) validate() error {
 		if _, err := schedule.Parse(c.Defaults.Schedule); err != nil {
 			add("defaults.schedule: %v", err)
 		}
+	}
+	if rule := c.Defaults.Retention.negativeRule(); rule != "" {
+		add("defaults.retention.%s must not be negative", rule)
 	}
 	for _, name := range c.Defaults.Repositories {
 		if _, ok := c.Repositories[name]; !ok {

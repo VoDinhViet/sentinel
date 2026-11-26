@@ -172,6 +172,21 @@ type Retention struct {
 	Yearly  int `yaml:"yearly" json:"yearly"`
 }
 
+// negativeRule names the first rule that is below zero ("last", "daily", ...), or "" when none is.
+// A negative count is not "empty", so it would reach restic as a forget with no keep rule at all.
+func (r Retention) negativeRule() string {
+	rules := []struct {
+		name string
+		keep int
+	}{{"last", r.Last}, {"daily", r.Daily}, {"weekly", r.Weekly}, {"monthly", r.Monthly}, {"yearly", r.Yearly}}
+	for _, rule := range rules {
+		if rule.keep < 0 {
+			return rule.name
+		}
+	}
+	return ""
+}
+
 // Empty reports whether no retention rule is set (snapshots are kept forever).
 func (r Retention) Empty() bool {
 	return r == Retention{}

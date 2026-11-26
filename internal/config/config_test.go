@@ -130,6 +130,21 @@ uptime:
 servername: x`, "field servername not found"},
 		"repo without password": {`
 repositories: { r: { url: "/tmp/r" } }`, "password is required"},
+		"negative timeout": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+jobs:
+  - { name: a, type: files, paths: [/x], repositories: [r], timeout: -1h }`, "timeout must not be negative"},
+		"negative retention": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+jobs:
+  - { name: a, type: files, paths: [/x], repositories: [r], retention: { last: 3, weekly: -1 } }`, "retention.weekly must not be negative"},
+		"only negative retention": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+jobs:
+  - { name: a, type: files, paths: [/x], repositories: [r], retention: { daily: -7 } }`, "retention.daily must not be negative"},
+		"negative default retention": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+defaults: { retention: { monthly: -2 } }`, "defaults.retention.monthly must not be negative"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
