@@ -206,11 +206,11 @@ func TestMouseIsIgnoredWhileTypingAndForOtherButtons(t *testing.T) {
 	typing := form.(manageModel)
 	before := typing.form.focus
 	typing, _ = click(t, typing, 5, 0) // the blank line under the frame
-	if typing.mode != modeForm || typing.form.focus != before {
+	if !typing.formOpen() || typing.form.focus != before {
 		t.Error("a click must not touch the form fields")
 	}
 	typing, _ = clickOn(t, typing, "esc")
-	if typing.mode != modeTable {
+	if !typing.onTabs() {
 		t.Error("the cancel chip of the form works with the mouse")
 	}
 }
@@ -232,7 +232,7 @@ func TestHelpOpensFromTheJobsAndSnapshotsAndClosesOnAnyKey(t *testing.T) {
 		}
 	}
 	model, _ = m.onKey("x", "x")
-	if model.(manageModel).mode != modeTable {
+	if !model.(manageModel).onTabs() {
 		t.Error("any key closes the help")
 	}
 
@@ -256,8 +256,8 @@ func TestHelpKeyIsTextInForms(t *testing.T) {
 	model, _ = model.(manageModel).onKey("tab", "")
 	model, _ = model.(manageModel).onKey("?", "?")
 	typing := model.(manageModel)
-	if typing.mode != modeForm || typing.form.field("name").value != "?" {
-		t.Errorf("? typed into a form field is text (mode %d, name %q)", typing.mode, typing.form.field("name").value)
+	if !typing.formOpen() || typing.form.field("name").value != "?" {
+		t.Errorf("? typed into a form field is text (screens %d, name %q)", len(typing.screens), typing.form.field("name").value)
 	}
 }
 

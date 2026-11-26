@@ -71,8 +71,8 @@ func rowNames(screen manageModel) []string {
 func TestBrowserStartsBesideTheLastPathAndListsOnlyFolders(t *testing.T) {
 	root := browseTree(t)
 	screen, cmd := openBrowser(t, "/etc/hosts, "+filepath.Join(root, "www"))
-	if screen.mode != modeBrowse || screen.browse.dir != root {
-		t.Fatalf("mode %d dir %q, want the folder that holds the last path (%s)", screen.mode, screen.browse.dir, root)
+	if !isBrowsing(screen) || screen.browse.dir != root {
+		t.Fatalf("screens %d dir %q, want the folder that holds the last path (%s)", len(screen.screens), screen.browse.dir, root)
 	}
 	want := []string{"..", "alpha/", "beta/", "link/", "locked/", "www/", ".hidden/"}
 	if got := rowNames(screen); !slices.Equal(got, want) {
@@ -265,8 +265,8 @@ func TestBrowserMarksAcrossFoldersAndCtrlSJoinsThemWithoutRepeats(t *testing.T) 
 		t.Errorf("space again takes the mark off: %v", screen.browse.marks)
 	}
 	screen = keys(t, screen, "space", "ctrl+s")
-	if screen.mode != modeForm {
-		t.Fatalf("ctrl+s returns to the form (mode %d)", screen.mode)
+	if !screen.formOpen() {
+		t.Fatalf("ctrl+s returns to the form (screens %d)", len(screen.screens))
 	}
 	want := "/etc, " + filepath.Join(root, "alpha") + ", " + filepath.Join(root, "beta/nginx-sites")
 	if got := screen.form.field("paths").value; got != want {
@@ -278,25 +278,25 @@ func TestBrowserEscKeepsTheFieldAsItWas(t *testing.T) {
 	root := browseTree(t)
 	screen, _ := openBrowser(t, filepath.Join(root, "www"))
 	screen = keys(t, screen, "up", "space", "esc")
-	if screen.mode != modeForm || screen.form.field("paths").value != filepath.Join(root, "www") {
-		t.Errorf("esc cancels: mode %d, paths %q", screen.mode, screen.form.field("paths").value)
+	if !screen.formOpen() || screen.form.field("paths").value != filepath.Join(root, "www") {
+		t.Errorf("esc cancels: screens %d, paths %q", len(screen.screens), screen.form.field("paths").value)
 	}
 }
 
 func TestCtrlCLeavesTheBrowserAndThenTheForm(t *testing.T) {
 	root := browseTree(t)
 	screen, _ := openBrowser(t, filepath.Join(root, "www"))
-	if screen = keys(t, screen, "ctrl+c"); screen.mode != modeForm {
-		t.Fatalf("ctrl+c leaves the browser for the form (mode %d)", screen.mode)
+	if screen = keys(t, screen, "ctrl+c"); !screen.formOpen() {
+		t.Fatalf("ctrl+c leaves the browser for the form (screens %d)", len(screen.screens))
 	}
-	if screen = keys(t, screen, "ctrl+c"); screen.mode != modeTable {
-		t.Errorf("ctrl+c leaves the form (mode %d)", screen.mode)
+	if screen = keys(t, screen, "ctrl+c"); !screen.onTabs() {
+		t.Errorf("ctrl+c leaves the form (screens %d)", len(screen.screens))
 	}
 	program, _ := initScreen(t, false)
 	program.form.focus = fieldIndex(program.manageModel, "job_paths")
 	program = pressInit(t, pressInit(t, program, "ctrl+o"), "ctrl+c")
-	if program.mode != modeForm {
-		t.Errorf("init: ctrl+c in the browser goes back to the form (mode %d)", program.mode)
+	if !program.formOpen() {
+		t.Errorf("init: ctrl+c in the browser goes back to the form (screens %d)", len(program.screens))
 	}
 }
 
@@ -322,8 +322,8 @@ func TestBrowserMouse(t *testing.T) {
 	screen = model.(manageModel)
 	screen.form.field("paths").value = filepath.Join(root, "www")
 	screen, _ = clickOn(t, screen, "browse")
-	if screen.mode != modeBrowse {
-		t.Fatalf("the [ Browse ] chip opens the browser (mode %d)", screen.mode)
+	if !isBrowsing(screen) {
+		t.Fatalf("the [ Browse ] chip opens the browser (screens %d)", len(screen.screens))
 	}
 	rows := screen.browse.rows()
 	alpha := slices.IndexFunc(rows, func(row browseRow) bool { return row.name == "alpha/" })
@@ -346,8 +346,8 @@ func TestBrowserMouse(t *testing.T) {
 		t.Error("a click on the selected row opens it")
 	}
 	screen, _ = clickOn(t, screen, "ctrl+s")
-	if screen.mode != modeForm || !strings.Contains(screen.form.field("paths").value, filepath.Join(root, "alpha")) {
-		t.Errorf("the done chip applies the choice: mode %d paths %q", screen.mode, screen.form.field("paths").value)
+	if !screen.formOpen() || !strings.Contains(screen.form.field("paths").value, filepath.Join(root, "alpha")) {
+		t.Errorf("the done chip applies the choice: screens %d paths %q", len(screen.screens), screen.form.field("paths").value)
 	}
 }
 
@@ -398,20 +398,20 @@ func TestInitWizardKeepsRunningWhileBrowsing(t *testing.T) {
 	program.form.focus = fieldIndex(program.manageModel, "job_paths")
 	program.form.field("job_paths").value = filepath.Join(root, "www")
 	program = pressInit(t, program, "ctrl+o")
-	if program.mode != modeBrowse {
-		t.Fatalf("ctrl+o does not open the browser in the init form (mode %d)", program.mode)
+	if !isBrowsing(program.manageModel) {
+		t.Fatalf("ctrl+o does not open the browser in the init form (screens %d)", len(program.screens))
 	}
 	program = pressInit(t, program, "space")
 	program = pressInit(t, program, "ctrl+s")
-	if program.mode != modeForm || !strings.Contains(program.form.field("job_paths").value, filepath.Join(root, "www")) {
-		t.Errorf("mode %d paths %q", program.mode, program.form.field("job_paths").value)
+	if !program.formOpen() || !strings.Contains(program.form.field("job_paths").value, filepath.Join(root, "www")) {
+		t.Errorf("screens %d paths %q", len(program.screens), program.form.field("job_paths").value)
 	}
 }
 
 func TestCtrlOOnAnotherFieldDoesNothing(t *testing.T) {
 	screen := pathsForm(t)
 	screen.form.focus = fieldIndex(screen, "name")
-	if screen = keys(t, screen, "ctrl+o"); screen.mode != modeForm {
-		t.Errorf("ctrl+o only browses from a Paths field (mode %d)", screen.mode)
+	if screen = keys(t, screen, "ctrl+o"); !screen.formOpen() {
+		t.Errorf("ctrl+o only browses from a Paths field (screens %d)", len(screen.screens))
 	}
 }

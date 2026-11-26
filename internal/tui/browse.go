@@ -136,7 +136,7 @@ func nearestFolder(path string) string {
 // openBrowse starts the browser from the focused Paths field, in the folder that holds its last path.
 func (m manageModel) openBrowse() (manageModel, tea.Cmd) {
 	m.browse = browseState{field: m.form.focus, sizes: map[string]folderSize{}}
-	m.mode = modeBrowse
+	m = m.push(browseScreen{})
 	start, focus := "/", ""
 	if paths := splitList(m.form.fields[m.form.focus].value); len(paths) > 0 {
 		if last := filepath.Clean(os.ExpandEnv(paths[len(paths)-1])); filepath.IsAbs(last) {
@@ -252,15 +252,23 @@ func (m manageModel) browseDone() manageModel {
 		m.form.touched[field.key] = true
 	}
 	m.form.problem = ""
-	m.mode = modeForm
-	return m
+	return m.pop()
 }
 
-func (m manageModel) onBrowseKey(key, text string) (tea.Model, tea.Cmd) {
+// browseScreen is the folder browser opened over a form's Paths field. Its list is in m.browse.
+type browseScreen struct{}
+
+func (browseScreen) onKey(m manageModel, key, text string) (manageModel, tea.Cmd) {
+	return m.onBrowseKey(key, text)
+}
+
+func (browseScreen) render(m manageModel) []string { return m.renderBrowse() }
+
+func (m manageModel) onBrowseKey(key, text string) (manageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	switch key {
 	case "esc", "ctrl+c":
-		m.mode = modeForm
+		m = m.pop()
 	case "ctrl+s":
 		m = m.browseDone()
 	case "up":
@@ -288,7 +296,7 @@ func (m manageModel) onBrowseKey(key, text string) (tea.Model, tea.Cmd) {
 }
 
 // browseWheel scrolls the list.
-func (m manageModel) browseWheel(up, down bool) (tea.Model, tea.Cmd) {
+func (m manageModel) browseWheel(up, down bool) (manageModel, tea.Cmd) {
 	switch {
 	case up:
 		return m.browseMove(-wheelStep)
@@ -299,7 +307,7 @@ func (m manageModel) browseWheel(up, down bool) (tea.Model, tea.Cmd) {
 }
 
 // browseClick handles "bro:<row>" (select, or open when already selected) and "bmark:<row>".
-func (m manageModel) browseClick(action string) (tea.Model, tea.Cmd, bool) {
+func (m manageModel) browseClick(action string) (manageModel, tea.Cmd, bool) {
 	if index, ok := actionIndex(action, "bro:"); ok {
 		if index == m.browse.cursor {
 			next, cmd := m.browseOpen()

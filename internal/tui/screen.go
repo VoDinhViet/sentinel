@@ -44,4 +44,4 @@ func (m manageModel) replaceTop(next screen) manageModel {
 }
 
 // onTabs says the tabs are on show: no screen is open over them.
-func (m manageModel) onTabs() bool { return len(m.screens) == 0 && m.mode == modeTable }
+func (m manageModel) onTabs() bool { return len(m.screens) == 0 }

@@ -127,8 +127,8 @@ var runDates = regexp.MustCompile(`\d\d/\d\d`)
 func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen = openAddForm(t, screen)
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "Thêm job") {
-		t.Fatalf("form missing (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if !screen.formOpen() || !strings.Contains(plain(screen.render()), "Thêm job") {
+		t.Fatalf("form missing (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 	screen = keys(t, screen, "right") // type: postgres -> mysql
 	if screen.form.field("type").value != config.JobMySQL || !strings.Contains(plain(screen.render()), "Tuỳ chọn nâng cao") || strings.Contains(plain(screen.render()), "TLS") || strings.Contains(plain(screen.render()), "Auth database") {
@@ -159,7 +159,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "disabled") // TLS, the last visible field
 	screen = keys(t, screen, "enter")
 	if len(configFile.saved) != 1 {
-		t.Fatalf("not saved (mode %d): %+v\n%s", screen.mode, screen.form.problems(), plain(screen.render()))
+		t.Fatalf("not saved (screens %d): %+v\n%s", len(screen.screens), screen.form.problems(), plain(screen.render()))
 	}
 	got := configFile.saved[0]
 	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.JobMySQL || got.Database != "shopdb" || got.User != "dump" ||
@@ -167,8 +167,8 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" || got.Timeout != "12h" {
 		t.Errorf("job saved = %+v", got)
 	}
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "Đã thêm job shop") || !strings.Contains(screen.notice, "Khởi động lại daemon") {
-		t.Errorf("notice = %q (mode %d)", screen.notice, screen.mode)
+	if !screen.onTabs() || !strings.Contains(screen.notice, "Đã thêm job shop") || !strings.Contains(screen.notice, "Khởi động lại daemon") {
+		t.Errorf("notice = %q (screens %d)", screen.notice, len(screen.screens))
 	}
 }
 
@@ -210,8 +210,8 @@ func TestFormShowsProblemsUnderTheFieldOnlyOnceVisitedOrTried(t *testing.T) {
 	}
 
 	screen = keys(t, screen, "ctrl+s") // a save attempt shows everything and jumps to the first problem
-	if screen.mode != modeForm || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "name" || !screen.form.attempted {
-		t.Fatalf("an invalid form must stay open on the first problem (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
+	if !screen.formOpen() || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "name" || !screen.form.attempted {
+		t.Fatalf("an invalid form must stay open on the first problem (screens %d, focus %q)", len(screen.screens), screen.form.fields[screen.form.focus].key)
 	}
 	screen.form.field("name").value = "ok"
 	if view := plain(screen.render()); !strings.Contains(view, "✗ cần nhập tên database") {
@@ -244,8 +244,8 @@ func TestSaveRefusedByTheConfigStaysInTheFormUnderItsField(t *testing.T) {
 	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
 	screen.form.field("storage").value, screen.form.field("repositories").ticked[1] = storageRepository, true
 	screen = keys(t, screen, "ctrl+s")
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "the change makes the config invalid") || len(configFile.saved) != 1 {
-		t.Errorf("want the config's refusal in the form (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if !screen.formOpen() || !strings.Contains(plain(screen.render()), "the change makes the config invalid") || len(configFile.saved) != 1 {
+		t.Errorf("want the config's refusal in the form (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 }
 
@@ -256,8 +256,8 @@ func TestUnexpectedSaveFailureLeavesTheFormWithANotice(t *testing.T) {
 	screen.form.field("name").value, screen.form.field("database").value = "x", "x"
 	screen.form.field("storage").value, screen.form.field("repositories").ticked[1] = storageRepository, true
 	screen = keys(t, screen, "ctrl+s")
-	if screen.mode != modeTable || !screen.noticeBad || !strings.Contains(screen.notice, "permission denied") {
-		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
+	if !screen.onTabs() || !screen.noticeBad || !strings.Contains(screen.notice, "permission denied") {
+		t.Errorf("screens %d notice %q", len(screen.screens), screen.notice)
 	}
 }
 
@@ -348,12 +348,12 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	screen.form.field("name").value, screen.form.field("database").value = "shop", "shop"
 	screen.form.field("repositories").ticked[0] = true
 	screen, _ = clickOn(t, screen, "ctrl+s") // the [ Save ] button
-	if len(configFile.saved) != 1 || screen.mode != modeTable {
-		t.Errorf("the Save button saves (mode %d, saved %d)", screen.mode, len(configFile.saved))
+	if len(configFile.saved) != 1 || !screen.onTabs() {
+		t.Errorf("the Save button saves (screens %d, saved %d)", len(screen.screens), len(configFile.saved))
 	}
 	screen = openAddForm(t, screen)
 	screen, _ = clickOn(t, screen, "esc") // [ Cancel ]
-	if screen.mode != modeTable {
+	if !screen.onTabs() {
 		t.Error("the Cancel button closes the form")
 	}
 }
@@ -362,8 +362,8 @@ func TestFilesJobsAreEditedThroughTheSameForm(t *testing.T) {
 	screen, configFile := formModel(t)
 	screen.cursor = 1 // the "files" job
 	screen = keys(t, screen, "e")
-	if screen.mode != modeForm || screen.form.original != "files" {
-		t.Fatalf("edit files job: mode %d notice %q", screen.mode, screen.notice)
+	if !screen.formOpen() || screen.form.original != "files" {
+		t.Fatalf("edit files job: screens %d notice %q", len(screen.screens), screen.notice)
 	}
 	view := plain(screen.render())
 	if !strings.Contains(view, "Đường dẫn") || !strings.Contains(view, "Tuỳ chọn nâng cao") || strings.Contains(view, "Database") || strings.Contains(view, "Env var mật khẩu") {
@@ -387,8 +387,8 @@ func TestNewFilesJobNeedsAPath(t *testing.T) {
 	screen.form.field("name").value = "docs"
 	screen.form.field("repositories").ticked[0] = true
 	screen = keys(t, screen, "ctrl+s")
-	if screen.mode != modeForm || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "paths" {
-		t.Fatalf("a files job without a path must stay in the form on the paths (mode %d, focus %q)", screen.mode, screen.form.fields[screen.form.focus].key)
+	if !screen.formOpen() || len(configFile.saved) != 0 || screen.form.fields[screen.form.focus].key != "paths" {
+		t.Fatalf("a files job without a path must stay in the form on the paths (screens %d, focus %q)", len(screen.screens), screen.form.fields[screen.form.focus].key)
 	}
 	if !strings.Contains(plain(screen.render()), "✗ nhập ít nhất một đường dẫn") {
 		t.Errorf("the problem is shown under Paths:\n%s", plain(screen.render()))
@@ -424,7 +424,7 @@ func TestFormKeysOnOtherTabsDoNothing(t *testing.T) {
 	screen, _ := formModel(t)
 	model, _ := screen.onKey("2", "")
 	model, _ = model.(manageModel).onKey("a", "")
-	if model.(manageModel).mode != modeTable {
+	if !model.(manageModel).onTabs() {
 		t.Error("a on the Uptime tab must not open the form")
 	}
 }
@@ -468,7 +468,7 @@ func TestTabCompletesTheLastPathThenMovesOn(t *testing.T) {
 	}
 	screen := loadedModel(t)
 	screen.form = newJobForm(configedit.Job{Type: config.JobFiles, Name: "web"}, "", configedit.Listing{})
-	screen.mode = modeForm
+	screen = screen.push(formScreen{})
 	screen.form.focus = fieldIndex(screen, "paths")
 	screen.form.fields[screen.form.focus].value = "/etc, " + root + "/v"
 
@@ -495,7 +495,7 @@ func TestTabListsCandidatesOnceThenMovesOn(t *testing.T) {
 	}
 	screen := loadedModel(t)
 	screen.form = newJobForm(configedit.Job{Type: config.JobFiles, Name: "web"}, "", configedit.Listing{})
-	screen.mode = modeForm
+	screen = screen.push(formScreen{})
 	screen.form.focus = fieldIndex(screen, "paths")
 	screen.form.fields[screen.form.focus].value = root + "/a"
 	screen, _ = press(t, screen, "tab")
@@ -707,7 +707,7 @@ func TestConnectFailureIsShownAndDoesNotBlockSaving(t *testing.T) {
 	screen.form.field("store_at").value = t.TempDir() + "/dumps"
 	screen = keys(t, screen, "ctrl+s")
 	if len(configFile.saved) != 1 {
-		t.Errorf("a failed test does not stop the save (mode %d): %v", screen.mode, screen.form.problems())
+		t.Errorf("a failed test does not stop the save (screens %d): %v", len(screen.screens), screen.form.problems())
 	}
 }
 

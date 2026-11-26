@@ -19,8 +19,24 @@ func (m manageModel) openForm(job configedit.Job, original string, listing confi
 
 func (m manageModel) openEntryForm(next form) manageModel {
 	m.form = next
-	m.mode = modeForm
-	return m
+	return m.push(formScreen{})
+}
+
+// formScreen is the form that adds or edits a config entry. Its fields are in m.form, not in the
+// screen: the init program and the save and test actions work on the form wherever it is open.
+type formScreen struct{}
+
+func (formScreen) onKey(m manageModel, key, text string) (manageModel, tea.Cmd) {
+	next, cmd := m.onFormKey(key, text)
+	return next.(manageModel), cmd
+}
+
+func (formScreen) render(m manageModel) []string { return m.renderForm() }
+
+// formOpen says the form is the screen on show, not the folder browser over it.
+func (m manageModel) formOpen() bool {
+	_, ok := m.top().(formScreen)
+	return ok
 }
 
 // focusOn moves the focus, remembering that the field it leaves has been visited.
@@ -32,7 +48,7 @@ func (f *form) focusOn(index int) {
 func (m manageModel) onFormKey(key, text string) (tea.Model, tea.Cmd) {
 	before := m.form.connectionKey()
 	next, cmd := m.formKey(key, text)
-	if after, ok := next.(manageModel); ok && after.mode == modeForm && after.form.connectionKey() != before {
+	if after, ok := next.(manageModel); ok && after.formOpen() && after.form.connectionKey() != before {
 		after.form.connect = connectState{} // what the test found is about other values
 		return after, cmd
 	}
@@ -60,7 +76,7 @@ func (m manageModel) startConnect() (tea.Model, tea.Cmd) {
 
 // afterConnect shows what the connection test found, unless the form has moved on.
 func (m manageModel) afterConnect(msg connectTestedMsg) manageModel {
-	if m.mode != modeForm || m.form.connect.seq != msg.seq {
+	if !m.formOpen() || m.form.connect.seq != msg.seq {
 		return m
 	}
 	if msg.err != nil {
@@ -86,7 +102,7 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc", "ctrl+c":
-		m.mode = modeTable
+		m = m.pop()
 	case "tab":
 		if m.form.completeFocused() {
 			return m, nil
@@ -300,7 +316,8 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		if m.form.original != "" {
 			verb = "Đã lưu"
 		}
-		m.mode, m.notice, m.noticeBad = modeTable, fmt.Sprintf("%s %s vào config. Khởi động lại daemon (sentinel run) để áp dụng.", verb, label), false
+		m = m.pop()
+		m.notice, m.noticeBad = fmt.Sprintf("%s %s vào config. Khởi động lại daemon (sentinel run) để áp dụng.", verb, label), false
 		m = m.refreshJobRepositories().refreshConfig()
 		return m, m.reload()
 	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
@@ -319,7 +336,8 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		}
 	default:
 		// Not the user's input: leave the form so the failure is not mistaken for a validation message.
-		m.mode, m.notice, m.noticeBad = modeTable, "Không lưu được config: "+err.Error(), true
+		m = m.pop()
+		m.notice, m.noticeBad = "Không lưu được config: "+err.Error(), true
 	}
 	return m, nil
 }

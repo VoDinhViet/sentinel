@@ -90,14 +90,6 @@ type tableSection struct {
 	first       int
 }
 
-type manageMode int
-
-const (
-	modeTable  manageMode = iota // the three tabs
-	modeForm                     // adding or editing a database job
-	modeBrowse                   // choosing folders for a Paths field
-)
-
 type manageModel struct {
 	ctx             context.Context
 	load            func() (status.Report, error)
@@ -107,7 +99,6 @@ type manageModel struct {
 	loadErr         error
 	loaded          bool
 
-	mode     manageMode
 	screens  []screen // opened over the tabs, the last on show; see screen.go
 	tab      int
 	cursor   int

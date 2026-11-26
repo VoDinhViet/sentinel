@@ -31,12 +31,6 @@ func (m manageModel) renderScreen() []string {
 	if open := m.top(); open != nil {
 		return open.render(m)
 	}
-	switch m.mode {
-	case modeForm:
-		return m.renderForm()
-	case modeBrowse:
-		return m.renderBrowse()
-	}
 	return nil
 }
 

@@ -10,3 +10,8 @@ func isBusy(m manageModel) bool {
 	_, ok := openScreen[busyScreen](m)
 	return ok
 }
+
+func isBrowsing(m manageModel) bool {
+	_, ok := openScreen[browseScreen](m)
+	return ok
+}

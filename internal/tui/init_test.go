@@ -108,8 +108,8 @@ func TestInitFormShowsEveryProblemOnItsOwnField(t *testing.T) {
 func TestInitFormCancelWritesNothing(t *testing.T) {
 	program, written := initScreen(t, false)
 	program = pressInit(t, program, "esc")
-	if program.saved || len(*written) != 0 || program.mode == modeForm {
-		t.Errorf("saved %v, written %d, mode %d", program.saved, len(*written), program.mode)
+	if program.saved || len(*written) != 0 || program.formOpen() {
+		t.Errorf("saved %v, written %d, screens %d", program.saved, len(*written), len(program.screens))
 	}
 }
 

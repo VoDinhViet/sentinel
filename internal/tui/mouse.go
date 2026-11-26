@@ -128,16 +128,16 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.mode == modeBrowse {
+	if _, ok := m.top().(browseScreen); ok {
 		if next, cmd, handled := m.browseClick(action); handled {
 			return next, cmd
 		}
 	}
-	if m.mode == modeForm && action == "browse" {
+	if m.formOpen() && action == "browse" {
 		next, cmd := m.openBrowse()
 		return next, cmd
 	}
-	if m.mode == modeForm {
+	if m.formOpen() {
 		before := m.form.connectionKey()
 		if next, handled := m.formAction(action); handled {
 			if next.form.connectionKey() != before {
@@ -170,12 +170,9 @@ func (m manageModel) onWheel(up, down bool) manageModel {
 	if list, ok := m.top().(snapshotsScreen); ok {
 		return list.scroll(m, step)
 	}
-	if len(m.screens) > 0 {
+	if !m.onTabs() {
 		return m
 	}
-	switch m.mode {
-	case modeTable:
-		m.cursor = min(max(m.cursor+step, 0), max(len(m.tabs()[m.tab].lines)-1, 0))
-	}
+	m.cursor = min(max(m.cursor+step, 0), max(len(m.tabs()[m.tab].lines)-1, 0))
 	return m
 }

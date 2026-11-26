@@ -118,8 +118,8 @@ func TestAddAnS3RepositoryFromTheConfigTab(t *testing.T) {
 	screen, configFile := configScreen(t)
 	screen = goTo(t, screen, secRepository, "local")
 	screen = keys(t, screen, "a")
-	if screen.mode != modeForm || screen.form.kind != formRepository || screen.form.title != "Thêm repository" {
-		t.Fatalf("mode %d form %+v", screen.mode, screen.form.title)
+	if !screen.formOpen() || screen.form.kind != formRepository || screen.form.title != "Thêm repository" {
+		t.Fatalf("screens %d form %+v", len(screen.screens), screen.form.title)
 	}
 	screen = keys(t, screen, "tab", "right") // kind: local -> s3
 	if view := plain(screen.render()); !strings.Contains(view, "Bucket") || strings.Contains(view, "Thư mục  ") && strings.Contains(view, "rclone remote") {
@@ -137,14 +137,14 @@ func TestAddAnS3RepositoryFromTheConfigTab(t *testing.T) {
 	set("password_env", "RESTIC_PW")
 	screen = keys(t, screen, "ctrl+s")
 	if len(configFile.repositories) != 1 {
-		t.Fatalf("not saved (mode %d): %v\n%s", screen.mode, screen.form.problems(), plain(screen.render()))
+		t.Fatalf("not saved (screens %d): %v\n%s", len(screen.screens), screen.form.problems(), plain(screen.render()))
 	}
 	got := configFile.repositories[0]
 	if got.Name != "offsite" || got.URL != "s3:s3.amazonaws.com/my-bucket/web-01" || got.PasswordEnv != "RESTIC_PW" || got.Env[awsKeyID] != "S3_ID" || got.Env[awsSecretKey] != "S3_SECRET" {
 		t.Errorf("saved repository = %+v", got)
 	}
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "Đã thêm repository offsite") {
-		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
+	if !screen.onTabs() || !strings.Contains(screen.notice, "Đã thêm repository offsite") {
+		t.Errorf("screens %d notice %q", len(screen.screens), screen.notice)
 	}
 }
 
@@ -159,7 +159,7 @@ func TestRepositoryFormShowsEveryMissingPartAtOnce(t *testing.T) {
 			t.Errorf("the form lacks %q after a save attempt:\n%s", want, view)
 		}
 	}
-	if len(configFile.repositories) != 0 || screen.mode != modeForm {
+	if len(configFile.repositories) != 0 || !screen.formOpen() {
 		t.Error("an incomplete repository must not be saved")
 	}
 }
@@ -189,8 +189,8 @@ func TestRemoveRepositoryRefusesOneInUse(t *testing.T) {
 	screen, configFile := configScreen(t)
 	screen = goTo(t, screen, secRepository, "s3")
 	screen = keys(t, screen, "d")
-	if screen.mode != modeTable || !strings.Contains(screen.notice, "dùng bởi appdb") || len(configFile.removed) != 0 {
-		t.Errorf("mode %d notice %q", screen.mode, screen.notice)
+	if !screen.onTabs() || !strings.Contains(screen.notice, "dùng bởi appdb") || len(configFile.removed) != 0 {
+		t.Errorf("screens %d notice %q", len(screen.screens), screen.notice)
 	}
 	screen = goTo(t, screen, secRepository, "local")
 	screen = keys(t, screen, "d")
@@ -199,8 +199,8 @@ func TestRemoveRepositoryRefusesOneInUse(t *testing.T) {
 	}
 	screen = typeText(t, screen, "local")
 	screen = keys(t, screen, "enter")
-	if len(configFile.removed) != 1 || configFile.removed[0] != "repository local" || screen.mode != modeTable || !strings.Contains(screen.notice, "Đã xoá repository local") {
-		t.Errorf("removed %v mode %d notice %q", configFile.removed, screen.mode, screen.notice)
+	if len(configFile.removed) != 1 || configFile.removed[0] != "repository local" || !screen.onTabs() || !strings.Contains(screen.notice, "Đã xoá repository local") {
+		t.Errorf("removed %v screens %d notice %q", configFile.removed, len(screen.screens), screen.notice)
 	}
 }
 
@@ -239,8 +239,8 @@ func TestNotifierFormAsksForVariableNamesAndKeepsLiteralSecrets(t *testing.T) {
 	screen.form.field("smtp.host").value = "smtp.example.com"
 	screen.form.field("smtp.pass").value = "SMTP_PASS"
 	screen = keys(t, screen, "ctrl+s")
-	if screen.mode != modeForm || !strings.Contains(plain(screen.render()), "là bắt buộc") {
-		t.Errorf("a notifier without recipients stays open (mode %d):\n%s", screen.mode, plain(screen.render()))
+	if !screen.formOpen() || !strings.Contains(plain(screen.render()), "là bắt buộc") {
+		t.Errorf("a notifier without recipients stays open (screens %d):\n%s", len(screen.screens), plain(screen.render()))
 	}
 	screen.form.field("smtp.to").value = "ops@example.com, dev@example.com"
 	screen = keys(t, screen, "ctrl+s")
@@ -294,8 +294,8 @@ func TestConfigTabJobsUseTheJobForm(t *testing.T) {
 	screen, _ := configScreen(t)
 	screen = goTo(t, screen, secJob, "appdb")
 	screen = keys(t, screen, "e")
-	if screen.mode != modeForm || screen.form.kind != formJob || screen.form.original != "appdb" {
-		t.Errorf("mode %d kind %d original %q", screen.mode, screen.form.kind, screen.form.original)
+	if !screen.formOpen() || screen.form.kind != formJob || screen.form.original != "appdb" {
+		t.Errorf("screens %d kind %d original %q", len(screen.screens), screen.form.kind, screen.form.original)
 	}
 }
 
@@ -303,8 +303,8 @@ func TestConfigTabMouseSecondClickEditsAndAddsFromTheSection(t *testing.T) {
 	screen, _ := configScreen(t)
 	screen = goTo(t, screen, secUptime, "web")
 	screen, _ = clickOn(t, screen, fmt.Sprintf("row:%d", screen.cursor)) // already selected: opens it
-	if screen.mode != modeForm || screen.form.kind != formUptime || screen.form.original != "web" {
-		t.Errorf("mode %d kind %d original %q", screen.mode, screen.form.kind, screen.form.original)
+	if !screen.formOpen() || screen.form.kind != formUptime || screen.form.original != "web" {
+		t.Errorf("screens %d kind %d original %q", len(screen.screens), screen.form.kind, screen.form.original)
 	}
 }
 
@@ -347,8 +347,8 @@ func TestTestKeyNeedsANotifierLine(t *testing.T) {
 	screen = goTo(t, screen, secUptime, "web")
 	model, cmd := screen.onKey("t", "t")
 	screen = model.(manageModel)
-	if cmd != nil || screen.mode != modeTable || len(configFile.tested) != 0 || !strings.Contains(screen.notice, "Notifier") {
-		t.Errorf("t on an uptime line: mode %d tested %v notice %q", screen.mode, configFile.tested, screen.notice)
+	if cmd != nil || !screen.onTabs() || len(configFile.tested) != 0 || !strings.Contains(screen.notice, "Notifier") {
+		t.Errorf("t on an uptime line: screens %d tested %v notice %q", len(screen.screens), configFile.tested, screen.notice)
 	}
 	if view := plain(screen.render()); !strings.Contains(view, "gửi thử") {
 		t.Errorf("the key bar offers the test:\n%s", view)
@@ -382,13 +382,13 @@ func TestConfigTabGroupsEntriesByPurposeAndInvitesToFillAnEmptyGroup(t *testing.
 	if model, _ := screen.onKey("d", "d"); !strings.Contains(model.(manageModel).notice, "chưa có mục nào để xoá") {
 		t.Errorf("d on the invitation: %q", model.(manageModel).notice)
 	}
-	if model, _ := screen.onKey("t", "t"); model.(manageModel).mode != modeTable || !strings.Contains(model.(manageModel).notice, "Chọn một dòng Notifier") {
+	if model, _ := screen.onKey("t", "t"); !model.(manageModel).onTabs() || !strings.Contains(model.(manageModel).notice, "Chọn một dòng Notifier") {
 		t.Errorf("t on the invitation sends nothing: %q", model.(manageModel).notice)
 	}
 	for _, key := range []string{"a", "e", "enter"} { // enter and e add too, as there is nothing to edit
 		model, _ := screen.onKey(key, key)
-		if model.(manageModel).mode != modeForm {
-			t.Errorf("%s on the invitation should open the form to add (mode %d)", key, model.(manageModel).mode)
+		if !model.(manageModel).formOpen() {
+			t.Errorf("%s on the invitation should open the form to add (screens %d)", key, len(model.(manageModel).screens))
 		}
 	}
 }
