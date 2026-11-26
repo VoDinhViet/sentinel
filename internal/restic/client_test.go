@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"sentinel/internal/config"
 )
 
 // fakeRestic writes a script that prints out and exits with code.
@@ -108,5 +110,35 @@ func TestStatusLinesAreNotKeptSoALongBackupDoesNotGrowMemory(t *testing.T) {
 	}
 	if len(filter.Bytes()) != 0 {
 		t.Errorf("%d bytes of status lines were kept", len(filter.Bytes()))
+	}
+}
+
+// The weekly check and a job's prune can start in the same hour: both wait for the other's lock instead of failing.
+func TestCheckAndPruneWaitForARepositoryAnotherResticHolds(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	bin := filepath.Join(t.TempDir(), "restic")
+	script := "#!/bin/sh\necho \"$*\" >> " + argsFile + "\necho '{}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{Bin: bin, Host: "h"}
+	if err := client.Verify(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Forget(context.Background(), []string{"job=a"}, config.Retention{Last: 3}); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	if len(commands) != 2 {
+		t.Fatalf("restic ran %d times: %q", len(commands), commands)
+	}
+	for _, command := range commands {
+		if !strings.Contains(command, "--retry-lock 30m") {
+			t.Errorf("restic %s: no --retry-lock", command)
+		}
 	}
 }

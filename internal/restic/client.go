@@ -380,7 +380,7 @@ func (c *Client) Forget(ctx context.Context, tags []string, retention config.Ret
 	if retention.Empty() {
 		return nil
 	}
-	args := []string{"forget", "--json", "--prune", "--host", c.Host, "--group-by", "host,tags"}
+	args := []string{"forget", "--json", "--prune", "--retry-lock", lockRetry, "--host", c.Host, "--group-by", "host,tags"}
 	if len(tags) > 0 {
 		args = append(args, "--tag", strings.Join(tags, ","))
 	}
@@ -439,8 +439,12 @@ func (c *Client) Exists(ctx context.Context) (bool, error) {
 	return err == nil, err
 }
 
+// lockRetry is how long `check` and `forget --prune` wait for a repository that another restic
+// holds, instead of failing at once: the weekly check and a job's prune both run in the small hours.
+const lockRetry = "30m"
+
 // Verify checks repository integrity (structure only, no data read).
 func (c *Client) Verify(ctx context.Context) error {
-	_, err := c.run(ctx, "check", "--json")
+	_, err := c.run(ctx, "check", "--json", "--retry-lock", lockRetry)
 	return err
 }
