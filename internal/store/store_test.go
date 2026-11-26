@@ -78,6 +78,28 @@ func TestMigrateTwice(t *testing.T) {
 	}
 }
 
+// An older sentinel must not open a database a newer one has migrated: it would run on a schema it does not know.
+func TestOpenRefusesNewerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 99`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s, err = Open(path)
+	if err == nil {
+		s.Close()
+		t.Fatal("Open accepted a database at schema version 99")
+	}
+	if !strings.Contains(err.Error(), "newer sentinel") {
+		t.Errorf("error = %q, want it to say the database came from a newer sentinel", err)
+	}
+}
+
 func TestBackupRuns(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)

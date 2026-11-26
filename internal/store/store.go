@@ -151,6 +151,11 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
+	if version > len(migrations) {
+		return fmt.Errorf("the state database is at schema version %d but this sentinel only knows %d: "+
+			"it was written by a newer sentinel, so install that version again instead of running an older one",
+			version, len(migrations))
+	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := s.db.Begin()
 		if err != nil {
