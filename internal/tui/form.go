@@ -343,6 +343,24 @@ func (f form) visible() []int {
 	return shown
 }
 
+// focusOnField puts the focus on the field with that key, unfolding the advanced section for one in it. It
+// says false, and leaves the focus where it is, when there is no such field or it is not on screen (a store_at
+// of a job whose storage is automatic): a message under a field nobody can see would be no message.
+func (f *form) focusOnField(key string) bool {
+	index := slices.IndexFunc(f.fields, func(field formField) bool { return field.key == key })
+	if key == "" || index < 0 {
+		return false
+	}
+	if f.fields[index].section == sectionAdvanced {
+		f.advancedOpen = true // the field with the problem must be in view
+	}
+	if !slices.Contains(f.visible(), index) {
+		return false
+	}
+	f.focusOn(index)
+	return true
+}
+
 // splitList splits a comma separated list, dropping blanks.
 func splitList(text string) []string {
 	var parts []string

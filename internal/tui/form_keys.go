@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ func (m manageModel) formOpen() bool {
 func (f *form) focusOn(index int) {
 	f.touched[f.fields[f.focus].key] = true
 	f.fields[f.focus].back = 0
+	f.fields[f.focus].options = nil // the candidates a Tab listed are for the moment it was pressed
 	f.focus = index
 	f.disk.forget()
 }
@@ -331,18 +333,9 @@ func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
 		m = m.refreshJobRepositories().refreshConfig()
 		return m, m.reload()
 	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
-		if errors.As(err, &invalid) && invalid.Field != "" {
-			for i, field := range m.form.fields {
-				if field.key == invalid.Field {
-					if field.section == sectionAdvanced {
-						m.form.advancedOpen = true // the field with the problem must be in view
-					}
-					m.form.focusOn(i)
-					break
-				}
-			}
-		} else {
-			m.form.problem = err.Error()
+		fieldFocused := errors.As(err, &invalid) && m.form.focusOnField(invalid.Field)
+		if !fieldFocused {
+			m.form.problem = err.Error() // no field to show it under: it is the problem of the whole save
 		}
 	default:
 		// Not the user's input: leave the form so the failure is not mistaken for a validation message.
@@ -368,7 +361,7 @@ func (f form) apply(actions manageActions) (string, error) {
 	label := "job " + job.Name
 	if repo.URL != "" {
 		repo.PasswordEnv = f.sharedPasswordEnv(actions)
-		if err := actions.saveRepository("", repo); err != nil {
+		if err := actions.saveRepository("", repo); err != nil && !createdBefore(actions, repo, err) {
 			return label, err
 		}
 		label += ", backup lưu tại " + repo.URL
@@ -385,6 +378,21 @@ func (f form) apply(actions manageActions) (string, error) {
 		return label, err
 	}
 	return label, nil
+}
+
+// createdBefore says err only tells that the repository is there already, with the same name and place:
+// a try of this form that created it and then failed to save the job, so the next try goes on with it.
+func createdBefore(actions manageActions, repo configedit.Repository, err error) bool {
+	if !errors.Is(err, configedit.ErrExists) || actions.overview == nil {
+		return false
+	}
+	overview, overviewErr := actions.overview()
+	if overviewErr != nil {
+		return false
+	}
+	return slices.ContainsFunc(overview.Repositories, func(existing configedit.Repository) bool {
+		return existing.Name == repo.Name && existing.URL == repo.URL
+	})
 }
 
 // sharedPasswordEnv is the password variable of the first repository that has one, so a new
@@ -411,8 +419,12 @@ func (m manageModel) onPaste(content string) manageModel {
 	if !field.editsText() {
 		return m
 	}
+	before := m.form.connectionKey()
 	field.edit(tea.PasteMsg{Content: content})
 	m.form.touched[field.key] = true
 	m.form.problem = ""
+	if m.form.connectionKey() != before {
+		m.form.connect = connectState{} // what the test found is about other values
+	}
 	return m
 }

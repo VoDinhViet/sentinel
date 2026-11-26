@@ -308,6 +308,7 @@ func (m manageModel) browseDone() manageModel {
 	for _, folder := range m.browse.marks {
 		field.value = addPath(field.value, folder)
 	}
+	field.back = 0 // the cursor goes to the end of the longer list
 	if len(m.browse.marks) > 0 {
 		m.form.touched[field.key] = true
 	}
