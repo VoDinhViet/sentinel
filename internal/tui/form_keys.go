@@ -149,7 +149,7 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.form.step(m.form.focus, map[string]int{"left": -1, "right": 1}[key])
-	case " ":
+	case " ", "space": // bubbletea names the space bar "space"; the tests of older code sent " "
 		switch focused.kind {
 		case fieldToggle:
 			m.form.advancedOpen = !m.form.advancedOpen

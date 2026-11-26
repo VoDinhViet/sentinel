@@ -146,7 +146,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = typeText(t, screen, "daily 02:30")
 	screen = keys(t, screen, "tab", "tab", "right", "right") // time, then storage: automatic -> folder -> repository
 	screen = keys(t, screen, "tab")                          // repositories: local, s3
-	screen = keys(t, screen, " ", "right", " ")              // tick both
+	screen = keys(t, screen, "space", "right", "space")      // tick both
 	screen = keys(t, screen, "tab")                          // retention: last, daily, weekly...
 	screen = keys(t, screen, "right")
 	screen = typeText(t, screen, "7")
