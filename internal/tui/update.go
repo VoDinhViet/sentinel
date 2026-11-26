@@ -69,6 +69,10 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case folderSizedMsg:
 		return m.onFolderSized(msg), nil
+	case deepSearchDueMsg:
+		return m, m.onDeepSearchDue(msg)
+	case deepSearchedMsg:
+		return m.onDeepSearched(msg)
 	case doctorMsg:
 		m.doctor.running, m.doctor.findings = false, msg.findings
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))

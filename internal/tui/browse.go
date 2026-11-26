@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -45,6 +46,22 @@ type folderSizedMsg struct {
 	complete bool
 }
 
+// deepSearchDueMsg says the typing stopped long enough for the search of that filter to start.
+type deepSearchDueMsg struct {
+	seq         int
+	dir, filter string
+}
+
+// deepSearchedMsg carries what the search of a filter found, listed in the background.
+type deepSearchedMsg struct {
+	seq   int
+	found []browseRow
+}
+
+// deepSearchDelay is how long the typing must rest before the search starts: a word typed fast is
+// searched once, not once per letter.
+const deepSearchDelay = 100 * time.Millisecond
+
 // browseState is the folder browser opened from a Paths field.
 type browseState struct {
 	field   int    // the form field the choice is added to
@@ -52,9 +69,13 @@ type browseState struct {
 	filter  string // typed text: filters the list and searches deeper
 	folders []browseRow
 	deeper  []browseRow
-	cursor  int
-	marks   []string // chosen folders, in the order they were chosen; kept across folders
-	sizes   map[string]folderSize
+	// searchSeq counts the filter changes and folder changes, so that a search that answers after the
+	// text or the folder moved on is ignored; searching says the answer for the current one is awaited.
+	searchSeq int
+	searching bool
+	cursor    int
+	marks     []string // chosen folders, in the order they were chosen; kept across folders
+	sizes     map[string]folderSize
 }
 
 // linksToFolder says that an entry that is not a folder itself is a symlink to one. Only a symlink needs a
@@ -158,6 +179,7 @@ func (m manageModel) openBrowse() (manageModel, tea.Cmd) {
 // browseTo lists dir and puts the cursor on focus, or on the first folder.
 func (m manageModel) browseTo(dir, focus string) (manageModel, tea.Cmd) {
 	m.browse.dir, m.browse.filter, m.browse.deeper = dir, "", nil
+	m.browse.searchSeq, m.browse.searching = m.browse.searchSeq+1, false
 	m.browse.folders = folderRows(dir)
 	m.browse.cursor = m.browse.firstFolder()
 	for i, row := range m.browse.rows() {
@@ -235,19 +257,48 @@ func (m manageModel) browseMark() manageModel {
 	return m
 }
 
-// browseFilter changes the filter text and searches deeper once it has two characters.
+// browseFilter changes the filter text. Once it has two characters the search below the folder starts
+// after deepSearchDelay, in the background, so that typing never waits for the disk.
 func (m manageModel) browseFilter(filter string) (manageModel, tea.Cmd) {
 	m.browse.filter, m.browse.deeper = filter, nil
-	if len([]rune(filter)) >= 2 {
-		for _, path := range deepSearch(m.browse.dir, filter) {
-			relative, err := filepath.Rel(m.browse.dir, path)
+	m.browse.searchSeq++
+	m.browse.searching = len([]rune(filter)) >= 2
+	m.browse.cursor = m.browse.firstFolder()
+	if !m.browse.searching {
+		return m, m.sizeSelected()
+	}
+	due := deepSearchDueMsg{seq: m.browse.searchSeq, dir: m.browse.dir, filter: filter}
+	return m, tea.Batch(m.sizeSelected(), tea.Tick(deepSearchDelay, func(time.Time) tea.Msg { return due }))
+}
+
+// onDeepSearchDue starts the search unless the filter or the folder has changed since it was asked for.
+func (m manageModel) onDeepSearchDue(msg deepSearchDueMsg) tea.Cmd {
+	if msg.seq != m.browse.searchSeq {
+		return nil
+	}
+	return func() tea.Msg {
+		var found []browseRow
+		for _, path := range deepSearch(msg.dir, msg.filter) {
+			relative, err := filepath.Rel(msg.dir, path)
 			if err != nil {
 				continue
 			}
-			m.browse.deeper = append(m.browse.deeper, browseRow{kind: browseDeeper, name: termtext.Clean(relative) + "/", path: path, denied: !readableDir(path)})
+			found = append(found, browseRow{kind: browseDeeper, name: termtext.Clean(relative) + "/", path: path, denied: !readableDir(path)})
 		}
+		return deepSearchedMsg{seq: msg.seq, found: found}
 	}
-	m.browse.cursor = m.browse.firstFolder()
+}
+
+// onDeepSearched shows what the search found. The cursor moves to the first folder only if it is still
+// on "..": a user who has already moved it keeps the row they chose.
+func (m manageModel) onDeepSearched(msg deepSearchedMsg) (manageModel, tea.Cmd) {
+	if msg.seq != m.browse.searchSeq {
+		return m, nil
+	}
+	m.browse.searching, m.browse.deeper = false, msg.found
+	if rows := m.browse.rows(); m.browse.cursor >= len(rows) || rows[m.browse.cursor].kind == browseUp {
+		m.browse.cursor = m.browse.firstFolder()
+	}
 	return m, m.sizeSelected()
 }
 
@@ -382,7 +433,10 @@ func (m manageModel) renderBrowse() []string {
 	}
 	if folders == 0 {
 		message := "không có thư mục nào ở đây"
-		if browse.filter != "" {
+		switch {
+		case browse.searching:
+			message = "đang tìm \"" + browse.filter + "\" ở sâu hơn…"
+		case browse.filter != "":
 			message = "không có thư mục nào khớp \"" + browse.filter + "\""
 		}
 		screenLines = append(screenLines, dimStyle.Render("  "+message))

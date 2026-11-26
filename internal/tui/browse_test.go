@@ -51,13 +51,16 @@ func openBrowser(t *testing.T, value string) (manageModel, tea.Cmd) {
 	return model2.(manageModel), cmd
 }
 
+// typeFilter types text into the browser and waits for the search of what was typed, as the program
+// does: the search of an earlier letter is overtaken by the next one.
 func typeFilter(t *testing.T, screen manageModel, text string) manageModel {
 	t.Helper()
+	var cmd tea.Cmd
 	for _, char := range text {
-		model, _ := screen.onKey(string(char), string(char))
-		screen = model.(manageModel)
+		model, next := screen.onKey(string(char), string(char))
+		screen, cmd = model.(manageModel), next
 	}
-	return screen
+	return settle(t, screen, cmd)
 }
 
 func rowNames(screen manageModel) []string {
