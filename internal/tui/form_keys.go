@@ -1,9 +1,7 @@
 package tui
 
 import (
-	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,14 +91,6 @@ func (m manageModel) afterConnect(msg connectTestedMsg) manageModel {
 }
 
 func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
-	shown := m.form.visible()
-	position := 0
-	for i, index := range shown {
-		if index == m.form.focus {
-			position = i
-		}
-	}
-	move := func(delta int) { m.form.focusOn(shown[(position+delta+len(shown))%len(shown)]) }
 	focused := &m.form.fields[m.form.focus]
 	if key != "tab" {
 		focused.options = nil
@@ -112,11 +102,11 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 		if m.form.completeFocused() {
 			return m, nil
 		}
-		move(1)
+		m.form.moveFocus(1)
 	case "down":
-		move(1)
+		m.form.moveFocus(1)
 	case "shift+tab", "up":
-		move(-1)
+		m.form.moveFocus(-1)
 	case "ctrl+s":
 		return m.saveForm()
 	case "ctrl+t":
@@ -127,14 +117,50 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 			return next, cmd
 		}
 	case "enter":
-		if focused.kind == fieldToggle {
+		switch {
+		case focused.kind == fieldToggle:
 			m.form.advancedOpen = !m.form.advancedOpen
-			break
-		}
-		if position == len(shown)-1 {
+		case m.form.focusOnLast():
 			return m.saveForm()
+		default:
+			m.form.moveFocus(1)
 		}
-		move(1)
+	default:
+		m.form.editFocused(key, text)
+	}
+	m.form.touched[focused.key] = true
+	m.form.problem = ""
+	m.form.syncSchedules()
+	return m, nil
+}
+
+// focusPosition is where the focus is among the fields on show (the first when it is on a hidden one).
+func (f *form) focusPosition(shown []int) int {
+	position := 0
+	for i, index := range shown {
+		if index == f.focus {
+			position = i
+		}
+	}
+	return position
+}
+
+// moveFocus moves the focus by delta fields on show, around the ends.
+func (f *form) moveFocus(delta int) {
+	shown := f.visible()
+	f.focusOn(shown[(f.focusPosition(shown)+delta+len(shown))%len(shown)])
+}
+
+func (f *form) focusOnLast() bool {
+	shown := f.visible()
+	return f.focusPosition(shown) == len(shown)-1
+}
+
+// editFocused applies the keys that change the focused field: the arrows that move inside it, the space
+// bar, alt+digit for a suggestion, and text.
+func (f *form) editFocused(key, text string) {
+	focused := &f.fields[f.focus]
+	switch key {
 	case "alt+up", "alt+down", "alt+left", "alt+right":
 		switch {
 		case focused.editsText(): // a word left or right
@@ -148,15 +174,15 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 	case "left", "right":
 		if focused.editsText() {
 			focused.edit(keyPress(key, ""))
-			break
+			return
 		}
-		m.form.step(m.form.focus, map[string]int{"left": -1, "right": 1}[key])
+		f.step(f.focus, map[string]int{"left": -1, "right": 1}[key])
 	case " ", "space": // bubbletea names the space bar "space"; the tests of older code sent " "
 		switch focused.kind {
 		case fieldToggle:
-			m.form.advancedOpen = !m.form.advancedOpen
+			f.advancedOpen = !f.advancedOpen
 		case fieldChecklist:
-			m.form.toggle(m.form.focus, focused.sub)
+			f.toggle(f.focus, focused.sub)
 		case fieldText, fieldPaths:
 			focused.edit(keyPress(" ", " "))
 		case fieldSchedule:
@@ -164,15 +190,11 @@ func (m manageModel) formKey(key, text string) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if number, ok := strings.CutPrefix(key, "alt+"); ok && focused.kind == fieldPaths {
-			m.form.suggest(m.form.focus, number)
-			break
+			f.suggest(f.focus, number)
+			return
 		}
-		m.form.typeInto(focused, key, text)
+		f.typeInto(focused, key, text)
 	}
-	m.form.touched[focused.key] = true
-	m.form.problem = ""
-	m.form.syncSchedules()
-	return m, nil
 }
 
 // typeInto applies a key press to the field's text.
@@ -187,7 +209,7 @@ func (f *form) typeInto(field *formField, key, text string) {
 	case fieldSchedule:
 		field.value = editText(field.value, key, text)
 	case fieldRetention:
-		if (key == "backspace" || digits) && len([]rune(field.counts[field.sub])) < 4 || key == "backspace" {
+		if key == "backspace" || digits && len([]rune(field.counts[field.sub])) < 4 {
 			field.counts[field.sub] = editText(field.counts[field.sub], key, text)
 		}
 	case fieldTime:
@@ -316,115 +338,4 @@ func (m manageModel) formAction(action string) (manageModel, bool) {
 	m.form.problem = ""
 	m.form.syncSchedules()
 	return m, true
-}
-
-func (m manageModel) saveForm() (tea.Model, tea.Cmd) {
-	m.form.attempted = true
-	label, err := m.form.apply(m.actions)
-	var invalid *configedit.InvalidError
-	switch {
-	case err == nil:
-		verb := "Đã thêm"
-		if m.form.original != "" {
-			verb = "Đã lưu"
-		}
-		m = m.pop()
-		m.notice, m.noticeBad = fmt.Sprintf("%s %s vào config. Khởi động lại daemon (sentinel run) để áp dụng.", verb, label), false
-		m = m.refreshJobRepositories().refreshConfig()
-		return m, m.reload()
-	case errors.As(err, &invalid), errors.Is(err, configedit.ErrExists), errors.Is(err, configedit.ErrNotFound):
-		fieldFocused := errors.As(err, &invalid) && m.form.focusOnField(invalid.Field)
-		if !fieldFocused {
-			m.form.problem = err.Error() // no field to show it under: it is the problem of the whole save
-		}
-	default:
-		// Not the user's input: leave the form so the failure is not mistaken for a validation message.
-		m = m.pop()
-		m.notice, m.noticeBad = "Không lưu được config: "+err.Error(), true
-	}
-	return m, nil
-}
-
-// apply saves what the form holds and says what was saved ("job shop"). The error is an
-// InvalidError (with the field) when the input is at fault.
-func (f form) apply(actions manageActions) (string, error) {
-	if f.kind != formJob {
-		return f.applyEntry(actions)
-	}
-	job, known, repo, err := f.jobWithStore()
-	if err == nil {
-		err = configedit.Validate(&job, known)
-	}
-	if err != nil {
-		return "job " + job.Name, err
-	}
-	label := "job " + job.Name
-	if repo.URL != "" {
-		repo.PasswordEnv = f.sharedPasswordEnv(actions)
-		if err := actions.saveRepository("", repo); err != nil && !createdBefore(actions, repo, err) {
-			return label, err
-		}
-		label += ", backup lưu tại " + repo.URL
-		if strings.Contains(repo.URL, ":") { // a remote location: the repository is not created behind anyone's back
-			label += " (tạo repository một lần bằng: sentinel backup init " + job.Name + ")"
-		} else {
-			label += " (repository sẽ được tạo ở lần backup đầu tiên)"
-		}
-	}
-	if err := actions.saveJob(f.original, job); err != nil {
-		if repo.URL != "" {
-			err = fmt.Errorf("đã tạo repository %s nhưng chưa lưu được job: %w", repo.Name, err)
-		}
-		return label, err
-	}
-	return label, nil
-}
-
-// createdBefore says err only tells that the repository is there already, with the same name and place:
-// a try of this form that created it and then failed to save the job, so the next try goes on with it.
-func createdBefore(actions manageActions, repo configedit.Repository, err error) bool {
-	if !errors.Is(err, configedit.ErrExists) || actions.overview == nil {
-		return false
-	}
-	overview, overviewErr := actions.overview()
-	if overviewErr != nil {
-		return false
-	}
-	return slices.ContainsFunc(overview.Repositories, func(existing configedit.Repository) bool {
-		return existing.Name == repo.Name && existing.URL == repo.URL
-	})
-}
-
-// sharedPasswordEnv is the password variable of the first repository that has one, so a new
-// repository keeps using the passphrase the user already has; RESTIC_PASSWORD when there is none.
-func (f form) sharedPasswordEnv(actions manageActions) string {
-	if actions.overview != nil {
-		if overview, err := actions.overview(); err == nil {
-			for _, repo := range overview.Repositories {
-				if repo.PasswordEnv != "" {
-					return repo.PasswordEnv
-				}
-			}
-		}
-	}
-	return "RESTIC_PASSWORD"
-}
-
-// onPaste puts pasted text into the text field of the open form; anywhere else a paste does nothing.
-func (m manageModel) onPaste(content string) manageModel {
-	if !m.formOpen() {
-		return m
-	}
-	field := &m.form.fields[m.form.focus]
-	if !field.editsText() {
-		return m
-	}
-	before := m.form.connectionKey()
-	field.edit(tea.PasteMsg{Content: content})
-	m.form.touched[field.key] = true
-	m.form.problem = ""
-	if m.form.connectionKey() != before {
-		m.form.connect = connectState{} // what the test found is about other values
-	}
-	return m
 }
