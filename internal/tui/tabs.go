@@ -135,9 +135,9 @@ func (m manageModel) nextRun(name string) (text string, known bool) {
 func (m manageModel) backupFields(line manageLine, snapshotID string, finishedAt time.Time) [][2]string {
 	fields := [][2]string{{"Repository", line.repository}}
 	if job, ok := m.configuredJob(line.job); ok {
-		keep := job.Retention.String()
+		keep := retentionText(job.Retention)
 		if job.Inherited.Retention {
-			keep = m.config.overview.Settings.DefaultRetention.String() + " (mặc định)"
+			keep = retentionText(m.config.overview.Settings.DefaultRetention) + " (mặc định)"
 		}
 		fields = m.jobSetupFields(job, line.repository, keep)
 	}

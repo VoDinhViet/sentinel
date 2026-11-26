@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"sentinel/internal/config"
 	"sentinel/internal/configedit"
@@ -44,6 +46,9 @@ const (
 )
 
 var retentionKeys = [5]string{"last", "daily", "weekly", "monthly", "yearly"}
+
+// retentionUnits are what each retention count counts, in the words of the screen, in the order of retentionKeys.
+var retentionUnits = [5]string{"bản mới nhất", "ngày", "tuần", "tháng", "năm"}
 
 // scheduleHint says what a schedule field accepts and which keys step through it.
 const scheduleHint = `gõ trực tiếp ("daily 2am", "weekly monday 3am", "every 6 hours", cron) · ← → đổi tần suất · alt+↑↓ giờ · alt+←→ thứ hoặc ngày`
@@ -195,10 +200,10 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		passwordHint = "file đang chứa mật khẩu ghi thẳng; nhập tên biến để thay, hoặc để trống để giữ nguyên"
 	}
 	scheduleHint := scheduleHint
-	scheduleNote := "chỉ chạy thủ công"
+	scheduleNote := "Chỉ chạy thủ công"
 	if listing.Defaults.Schedule != "" {
 		scheduleHint += "; để trống = schedule mặc định"
-		scheduleNote = listing.Defaults.Schedule
+		scheduleNote = scheduleText(listing.Defaults.Schedule)
 	}
 	ticked := make([]bool, len(listing.Repositories))
 	for i, name := range listing.Repositories {
@@ -239,7 +244,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "storage", label: "Storage", hint: "tự động: các repository mặc định, hoặc một thư mục riêng cho job · thư mục: chọn nơi lưu mới · repository: chọn repository đã có", kind: fieldChoice, value: storage, choices: []string{storageAuto, storageFolder, storageRepository}, section: sectionSchedule},
 		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó", complete: true, placeholder: "nhập đường dẫn", section: sectionSchedule, onField: "storage", only: []string{storageFolder}},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionSchedule, onField: "storage", only: []string{storageRepository}},
-		{key: "retention", label: "Retention", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
+		{key: "retention", label: "Giữ", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
 		{key: "keep", label: "Giữ", hint: "giữ N bản mới nhất, bản cũ hơn tự xoá; để trống = quy tắc hiện có hoặc mặc định", kind: fieldNumber, value: keepValue, placeholder: keepPlaceholder, placeholderOwn: keepIsOwn, unit: "bản mới nhất", section: sectionSchedule},
 	}...)
 	form.fields = append(form.fields, []formField{
@@ -455,11 +460,11 @@ func (f form) job() (configedit.Job, error) {
 func keepInput(own, defaults config.Retention) (value, placeholder string, ownRule bool) {
 	switch {
 	case own == config.Retention{}:
-		return "", describeRetention(defaults), false
+		return "", retentionText(defaults), false
 	case own == config.Retention{Last: own.Last}:
 		return strconv.Itoa(own.Last), "", false
 	}
-	return "", describeRetention(own), true
+	return "", retentionText(own), true
 }
 
 // usesDefaults says the schedule, storage or retention of the job form fall back to the defaults
@@ -478,11 +483,29 @@ func (f form) usesDefaults() bool {
 	return f.field("retention").counts == [5]string{}
 }
 
-func describeRetention(retention config.Retention) string {
-	if retention == (config.Retention{}) {
-		return "giữ tất cả"
+// retentionText is a retention rule in the words of the screen: "7 ngày · 4 tuần", "Giữ tất cả".
+func retentionText(retention config.Retention) string {
+	var parts []string
+	for i, count := range []int{retention.Last, retention.Daily, retention.Weekly, retention.Monthly, retention.Yearly} {
+		if count > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", count, retentionUnits[i]))
+		}
 	}
-	return retention.String()
+	if len(parts) == 0 {
+		return "Giữ tất cả"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// scheduleText is a schedule in plain words with a capital: "Mỗi ngày lúc 02:00".
+func scheduleText(spec string) string {
+	return capitalize(schedule.Describe(spec))
+}
+
+// capitalize turns the first letter of text into a capital.
+func capitalize(text string) string {
+	first, size := utf8.DecodeRuneInString(text)
+	return string(unicode.ToUpper(first)) + text[size:]
 }
 
 // withKeep sets the retention of a database job from its "keep" input: N backups, or what the job

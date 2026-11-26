@@ -155,12 +155,12 @@ func (m manageModel) buildConfigTab() manageTab {
 
 	begin(secJob)
 	for _, job := range listing.Jobs {
-		repositories, keep := strings.Join(job.Repositories, ", "), job.Retention.String()
+		repositories, keep := strings.Join(job.Repositories, ", "), retentionText(job.Retention)
 		if job.Inherited.Repositories {
 			repositories = strings.Join(listing.InheritedRepositories, ", ") + " (mặc định)"
 		}
 		if job.Inherited.Retention {
-			keep = overview.Settings.DefaultRetention.String() + " (mặc định)"
+			keep = retentionText(overview.Settings.DefaultRetention) + " (mặc định)"
 		}
 		when := m.whenText(job.Schedule)
 		add(configEntry{secJob, job.Name}, sevOK, []string{job.Name, job.Type, when, repositories, keep},

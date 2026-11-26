@@ -173,7 +173,7 @@ func TestEditFormIsPrefilledKeepsTheTypeFixedAndExplainsLiteralPasswords(t *test
 	screen, configFile := formModel(t)
 	screen = keys(t, screen, "e")
 	view := plain(screen.render())
-	for _, want := range []string{"Sửa appdb", "appdb", "5433", "[x] s3", "[ ] local", "daily"} {
+	for _, want := range []string{"Sửa appdb", "appdb", "5433", "[x] s3", "[ ] local", "7 ngày"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("form lacks %q:\n%s", want, view)
 		}
@@ -266,7 +266,7 @@ func TestScheduleFieldCyclesPresetsAndPreviewsInPlainWords(t *testing.T) {
 	screen = openAddForm(t, screen)
 	screen.form.field("name").value, screen.form.field("database").value = "inherits", "x"
 	screen = keys(t, screen, "tab", "tab", "tab", "tab", "tab", "tab", "tab") // schedule
-	if view := plain(screen.render()); !strings.Contains(view, "daily 02:00") || !strings.Contains(view, "→ mỗi ngày lúc 02:00") {
+	if view := plain(screen.render()); !strings.Contains(view, "Mỗi ngày lúc 02:00") || !strings.Contains(view, "→ mỗi ngày lúc 02:00") {
 		t.Errorf("an empty schedule shows the default and what it means:\n%s", view)
 	}
 	screen = keys(t, screen, "right")
@@ -772,7 +772,7 @@ func TestDatabaseJobKeepsOneNumberAndFilesJobKeepsFiveCounts(t *testing.T) {
 	if !formShows(screen, "keep") || formShows(screen, "retention") {
 		t.Errorf("a database job has the single keep input, not the five counts:\n%s", plain(screen.render()))
 	}
-	if !strings.Contains(plain(screen.render()), "giữ tất cả") || !strings.Contains(plain(screen.render()), "chữ mờ = dùng mặc định chung") {
+	if !strings.Contains(plain(screen.render()), "Giữ tất cả") || !strings.Contains(plain(screen.render()), "chữ mờ = dùng mặc định chung") {
 		t.Errorf("an empty keep input says what it stands for:\n%s", plain(screen.render()))
 	}
 	screen = keys(t, screen, "right", "right", "right") // postgres -> mysql -> mongodb -> files
@@ -804,7 +804,7 @@ func TestEditingADatabaseJobKeepsItsOwnRetentionUntilANumberIsTyped(t *testing.T
 	screen, _ := formModel(t)
 	screen = keys(t, screen, "e") // appdb keeps daily 7
 	keep := screen.form.field("keep")
-	if keep.value != "" || keep.placeholder != "daily 7" || !keep.placeholderOwn {
+	if keep.value != "" || keep.placeholder != "7 ngày" || !keep.placeholderOwn {
 		t.Fatalf("keep = %q, placeholder %q", keep.value, keep.placeholder)
 	}
 	if job, err := screen.form.job(); err != nil || job.Retention != (config.Retention{Daily: 7}) {

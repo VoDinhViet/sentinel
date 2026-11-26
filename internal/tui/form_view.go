@@ -132,27 +132,27 @@ func (m manageModel) dropdownText(field formField) (text string, dropdown bool) 
 	return field.value, !field.fixed
 }
 
-// retentionSummary is the retention counts on one line: "7 daily · 4 weekly · 6 monthly".
+// retentionSummary is the retention counts on one line: "7 ngày · 4 tuần · 6 tháng".
 func (m manageModel) retentionSummary(field formField) string {
 	var parts []string
-	for i, name := range retentionKeys {
+	for i, unit := range retentionUnits {
 		if field.counts[i] != "" && field.counts[i] != "0" {
-			parts = append(parts, field.counts[i]+" "+name)
+			parts = append(parts, field.counts[i]+" "+unit)
 		}
 	}
 	if len(parts) > 0 {
 		return strings.Join(parts, " · ")
 	}
 	var inherited []string
-	for i, name := range retentionKeys {
+	for i, unit := range retentionUnits {
 		if count := m.retentionPlaceholder(i); count != "" {
-			inherited = append(inherited, count+" "+name)
+			inherited = append(inherited, count+" "+unit)
 		}
 	}
 	if len(inherited) > 0 {
 		return dimStyle.Render(strings.Join(inherited, " · "))
 	}
-	return dimStyle.Render("giữ tất cả")
+	return dimStyle.Render("Giữ tất cả")
 }
 
 func (m manageModel) renderForm() []string {
