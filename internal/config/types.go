@@ -22,9 +22,6 @@ type Config struct {
 	// ShutdownWait is how long the daemon lets running backups finish when it is stopped.
 	ShutdownWait time.Duration `yaml:"shutdown_wait"`
 	Defaults     Defaults      `yaml:"defaults"`
-	// Monitor is accepted for old config files and ignored: Sentinel no longer
-	// monitors server resources.
-	Monitor      any           `yaml:"monitor"`
 	UptimeChecks []UptimeCheck `yaml:"uptime"`
 
 	// EnvRefs are the variables the file refers to with ${VAR}, sorted. Set when it is parsed, not read

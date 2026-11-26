@@ -70,11 +70,11 @@ func TestMissingVarsAndPasswordVars(t *testing.T) {
 	}
 }
 
-func TestMissingVarsRejectsAnOldConfigFirst(t *testing.T) {
+func TestMissingVarsRejectsAnUnknownKeyFirst(t *testing.T) {
 	os.Unsetenv("OLD_FORMAT_PW")
 	_, err := MissingVars([]byte("repositories:\n  local: {url: /r, password: \"${OLD_FORMAT_PW}\"}\nbackups:\n  - name: documents\n"))
-	if err == nil || !strings.Contains(err.Error(), `"backups" was renamed to "jobs"`) {
-		t.Errorf("err = %v, want the rename hint", err)
+	if err == nil || !strings.Contains(err.Error(), "field backups not found") {
+		t.Errorf("err = %v, want the unknown key", err)
 	}
 }
 
@@ -99,5 +99,14 @@ func TestRefVars(t *testing.T) {
 	names, err := RefVars([]byte("a: ${ONE}\nb: [\"x-${TWO}\", \"${ONE}\"]\n\"${KEY}\": plain\n"))
 	if err != nil || !slices.Equal(names, []string{"ONE", "TWO"}) {
 		t.Errorf("names = %v, err %v (a key is not expanded)", names, err)
+	}
+}
+
+// Before the variables are set, a ${VAR} in a number does not decode; that is not what MissingVars is for.
+func TestMissingVarsIgnoresValuesThatDoNotDecodeYet(t *testing.T) {
+	os.Unsetenv("PG_PORT_NOT_SET")
+	missing, err := MissingVars([]byte("repositories:\n  r: {url: /r, password: p}\njobs:\n  - {name: db, type: postgres, postgres: {database: d, port: \"${PG_PORT_NOT_SET}\"}}\n"))
+	if err != nil || len(missing) != 1 || missing[0] != "PG_PORT_NOT_SET" {
+		t.Errorf("missing = %v, err = %v", missing, err)
 	}
 }

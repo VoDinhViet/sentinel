@@ -3,13 +3,13 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"os"
 	"regexp"
 	"slices"
-	"sync"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -46,15 +46,33 @@ func MissingVars(raw []byte) ([]string, error) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	// A config in an old format fails here, before anybody is asked for a value it may not need.
-	if len(doc.Content) > 0 {
-		if err := checkRenamedKeys(doc.Content[0]); err != nil {
-			return nil, err
-		}
+	// A config with a key Sentinel does not know fails here, before anybody is asked for a value it may not need.
+	if err := rejectUnknownKeys(raw); err != nil {
+		return nil, err
 	}
 	missingVars := map[string]bool{}
 	expandEnv(&doc, missingVars)
 	return slices.Sorted(maps.Keys(missingVars)), nil
+}
+
+// rejectUnknownKeys fails when the document has a key Sentinel does not know. Other decoding problems
+// are left for Parse: before the variables are set, a ${VAR} in a number or a duration does not decode.
+func rejectUnknownKeys(raw []byte) error {
+	err := decodeStrict(raw, &Config{}, false)
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return err
+	}
+	var unknown []string
+	for _, problem := range typeErr.Errors {
+		if strings.Contains(problem, "not found in type") {
+			unknown = append(unknown, problem)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return fmt.Errorf("parse config: %s", strings.Join(unknown, "; "))
 }
 
 // eachRef calls visit for every ${VAR} in the values of a YAML document (not in comments or keys),
@@ -139,15 +157,8 @@ func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	if cfg.EnvRefs, err = RefVars(raw); err != nil {
 		return nil, err
 	}
-	if cfg.Monitor != nil {
-		monitorWarned.Do(func() {
-			slog.Warn("config: the monitor: section is ignored; Sentinel no longer monitors server resources")
-		})
-	}
 	return &cfg, nil
 }
-
-var monitorWarned sync.Once
 
 // decodeStrict decodes YAML into target, optionally expanding ${VAR} in values,
 // and rejects unknown fields.
@@ -158,9 +169,6 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 	}
 	if len(doc.Content) == 0 {
 		return nil
-	}
-	if err := checkRenamedKeys(doc.Content[0]); err != nil {
-		return err
 	}
 	if expandVars {
 		missingVars := map[string]bool{}
@@ -178,26 +186,6 @@ func decodeStrict(raw []byte, target any, expandVars bool) error {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("parse config: %w", err)
-	}
-	return nil
-}
-
-// renamedKeys maps top-level keys that were renamed to their new names, so an old config
-// gets a pointer to the fix instead of "field not found".
-var renamedKeys = map[string]string{
-	"backups":             "jobs",
-	"repo_check_schedule": "verify_schedule",
-}
-
-func checkRenamedKeys(root *yaml.Node) error {
-	if root.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		key := root.Content[i]
-		if newName, ok := renamedKeys[key.Value]; ok {
-			return fmt.Errorf("parse config: line %d: %q was renamed to %q", key.Line, key.Value, newName)
-		}
 	}
 	return nil
 }

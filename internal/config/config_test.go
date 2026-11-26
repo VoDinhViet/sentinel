@@ -29,8 +29,6 @@ jobs:
     paths: [/var/www/uploads]
     repositories: [s3main]
 verify_schedule: "0 4 * * 0"
-monitor:
-  thresholds: { cpu: 90%/5m, disk: 85%, load_per_core: 2.0/5m }
 uptime:
   - { name: website, type: http, url: "https://example.com" }
   - { name: db, type: tcp, address: "10.0.0.5:5432", fail_after: 5 }
@@ -66,9 +64,6 @@ func TestParseValid(t *testing.T) {
 	}
 	if c.UptimeChecks[1].FailAfter != 5 {
 		t.Errorf("explicit fail_after overwritten: %d", c.UptimeChecks[1].FailAfter)
-	}
-	if c.Monitor == nil {
-		t.Errorf("legacy monitor section must still parse")
 	}
 }
 
@@ -128,6 +123,14 @@ uptime:
   - { name: w, type: http }`, "url is required"},
 		"unknown field": {`
 servername: x`, "field servername not found"},
+		"removed monitor section": {`
+monitor: { thresholds: { cpu: 90%/5m } }`, "field monitor not found"},
+		"old backups key": {`
+repositories: { r: { url: "/tmp/r", password: p } }
+backups:
+  - name: a`, "field backups not found"},
+		"old repo_check_schedule key": {`
+repo_check_schedule: daily 02:00`, "field repo_check_schedule not found"},
 		"repo without password": {`
 repositories: { r: { url: "/tmp/r" } }`, "password is required"},
 		"negative timeout": {`
@@ -365,19 +368,6 @@ defaults: { schedule: "daily 99:00", repositories: [nope] }
 	for _, want := range []string{"defaults.schedule", `defaults.repositories: unknown repository "nope"`} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q: %v", want, err)
-		}
-	}
-}
-
-func TestRenamedKeysSayWhatToUse(t *testing.T) {
-	for _, tc := range []struct{ old, new, yaml string }{
-		{"backups", "jobs", "repositories:\n  s3: { url: x, password: y }\nbackups:\n  - name: a\n"},
-		{"repo_check_schedule", "verify_schedule", "repo_check_schedule: daily 02:00\n"},
-	} {
-		_, err := Parse([]byte(tc.yaml))
-		want := `"` + tc.old + `" was renamed to "` + tc.new + `"`
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: err = %v, want it to contain %s", tc.old, err, want)
 		}
 	}
 }
