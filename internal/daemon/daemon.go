@@ -103,11 +103,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		cronRunner.Schedule(cronSchedule, cron.FuncJob(func() { d.CheckRepositories(jobCtx) }))
 	}
 
-	tasks := append([]Task{
-		{Name: "stale-backups", Every: 15 * time.Minute, Run: d.CheckStale},
-		{Name: "retry-alerts", Every: retryAlertsEvery, Run: d.Alerts.RetryPending},
-		{Name: "prune-history", Every: 24 * time.Hour, Run: d.pruneHistory},
-	}, d.Tasks...)
+	tasks := append(d.builtinTasks(), d.Tasks...)
 	for _, task := range tasks {
 		cronRunner.Schedule(cron.Every(task.Every), cron.FuncJob(func() { task.Run(jobCtx) }))
 		slog.Debug("scheduled task", "task", task.Name, "every", task.Every)
@@ -294,6 +290,17 @@ func isStale(job *config.Job, lastSuccess, started, now time.Time) (stale bool, 
 		measuredFrom = started
 	}
 	return now.Sub(measuredFrom) > limit, limit
+}
+
+// builtinTasks are the periodic jobs every daemon runs besides the backups. The prune also runs at start:
+// every change of the config asks for a restart, so a daemon restarted more often than daily would
+// never reach its first 24 hours.
+func (d *Daemon) builtinTasks() []Task {
+	return []Task{
+		{Name: "stale-backups", Every: 15 * time.Minute, Run: d.CheckStale},
+		{Name: "retry-alerts", Every: retryAlertsEvery, Run: d.Alerts.RetryPending},
+		{Name: "prune-history", Every: 24 * time.Hour, Run: d.pruneHistory, AtStart: true},
+	}
 }
 
 func (d *Daemon) pruneHistory(ctx context.Context) {

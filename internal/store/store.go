@@ -73,6 +73,10 @@ var migrations = []string{
 	`ALTER TABLE alerts ADD COLUMN pending_level INTEGER;
 	ALTER TABLE alerts ADD COLUMN pending_title TEXT NOT NULL DEFAULT '';
 	ALTER TABLE alerts ADD COLUMN pending_body TEXT NOT NULL DEFAULT '';`,
+	// The latest and the recent runs of one check, job and repository are read by id, newest first: without
+	// these indexes every status build scanned a table that only grows.
+	`CREATE INDEX check_results_name_id ON check_results(name, id);
+	CREATE INDEX backup_runs_job_repository_id ON backup_runs(job, repository, id);`,
 }
 
 // walSuffixes are the files SQLite keeps next to a database in WAL mode.
@@ -293,17 +297,19 @@ func (s *Store) queryBackups(ctx context.Context, query string, args ...any) ([]
 
 // LatestBackups returns the most recent run for each (job, repository) pair.
 func (s *Store) LatestBackups(ctx context.Context) ([]BackupRun, error) {
-	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs b WHERE id = (
-			SELECT MAX(id) FROM backup_runs WHERE job = b.job AND repository = b.repository)
+	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs
+		WHERE id IN (SELECT MAX(id) FROM backup_runs GROUP BY job, repository)
 		ORDER BY job, repository`)
 }
 
 // RecentBackups returns up to perPair of the latest runs of each (job, repository)
 // pair, ordered by job and repository, and within a pair oldest first.
 func (s *Store) RecentBackups(ctx context.Context, perPair int) ([]BackupRun, error) {
-	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM (
-			SELECT *, ROW_NUMBER() OVER (PARTITION BY job, repository ORDER BY id DESC) AS recency
-			FROM backup_runs) WHERE recency <= ? ORDER BY job, repository, id`, perPair)
+	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs WHERE id IN (
+			SELECT recent.id FROM (SELECT DISTINCT job, repository FROM backup_runs) pair
+			JOIN backup_runs recent ON recent.id IN (
+				SELECT id FROM backup_runs WHERE job = pair.job AND repository = pair.repository ORDER BY id DESC LIMIT ?))
+		ORDER BY job, repository, id`, perPair)
 }
 
 type CheckResult struct {
@@ -343,16 +349,18 @@ func (s *Store) queryChecks(ctx context.Context, query string, args ...any) ([]C
 
 // LatestChecks returns the most recent result for each check name.
 func (s *Store) LatestChecks(ctx context.Context) ([]CheckResult, error) {
-	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results c
-		WHERE id = (SELECT MAX(id) FROM check_results WHERE name = c.name) ORDER BY name`)
+	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results
+		WHERE id IN (SELECT MAX(id) FROM check_results GROUP BY name) ORDER BY name`)
 }
 
 // RecentChecks returns up to perName of the latest results of each check, ordered by name
 // and, within a check, oldest first.
 func (s *Store) RecentChecks(ctx context.Context, perName int) ([]CheckResult, error) {
-	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM (
-			SELECT *, ROW_NUMBER() OVER (PARTITION BY name ORDER BY id DESC) AS recency
-			FROM check_results) WHERE recency <= ? ORDER BY name, id`, perName)
+	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results WHERE id IN (
+			SELECT recent.id FROM (SELECT DISTINCT name FROM check_results) known
+			JOIN check_results recent ON recent.id IN (
+				SELECT id FROM check_results WHERE name = known.name ORDER BY id DESC LIMIT ?))
+		ORDER BY name, id`, perName)
 }
 
 type Alert struct {
@@ -418,9 +426,22 @@ func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
 	return alerts, alertRows.Err()
 }
 
-// Prune deletes check results older than before.
+// pruneBatch is how many check results one DELETE removes. A first prune of a history that has grown for
+// weeks in one statement would hold the write lock longer than the busy timeout of the other processes.
+const pruneBatch = 10000
+
+// Prune deletes check results older than before, a batch at a time so other writers get in between.
 // Backup runs are small and kept forever.
 func (s *Store) Prune(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM check_results WHERE at < ?`, before.Unix())
-	return err
+	for {
+		deleted, err := s.db.ExecContext(ctx,
+			`DELETE FROM check_results WHERE id IN (SELECT id FROM check_results WHERE at < ? ORDER BY id LIMIT ?)`,
+			before.Unix(), pruneBatch)
+		if err != nil {
+			return err
+		}
+		if count, err := deleted.RowsAffected(); err != nil || count < pruneBatch {
+			return err
+		}
+	}
 }

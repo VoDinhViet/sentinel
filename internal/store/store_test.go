@@ -326,6 +326,7 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	dropIndexesAfterVersion5(t, s)
 	if _, err := s.db.Exec(`PRAGMA user_version = 2`); err != nil {
 		t.Fatal(err)
 	}
@@ -423,6 +424,7 @@ func TestOpenOldDatabaseFromManyProcessesAtOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	dropIndexesAfterVersion5(t, s)
 	if _, err := s.db.Exec(`PRAGMA user_version = 3`); err != nil {
 		t.Fatal(err)
 	}
@@ -445,6 +447,17 @@ func TestOpenOldDatabaseFromManyProcessesAtOnce(t *testing.T) {
 	for range openers {
 		if err := <-errs; err != nil {
 			t.Errorf("open: %v", err)
+		}
+	}
+}
+
+// dropIndexesAfterVersion5 puts a database back to before the indexes of the status queries, so a
+// test that sets user_version back finds the migrations the way an old database has them.
+func dropIndexesAfterVersion5(t *testing.T, s *Store) {
+	t.Helper()
+	for _, index := range []string{"check_results_name_id", "backup_runs_job_repository_id"} {
+		if _, err := s.db.Exec(`DROP INDEX ` + index); err != nil {
+			t.Fatal(err)
 		}
 	}
 }
