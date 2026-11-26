@@ -31,6 +31,9 @@ const historyMaxAge = 30 * 24 * time.Hour
 // retryAlertsEvery is how often alert messages that no notifier took are sent again.
 const retryAlertsEvery = 5 * time.Minute
 
+// reconcileEvery is how often the backups run outside the daemon are looked for (see ReconcileBackups).
+const reconcileEvery = time.Minute
+
 // Task is work repeated at a fixed interval.
 type Task struct {
 	Name  string
@@ -172,32 +175,38 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 		// Shutting down: the run was interrupted, not broken.
 		return runs
 	}
+	d.reportRuns(ctx, job.Name, runs)
+	return runs
+}
+
+// reportRuns raises or resolves the alerts of the runs of one job, one per repository, and sends the
+// success message when the config asks for it. A stopped run says nothing: somebody did that on purpose.
+func (d *Daemon) reportRuns(ctx context.Context, jobName string, runs []store.BackupRun) {
 	var successLines []string
 	for _, run := range runs {
-		key := alert.BackupKey(job.Name, run.Repository)
+		key := alert.BackupKey(jobName, run.Repository)
 		if run.Error == backup.Stopped {
 			continue // somebody stopped it on purpose: neither a failure nor a success
 		}
 		if run.Success {
-			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", job.Name, run.Repository), "")
+			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", jobName, run.Repository), "")
 			successLines = append(successLines, fmt.Sprintf("%s: snapshot %.8s, +%d bytes", run.Repository, run.SnapshotID, run.BytesAdded))
 			// The snapshot is safe, but retention failed: warn separately from a failed backup.
-			retentionKey := alert.RetentionKey(job.Name, run.Repository)
+			retentionKey := alert.RetentionKey(jobName, run.Repository)
 			if run.Error != "" {
 				d.Alerts.Fire(ctx, retentionKey, notify.Warning,
-					fmt.Sprintf("Retention for %s in %s failed", job.Name, run.Repository), run.Error)
+					fmt.Sprintf("Retention for %s in %s failed", jobName, run.Repository), run.Error)
 			} else {
-				d.Alerts.Resolve(ctx, retentionKey, fmt.Sprintf("Retention for %s in %s succeeded", job.Name, run.Repository), "")
+				d.Alerts.Resolve(ctx, retentionKey, fmt.Sprintf("Retention for %s in %s succeeded", jobName, run.Repository), "")
 			}
 			continue
 		}
 		d.Alerts.Fire(ctx, key, notify.Critical,
-			fmt.Sprintf("Backup %s to %s failed", job.Name, run.Repository), run.Error)
+			fmt.Sprintf("Backup %s to %s failed", jobName, run.Repository), run.Error)
 	}
 	if d.Config.Alert.NotifySuccess && len(successLines) > 0 {
-		d.Alerts.Info(ctx, "Backup "+job.Name+" completed", strings.Join(successLines, "\n"))
+		d.Alerts.Info(ctx, "Backup "+jobName+" completed", strings.Join(successLines, "\n"))
 	}
-	return runs
 }
 
 // verifyTimeout bounds one `restic check`. restic retries a failing backend for a long time and keeps the
@@ -297,6 +306,7 @@ func isStale(job *config.Job, lastSuccess, started, now time.Time) (stale bool, 
 // never reach its first 24 hours.
 func (d *Daemon) builtinTasks() []Task {
 	return []Task{
+		{Name: "reconcile-backups", Every: reconcileEvery, Run: d.ReconcileBackups, AtStart: true},
 		{Name: "stale-backups", Every: 15 * time.Minute, Run: d.CheckStale},
 		{Name: "retry-alerts", Every: retryAlertsEvery, Run: d.Alerts.RetryPending},
 		{Name: "prune-history", Every: 24 * time.Hour, Run: d.pruneHistory, AtStart: true},

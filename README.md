@@ -128,6 +128,8 @@ sentinel notify test                 # gửi tin thử tới mọi kênh cảnh 
 journalctl -u sentinel -f            # log của daemon
 ```
 
+Backup chạy tay (`backup run`, `sentinel manage`, API) cũng đi qua cảnh báo: khi daemon đang chạy, trong khoảng một phút nó gửi cảnh báo nếu lần chạy đó lỗi, và đóng cảnh báo `backup:` đang mở nếu lần chạy đó thành công. Không có daemon thì không ai gửi cảnh báo; kết quả vẫn hiện ở terminal và trong `sentinel status`.
+
 ### Dùng trong script hoặc với AI agent
 
 `status`, `doctor`, `check`, `backup list` và `backup run` có `-o json`: JSON ra stdout, tiến độ và log ra stderr, exit code 0 khi mọi thứ ổn và 1 khi có lỗi (JSON vẫn được in đủ trước khi trả lỗi). Công cụ như Claude Code hay Codex gọi thẳng các lệnh này qua shell, không cần MCP.
