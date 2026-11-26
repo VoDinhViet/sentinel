@@ -100,14 +100,17 @@ type form struct {
 	title        string
 	original     string
 	passwordKept bool // the file holds a literal password that stays unless an env var is entered
-	known        configedit.Known
-	defaults     formDefaults
-	fields       []formField
-	focus        int
-	advancedOpen bool            // the advanced section of a job form is unfolded
-	touched      map[string]bool // fields the user has been in: only those show their problem
-	attempted    bool            // a save was tried: every problem shows
-	problem      string          // a problem of the whole save, not of one field
+	// originalRetention is the retention the job had when the form opened: a database job keeps it
+	// unless a number is typed into its "keep" input.
+	originalRetention config.Retention
+	known             configedit.Known
+	defaults          formDefaults
+	fields            []formField
+	focus             int
+	advancedOpen      bool            // the advanced section of a job form is unfolded
+	touched           map[string]bool // fields the user has been in: only those show their problem
+	attempted         bool            // a save was tried: every problem shows
+	problem           string          // a problem of the whole save, not of one field
 
 	// kept is what a repository form does not edit and must write back as it was.
 	kept map[string]string
@@ -164,12 +167,14 @@ func (f form) connectionJob() (configedit.Job, error) {
 }
 
 func newJobForm(job configedit.Job, original string, listing configedit.Listing) form {
+	keepValue, keepPlaceholder := keepInput(job.Retention, listing.Defaults.Retention)
 	form := form{
-		original:     original,
-		passwordKept: job.PasswordLiteral,
-		known:        configedit.Known{Repositories: listing.Repositories, InheritsRepositories: len(listing.InheritedRepositories) > 0},
-		defaults:     formDefaults{schedule: listing.Defaults.Schedule, repositories: listing.InheritedRepositories, retention: listing.Defaults.Retention},
-		touched:      map[string]bool{},
+		original:          original,
+		passwordKept:      job.PasswordLiteral,
+		originalRetention: job.Retention,
+		known:             configedit.Known{Repositories: listing.Repositories, InheritsRepositories: len(listing.InheritedRepositories) > 0},
+		defaults:          formDefaults{schedule: listing.Defaults.Schedule, repositories: listing.InheritedRepositories, retention: listing.Defaults.Retention},
+		touched:           map[string]bool{},
 	}
 	port := ""
 	if job.Port != 0 {
@@ -229,6 +234,7 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 		{key: "store_at", label: "Thư mục", hint: "thư mục chứa backup của job này (tab để hoàn thành); sẽ tạo một repository cùng tên job cho nó", complete: true, placeholder: "nhập đường dẫn", section: sectionSchedule, onField: "storage", only: []string{storageFolder}},
 		{key: "repositories", label: "Repositories", hint: repositoriesHint, kind: fieldChecklist, choices: listing.Repositories, ticked: ticked, section: sectionSchedule, onField: "storage", only: []string{storageRepository}},
 		{key: "retention", label: "Retention", hint: "số snapshot giữ lại: N bản gần nhất, rồi mỗi ngày, tuần, tháng, năm một bản; để trống hết = giữ tất cả", kind: fieldRetention, counts: retention, section: sectionSchedule},
+		{key: "keep", label: "Giữ", hint: "số bản backup mới nhất được giữ lại, bản cũ hơn tự xoá (ví dụ 7); để trống = không đổi quy tắc giữ hiện có hoặc mặc định chung", kind: fieldNumber, value: keepValue, placeholder: keepPlaceholder, section: sectionSchedule},
 	}...)
 	form.fields = append(form.fields, []formField{
 		{key: "advanced", label: "Tuỳ chọn nâng cao", hint: "enter hoặc space để mở hoặc đóng các tuỳ chọn bên dưới", kind: fieldToggle, section: sectionAdvanced},
@@ -249,6 +255,8 @@ func newJobForm(job configedit.Job, original string, listing configedit.Listing)
 
 // jobFieldTypes are the job types each type-specific field applies to; the others apply to all.
 var jobFieldTypes = map[string][]string{
+	"retention":     {config.JobFiles}, // a database job has the single "keep" input instead
+	"keep":          configedit.DatabaseTypes,
 	"paths":         {config.JobFiles},
 	"exclude":       {config.JobFiles},
 	"database":      configedit.DatabaseTypes,
@@ -417,6 +425,9 @@ func (f form) job() (configedit.Job, error) {
 			job.Repositories = append(job.Repositories, name)
 		}
 	}
+	if f.databaseType() != "" {
+		return f.withKeep(job)
+	}
 	counts := f.field("retention").counts
 	for i, target := range []*int{&job.Retention.Last, &job.Retention.Daily, &job.Retention.Weekly, &job.Retention.Monthly, &job.Retention.Yearly} {
 		if counts[i] == "" {
@@ -428,6 +439,42 @@ func (f form) job() (configedit.Job, error) {
 		}
 		*target = count
 	}
+	return job, nil
+}
+
+// keepInput is what the "keep at most N backups" input of a database job starts with. N when the
+// job keeps only its last N; otherwise empty, with a placeholder that says what an empty input
+// stands for: the default rule, or the job's own rule that is more than a count of backups.
+func keepInput(own, defaults config.Retention) (value, placeholder string) {
+	switch {
+	case own == config.Retention{}:
+		return "", "mặc định: " + describeRetention(defaults)
+	case own == config.Retention{Last: own.Last}:
+		return strconv.Itoa(own.Last), ""
+	}
+	return "", "giữ nguyên: " + describeRetention(own)
+}
+
+func describeRetention(retention config.Retention) string {
+	if retention == (config.Retention{}) {
+		return "giữ tất cả"
+	}
+	return retention.String()
+}
+
+// withKeep sets the retention of a database job from its "keep" input: N backups, or what the job
+// had when the form opened when the input is empty.
+func (f form) withKeep(job configedit.Job) (configedit.Job, error) {
+	text := strings.TrimSpace(f.field("keep").value)
+	if text == "" {
+		job.Retention = f.originalRetention
+		return job, nil
+	}
+	count, err := strconv.Atoi(text)
+	if err != nil || count < 1 {
+		return job, formProblem("keep", "giữ ít nhất 1 bản; để trống = không đổi quy tắc giữ hiện có hoặc mặc định chung")
+	}
+	job.Retention = config.Retention{Last: count}
 	return job, nil
 }
 

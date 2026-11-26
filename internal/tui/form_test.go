@@ -147,11 +147,8 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	screen = keys(t, screen, "tab", "tab", "right", "right") // time, then storage: automatic -> folder -> repository
 	screen = keys(t, screen, "tab")                          // repositories: local, s3
 	screen = keys(t, screen, "space", "right", "space")      // tick both
-	screen = keys(t, screen, "tab")                          // retention: last, daily, weekly...
-	screen = keys(t, screen, "right")
+	screen = keys(t, screen, "tab")                          // keep: how many backups to keep
 	screen = typeText(t, screen, "7")
-	screen = keys(t, screen, "right")
-	screen = typeText(t, screen, "4")
 	screen = keys(t, screen, "tab", "enter") // the advanced line, opened
 	screen = keys(t, screen, "tab")
 	screen = typeText(t, screen, "12h") // Timeout
@@ -164,7 +161,7 @@ func TestAddDatabaseJobThroughTheForm(t *testing.T) {
 	got := configFile.saved[0]
 	if configFile.savedFrom[0] != "" || got.Name != "shop" || got.Type != config.JobMySQL || got.Database != "shopdb" || got.User != "dump" ||
 		got.PasswordEnv != "MYSQL_PW" || got.Schedule != "daily 02:30" || strings.Join(got.Repositories, ",") != "local,s3" ||
-		got.Retention != (config.Retention{Daily: 7, Weekly: 4}) || got.TLS != "disabled" || got.Timeout != "12h" {
+		got.Retention != (config.Retention{Last: 7}) || got.TLS != "disabled" || got.Timeout != "12h" {
 		t.Errorf("job saved = %+v", got)
 	}
 	if !screen.onTabs() || !strings.Contains(screen.notice, "Đã thêm job shop") || !strings.Contains(screen.notice, "Khởi động lại daemon") {
@@ -228,6 +225,7 @@ func TestFormRefusesLettersInNumberFieldsAndNegativeCounts(t *testing.T) {
 		t.Errorf("port = %q, digits only", got)
 	}
 	screen.form.fields[screen.form.focus].value = ""
+	screen.form.field("type").value = config.JobFiles // the five counts are the retention of a files job
 	retention := screen.form.field("retention")
 	for i := 0; i < 8; i++ {
 		screen.form.typeInto(retention, "9", "9")
@@ -331,14 +329,13 @@ func TestMouseOperatesTheForm(t *testing.T) {
 	if screen.form.field("repositories").ticked[1] {
 		t.Error("clicking again unticks it")
 	}
-	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d", fieldIndex(screen, "retention")))   // the summary opens the counts
-	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d:3", fieldIndex(screen, "retention"))) // the monthly count
-	if screen.form.fields[screen.form.focus].key != "retention" || screen.form.field("retention").sub != 3 {
-		t.Errorf("clicking a count focuses it: %+v", screen.form.field("retention"))
+	screen, _ = clickOn(t, screen, fmt.Sprintf("focus:%d", fieldIndex(screen, "keep"))) // the number of backups to keep
+	if screen.form.fields[screen.form.focus].key != "keep" {
+		t.Errorf("clicking the keep input focuses it: %+v", screen.form.field("keep"))
 	}
 	screen = typeText(t, screen, "6")
-	if screen.form.field("retention").counts[3] != "6" {
-		t.Errorf("typing goes to the clicked count: %+v", screen.form.field("retention").counts)
+	if screen.form.field("keep").value != "6" {
+		t.Errorf("typing goes to the clicked input: %+v", screen.form.field("keep"))
 	}
 	screen, _ = clickOn(t, screen, "focus:1")
 	if screen.form.fields[screen.form.focus].key != "name" {
@@ -756,5 +753,81 @@ func TestConnectUsesTheSavedJobsNameWhenEditing(t *testing.T) {
 	feed(t, model.(manageModel), messagesOf(cmd))
 	if len(configFile.connected) != 1 || configFile.connectedAs[0] != "appdb" || !configFile.connected[0].PasswordLiteral {
 		t.Errorf("tested %+v as %q", configFile.connected, configFile.connectedAs)
+	}
+}
+
+// formShows says the field with that key is on screen in the form.
+func formShows(screen manageModel, key string) bool {
+	for _, index := range screen.form.visible() {
+		if screen.form.fields[index].key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDatabaseJobKeepsOneNumberAndFilesJobKeepsFiveCounts(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen) // postgres
+	if !formShows(screen, "keep") || formShows(screen, "retention") {
+		t.Errorf("a database job has the single keep input, not the five counts:\n%s", plain(screen.render()))
+	}
+	if !strings.Contains(plain(screen.render()), "mặc định: giữ tất cả") {
+		t.Errorf("an empty keep input says what it stands for:\n%s", plain(screen.render()))
+	}
+	screen = keys(t, screen, "right", "right", "right") // postgres -> mysql -> mongodb -> files
+	if screen.form.field("type").value != config.JobFiles || formShows(screen, "keep") || !formShows(screen, "retention") {
+		t.Errorf("a files job has the five counts, not the keep input:\n%s", plain(screen.render()))
+	}
+}
+
+func TestKeepInputSetsTheLastBackupsOfADatabaseJob(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = openAddForm(t, screen)
+	screen.form.field("name").value, screen.form.field("database").value = "shop", "shop"
+	if job, err := screen.form.job(); err != nil || job.Retention != (config.Retention{}) {
+		t.Errorf("empty keep on a new job = %+v, %v; want no retention of its own", job.Retention, err)
+	}
+	screen.form.field("keep").value = "7"
+	if job, err := screen.form.job(); err != nil || job.Retention != (config.Retention{Last: 7}) {
+		t.Errorf("keep 7 = %+v, %v", job.Retention, err)
+	}
+	for _, refused := range []string{"0", "99999999999999999999"} {
+		screen.form.field("keep").value = refused
+		if screen.form.problems()["keep"] == "" {
+			t.Errorf("keep %q must be refused under its field", refused)
+		}
+	}
+}
+
+func TestEditingADatabaseJobKeepsItsOwnRetentionUntilANumberIsTyped(t *testing.T) {
+	screen, _ := formModel(t)
+	screen = keys(t, screen, "e") // appdb keeps daily 7
+	keep := screen.form.field("keep")
+	if keep.value != "" || !strings.Contains(keep.placeholder, "giữ nguyên: daily 7") {
+		t.Fatalf("keep = %q, placeholder %q", keep.value, keep.placeholder)
+	}
+	if job, err := screen.form.job(); err != nil || job.Retention != (config.Retention{Daily: 7}) {
+		t.Errorf("saving without typing a number changed the retention: %+v, %v", job.Retention, err)
+	}
+	screen.form.field("keep").value = "5"
+	if job, err := screen.form.job(); err != nil || job.Retention != (config.Retention{Last: 5}) {
+		t.Errorf("keep 5 must replace the old rule: %+v, %v", job.Retention, err)
+	}
+
+	lastThree := newJobForm(configedit.Job{Name: "db", Type: config.JobPostgres, Retention: config.Retention{Last: 3}}, "db", configedit.Listing{})
+	if got := lastThree.field("keep").value; got != "3" {
+		t.Errorf("a job that keeps its last 3 backups opens with 3, got %q", got)
+	}
+}
+
+func TestFilesJobStillParsesItsFiveCounts(t *testing.T) {
+	screen, _ := formModel(t)
+	screen.cursor = 1 // the "files" job
+	screen = keys(t, screen, "e")
+	screen.form.field("retention").counts = [5]string{"2", "", "4", "", ""}
+	job, err := screen.form.job()
+	if err != nil || job.Retention != (config.Retention{Last: 2, Weekly: 4}) {
+		t.Errorf("files job retention = %+v, %v", job.Retention, err)
 	}
 }

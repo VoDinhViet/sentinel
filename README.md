@@ -221,7 +221,7 @@ Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); 
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 
-Form sửa giữ nguyên comment và thứ tự trong `config.yaml`; bản cũ được lưu thành `config.yaml.bak`. Mật khẩu và token không nhập ở đây, chỉ nhập *tên* biến môi trường. Sửa xong, daemon đang chạy cần `systemctl restart sentinel` để nhận thay đổi.
+Job database chỉ có một ô **Giữ**: số bản backup mới nhất được giữ lại (ví dụ `7`), bản cũ hơn tự xoá; để trống thì dùng mặc định chung, hoặc giữ nguyên quy tắc job đang có. Muốn giữ theo ngày, tuần, tháng thì sửa `retention:` trong `config.yaml`; job files vẫn có đủ năm ô. Form sửa giữ nguyên comment và thứ tự trong `config.yaml`; bản cũ được lưu thành `config.yaml.bak`. Mật khẩu và token không nhập ở đây, chỉ nhập *tên* biến môi trường. Sửa xong, daemon đang chạy cần `systemctl restart sentinel` để nhận thay đổi.
 
 ## Database lớn: tiến độ, chạy nền, dừng, tài nguyên
 
