@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -15,25 +13,40 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/restic"
+	"sentinel/internal/store"
 )
+
+// repoChoice is the --repository flag the subcommands of `backup` share.
+type repoChoice struct{ name string }
+
+func (c *repoChoice) addFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&c.name, "repository", "r", "", "chỉ kho này (mặc định: mọi kho của job)")
+}
+
+// pick returns the job a command should act on: all of its repositories, or only --repository when given.
+func (c *repoChoice) pick(cfg *config.Config, jobName string) (*config.Job, error) {
+	job, err := cfg.FindJob(jobName)
+	if err != nil {
+		return nil, err
+	}
+	if c.name == "" {
+		return job, nil
+	}
+	return job.OnlyRepo(c.name)
+}
 
 func (a *cliApp) backupCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "backup", Short: "Chạy và quản lý backup"}
-	var repoFlag string
-
-	// pick returns the job a command should act on: all of its repositories, or only
-	// --repository when given.
-	pick := func(cfg *config.Config, jobName string) (*config.Job, error) {
-		job, err := cfg.FindJob(jobName)
-		if err != nil {
-			return nil, err
-		}
-		if repoFlag == "" {
-			return job, nil
-		}
-		return job.OnlyRepo(repoFlag)
+	choice := &repoChoice{}
+	for _, sub := range []*cobra.Command{a.newBackupInitCmd(choice), a.newBackupRunCmd(choice), a.newBackupListCmd(choice), a.newBackupRestoreCmd(choice)} {
+		choice.addFlag(sub)
+		cmd.AddCommand(sub)
 	}
+	cmd.AddCommand(a.newBackupStopCmd())
+	return cmd
+}
 
+func (a *cliApp) newBackupInitCmd(choice *repoChoice) *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "init <job>",
 		Short: "Khởi tạo các kho restic mà job dùng",
@@ -43,7 +56,7 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, err := pick(cfg, args[0])
+			job, err := choice.pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
@@ -65,7 +78,10 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			return errors.Join(errs...)
 		},
 	}
+	return initCmd
+}
 
+func (a *cliApp) newBackupRunCmd(choice *repoChoice) *cobra.Command {
 	var detach bool
 	var runOutput string
 	runCmd := &cobra.Command{
@@ -83,60 +99,76 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, err := pick(cfg, args[0])
+			job, err := choice.pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
 			if detach {
-				pid, logPath, err := app.New(cfg, nil, a.configPath).StartBackup(job.Name, repoFlag)
-				if err != nil {
-					return err
-				}
-				if runOutput == outputJSON {
-					return writeJSON(cmd.OutOrStdout(), detachedReport{Job: job.Name, PID: pid, Log: logPath})
-				}
-				out := cmd.OutOrStdout()
-				fmt.Fprintf(out, "backup of %s started in the background (pid %d)\nlog:    %s\nwatch:  sentinel status   (or sentinel manage)\nstop:   sentinel backup stop %s\n", job.Name, pid, logPath, job.Name)
-				return nil
+				return a.runDetached(cmd, cfg, job, choice.name, runOutput)
 			}
-			st, err := a.openStore(cfg)
-			if err != nil {
-				return err
-			}
-			defer st.Close()
-			printProgress := newProgressPrinter(cmd.ErrOrStderr(), stderrIsTerminal(), time.Now)
-			runs := (&backup.Runner{Config: cfg, Store: st, OnProgress: printProgress.show}).Run(cmd.Context(), job)
-			printProgress.done()
-
-			failed := 0
-			for _, run := range runs {
-				if !run.Success {
-					failed++
-				}
-			}
-			if runOutput == outputJSON {
-				if err := writeJSON(cmd.OutOrStdout(), newBackupRunReport(job.Name, runs)); err != nil {
-					return err
-				}
-			} else {
-				table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-				fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
-				for _, run := range runs {
-					fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, run.Summary(), run.SnapshotID,
-						backup.HumanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
-				}
-				table.Flush()
-			}
-			if failed > 0 {
-				return fmt.Errorf("%d of %d repositories failed", failed, len(runs))
-			}
-			return nil
+			return a.runHere(cmd, cfg, job, runOutput)
 		},
 	}
 
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "chạy nền ở tiến trình riêng, không dừng khi đóng terminal")
 	addOutputFlag(runCmd, &runOutput)
+	return runCmd
+}
 
+// runDetached starts the backup in a process of its own and returns at once.
+func (a *cliApp) runDetached(cmd *cobra.Command, cfg *config.Config, job *config.Job, repoName, output string) error {
+	pid, logPath, err := app.New(cfg, nil, a.configPath).StartBackup(job.Name, repoName)
+	if err != nil {
+		return err
+	}
+	if output == outputJSON {
+		return writeJSON(cmd.OutOrStdout(), detachedReport{Job: job.Name, PID: pid, Log: logPath})
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "backup of %s started in the background (pid %d)\nlog:    %s\nwatch:  sentinel status   (or sentinel manage)\nstop:   sentinel backup stop %s\n", job.Name, pid, logPath, job.Name)
+	return nil
+}
+
+// runHere runs the backup in this process, showing its progress, and reports one line per repository.
+func (a *cliApp) runHere(cmd *cobra.Command, cfg *config.Config, job *config.Job, output string) error {
+	st, err := a.openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	printProgress := newProgressPrinter(cmd.ErrOrStderr(), stderrIsTerminal(), time.Now)
+	runs := (&backup.Runner{Config: cfg, Store: st, OnProgress: printProgress.show}).Run(cmd.Context(), job)
+	printProgress.done()
+
+	if output == outputJSON {
+		if err := writeJSON(cmd.OutOrStdout(), newBackupRunReport(job.Name, runs)); err != nil {
+			return err
+		}
+	} else {
+		printRuns(cmd.OutOrStdout(), runs)
+	}
+	failed := 0
+	for _, run := range runs {
+		if !run.Success {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d repositories failed", failed, len(runs))
+	}
+	return nil
+}
+
+func printRuns(out io.Writer, runs []store.BackupRun) {
+	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
+	for _, run := range runs {
+		fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, run.Summary(), run.SnapshotID,
+			backup.HumanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
+	}
+	table.Flush()
+}
+
+func (a *cliApp) newBackupStopCmd() *cobra.Command {
 	stopCmd := &cobra.Command{
 		Use:   "stop <job>",
 		Short: "Dừng backup đang chạy của một job",
@@ -164,7 +196,10 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return stopCmd
+}
 
+func (a *cliApp) newBackupListCmd(choice *repoChoice) *cobra.Command {
 	var listOutput string
 	listCmd := &cobra.Command{
 		Use:   "list <job>",
@@ -178,7 +213,7 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, err := pick(cfg, args[0])
+			job, err := choice.pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
@@ -204,7 +239,10 @@ func (a *cliApp) backupCmd() *cobra.Command {
 		},
 	}
 	addOutputFlag(listCmd, &listOutput)
+	return listCmd
+}
 
+func (a *cliApp) newBackupRestoreCmd(choice *repoChoice) *cobra.Command {
 	var target string
 	var force bool
 	restoreCmd := &cobra.Command{
@@ -223,7 +261,7 @@ func (a *cliApp) backupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			job, err := pick(cfg, args[0])
+			job, err := choice.pick(cfg, args[0])
 			if err != nil {
 				return err
 			}
@@ -246,61 +284,5 @@ func (a *cliApp) backupCmd() *cobra.Command {
 	restoreCmd.Flags().StringVar(&target, "target", "", "thư mục khôi phục vào (bắt buộc)")
 	restoreCmd.Flags().BoolVar(&force, "force", false, "cho phép khôi phục vào thư mục hệ thống như / hoặc /etc, và bỏ kiểm tra chủ sở hữu/quyền của thư mục đích")
 	restoreCmd.MarkFlagRequired("target")
-
-	for _, sub := range []*cobra.Command{initCmd, runCmd, listCmd, restoreCmd} {
-		sub.Flags().StringVarP(&repoFlag, "repository", "r", "", "chỉ kho này (mặc định: mọi kho của job)")
-		cmd.AddCommand(sub)
-	}
-	cmd.AddCommand(stopCmd)
-	return cmd
-}
-
-func stderrIsTerminal() bool {
-	info, err := os.Stderr.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
-
-// progressInterval is how often a progress line goes to a log or a pipe; a terminal gets one
-// line that is rewritten in place every time restic reports.
-const progressInterval = 30 * time.Second
-
-// progressPrinter shows how far a backup has got on stderr: one line rewritten in place on a
-// terminal, a new line every 30 seconds (and at each phase) anywhere else, such as a log file.
-type progressPrinter struct {
-	out   io.Writer
-	tty   bool
-	now   func() time.Time
-	mu    sync.Mutex
-	last  time.Time
-	phase string
-	shown bool
-}
-
-func newProgressPrinter(out io.Writer, tty bool, now func() time.Time) *progressPrinter {
-	return &progressPrinter{out: out, tty: tty, now: now}
-}
-
-func (p *progressPrinter) show(progress backup.Progress) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	line := fmt.Sprintf("%s → %s: %s", progress.Job, progress.Repository, progress.Summary())
-	if p.tty {
-		fmt.Fprintf(p.out, "\r\033[K%s", line)
-		p.shown = true
-		return
-	}
-	if now := p.now(); progress.Phase == p.phase && now.Sub(p.last) < progressInterval {
-		return
-	}
-	p.last, p.phase = p.now(), progress.Phase
-	fmt.Fprintln(p.out, line)
-}
-
-// done ends the rewritten line so the result table starts on a line of its own.
-func (p *progressPrinter) done() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.tty && p.shown {
-		fmt.Fprint(p.out, "\r\033[K")
-	}
+	return restoreCmd
 }
