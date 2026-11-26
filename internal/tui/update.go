@@ -37,7 +37,7 @@ func (m manageModel) scheduleRefresh() tea.Cmd {
 func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
 	next := model.(manageModel)
-	if next.mode == modeTable && !next.config.loaded { // the schedules in the Backups tab and the Config tab come from the file
+	if next.onTabs() && !next.config.loaded { // the schedules in the Backups tab and the Config tab come from the file
 		next = next.refreshConfig()
 	}
 	return next.startDoctorIfNeeded(cmd)
@@ -113,7 +113,14 @@ func (m *manageModel) endBusy() {
 	m.cancelBusy = nil
 }
 
+// onTabs says the tabs are on show: no screen is open over them.
+func (m manageModel) onTabs() bool { return len(m.screens) == 0 && m.mode == modeTable }
+
 func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
+	if open := m.top(); open != nil {
+		next, cmd := open.onKey(m, key, text)
+		return next, cmd
+	}
 	switch m.mode {
 	case modeBusy:
 		if key == "ctrl+c" && m.cancelBusy != nil {
@@ -139,9 +146,6 @@ func (m manageModel) onKey(key, text string) (tea.Model, tea.Cmd) {
 		return m.onDeleteKey(key, text)
 	case modeBrowse:
 		return m.onBrowseKey(key, text)
-	case modeHelp:
-		m.mode = m.helpReturn
-		return m, nil
 	}
 	return m.onTableKey(key)
 }
@@ -154,7 +158,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "?":
-		m.helpReturn, m.mode = modeTable, modeHelp
+		m = m.push(m.tabHelp())
 	case "q", "ctrl+c", "esc":
 		m.quitting = true
 		return m, tea.Quit
@@ -283,7 +287,7 @@ func (m manageModel) afterSnapshots(msg snapshotsMsg) manageModel {
 func (m manageModel) onSnapshotsKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "?":
-		m.helpReturn, m.mode = modeSnapshots, modeHelp
+		m = m.push(snapshotsHelp())
 	case "esc", "q":
 		m.mode = modeTable
 	case "down", "j":

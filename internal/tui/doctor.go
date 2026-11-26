@@ -24,7 +24,7 @@ type doctorState struct {
 // startDoctorIfNeeded starts the checks when the Doctor tab is on screen and has not run
 // yet. Update calls it after every message, so every way into the tab runs them.
 func (m manageModel) startDoctorIfNeeded(cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	if m.mode != modeTable || m.tab != doctorTab || m.doctor.started {
+	if !m.onTabs() || m.tab != doctorTab || m.doctor.started {
 		return m, cmd
 	}
 	next, start := m.startDoctor()

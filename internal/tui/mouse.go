@@ -153,7 +153,7 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 // clickedAction is the target under a click. The main screen has no frame; the others sit inside
 // one, so the click is moved past its border and the space after it, and past the top border.
 func (m manageModel) clickedAction(col, row int) (string, bool) {
-	if m.mode == modeTable {
+	if m.onTabs() {
 		return m.hits.at(col, row)
 	}
 	return m.hits.at(col-2, row-1)
@@ -161,6 +161,9 @@ func (m manageModel) clickedAction(col, row int) (string, bool) {
 
 // onWheel moves the selection by wheelStep lines in the current list.
 func (m manageModel) onWheel(up, down bool) manageModel {
+	if len(m.screens) > 0 {
+		return m
+	}
 	step := 0
 	switch {
 	case up:

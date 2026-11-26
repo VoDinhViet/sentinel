@@ -1,21 +1,34 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // keyHelp is one line of the key list.
 type keyHelp struct{ key, does string }
 
-// helpFor lists the keys that work on the screen the help was opened from.
-func (m manageModel) helpFor() (title string, keys []keyHelp) {
-	if m.helpReturn == modeSnapshots {
-		return "Snapshots", []keyHelp{
-			{"↑ ↓  j k", "chọn một snapshot"},
-			{"enter  r", "restore snapshot đang chọn (hỏi thư mục đích, rồi tên job)"},
-			{"click", "chọn một snapshot; bấm lần nữa để restore"},
-			{"wheel", "cuộn"},
-			{"esc  q", "quay lại danh sách job"},
-		}
+// helpScreen lists the keys that work on the screen it was opened from; any key closes it.
+type helpScreen struct {
+	title string
+	keys  []keyHelp
+}
+
+func (helpScreen) onKey(m manageModel, _, _ string) (manageModel, tea.Cmd) {
+	return m.pop(), nil
+}
+
+func (s helpScreen) render(m manageModel) []string {
+	screenLines := []string{titleStyle.Render(s.title), ""}
+	for _, help := range s.keys {
+		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", help.key)), wrap(help.does, max(m.width-18, 20))))
 	}
+	return append(screenLines, "", m.keyBar(len(screenLines)+1, "phím bất kỳ", "đóng"))
+}
+
+// tabHelp is the key list for the tab on show.
+func (m manageModel) tabHelp() helpScreen {
 	common := []keyHelp{
 		{"tab  1-5", "chuyển giữa Backups, Uptime, Alerts, Doctor và Config"},
 		{"↑ ↓  j k", "chọn một dòng"},
@@ -49,17 +62,16 @@ func (m manageModel) helpFor() (title string, keys []keyHelp) {
 	default:
 		ownKeys = []keyHelp{refresh}
 	}
-	return "Phím", append(ownKeys, common...)
+	return helpScreen{title: "Phím · " + m.tabs()[m.tab].title, keys: append(ownKeys, common...)}
 }
 
-func (m manageModel) renderHelp() []string {
-	title, keys := m.helpFor()
-	if m.helpReturn == modeTable {
-		title += " · " + m.tabs()[m.tab].title
-	}
-	screenLines := []string{titleStyle.Render(title), ""}
-	for _, help := range keys {
-		screenLines = append(screenLines, fmt.Sprintf("  %s  %s", keyStyle.Render(fmt.Sprintf("%-12s", help.key)), wrap(help.does, max(m.width-18, 20))))
-	}
-	return append(screenLines, "", m.keyBar(len(screenLines)+1, "phím bất kỳ", "đóng"))
+// snapshotsHelp is the key list of the snapshots screen.
+func snapshotsHelp() helpScreen {
+	return helpScreen{title: "Snapshots", keys: []keyHelp{
+		{"↑ ↓  j k", "chọn một snapshot"},
+		{"enter  r", "restore snapshot đang chọn (hỏi thư mục đích, rồi tên job)"},
+		{"click", "chọn một snapshot; bấm lần nữa để restore"},
+		{"wheel", "cuộn"},
+		{"esc  q", "quay lại danh sách job"},
+	}}
 }

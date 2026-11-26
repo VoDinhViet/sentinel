@@ -23,7 +23,7 @@ func (m manageModel) render() string {
 		return ""
 	}
 	m.hits.reset()
-	if m.mode == modeTable {
+	if m.onTabs() {
 		return strings.Join(m.renderDashboard(), "\n")
 	}
 	m.hits.offset = 1 // the blank line under the frame's top border
@@ -32,6 +32,9 @@ func (m manageModel) render() string {
 
 // renderScreen is the lines of a screen other than the main one; each ends with its key bar.
 func (m manageModel) renderScreen() []string {
+	if open := m.top(); open != nil {
+		return open.render(m)
+	}
 	switch m.mode {
 	case modeBusy:
 		return m.renderBusy()
@@ -49,8 +52,6 @@ func (m manageModel) renderScreen() []string {
 		return m.renderDelete()
 	case modeBrowse:
 		return m.renderBrowse()
-	case modeHelp:
-		return m.renderHelp()
 	}
 	return nil
 }

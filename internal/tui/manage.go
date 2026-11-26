@@ -101,7 +101,6 @@ const (
 	modeResult                      // the outcome of a restore
 	modeForm                        // adding or editing a database job
 	modeDelete                      // typing the job name to confirm its removal
-	modeHelp                        // the key list
 	modeBrowse                      // choosing folders for a Paths field
 )
 
@@ -115,6 +114,7 @@ type manageModel struct {
 	loaded          bool
 
 	mode     manageMode
+	screens  []screen // opened over the tabs, the last on show; see screen.go
 	tab      int
 	cursor   int
 	width    int
@@ -153,8 +153,6 @@ type manageModel struct {
 	deleteAction           func() error
 
 	config configData
-
-	helpReturn manageMode // the screen the key list was opened from
 
 	doctor doctorState
 

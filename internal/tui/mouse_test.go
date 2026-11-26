@@ -12,7 +12,7 @@ import (
 func click(t *testing.T, screen manageModel, col, row int) (manageModel, tea.Cmd) {
 	t.Helper()
 	x, y := col, row
-	if screen.mode != modeTable {
+	if !screen.onTabs() {
 		x, y = col+2, row+1
 	}
 	model, cmd := screen.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
@@ -28,7 +28,7 @@ func wheel(t *testing.T, m manageModel, button tea.MouseButton) manageModel {
 // screenRow returns the text of one screen row, without colours.
 func screenRow(m manageModel, y int) string {
 	rows := strings.Split(plain(m.render()), "\n")
-	if m.mode == modeTable {
+	if m.onTabs() {
 		return rows[y]
 	}
 	if y+2 >= len(rows) { // the top and bottom border lines are not content rows
@@ -124,12 +124,12 @@ func modelWithNarrow(t *testing.T) manageModel {
 func TestMouseFooterChipsPressTheirKeys(t *testing.T) {
 	m := loadedModel(t)
 	m, _ = clickOn(t, m, "?")
-	if m.mode != modeHelp {
-		t.Fatalf("the ? chip opens the help (mode %d)", m.mode)
+	if _, ok := m.top().(helpScreen); !ok {
+		t.Fatalf("the ? chip opens the help (screens %d)", len(m.screens))
 	}
 	m, _ = clickOn(t, m, "esc") // "any key" closes
-	if m.mode != modeTable {
-		t.Fatalf("clicking the help footer closes it (mode %d)", m.mode)
+	if !m.onTabs() {
+		t.Fatalf("clicking the help footer closes it (screens %d)", len(m.screens))
 	}
 	m, cmd := clickOn(t, m, "q")
 	if !m.quitting || cmd == nil {
