@@ -96,7 +96,7 @@ jobs:
 		"mysql without database": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
-  - { name: a, type: mysql, repositories: [r] }`, "mysql.database is required"},
+  - { name: a, type: mysql, repositories: [r] }`, "mysql is required when type is mysql"},
 		"mysql bad tls": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
@@ -104,7 +104,7 @@ jobs:
 		"mongodb without database": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
-  - { name: a, type: mongodb, repositories: [r] }`, "mongodb.database is required"},
+  - { name: a, type: mongodb, repositories: [r] }`, "mongodb is required when type is mongodb"},
 		"mongodb password without user": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
@@ -146,11 +146,11 @@ repositories: { r: { url: "/tmp/r", password: p } }
 jobs:
   - { name: a, type: files, paths: [/x], repositories: [r], retention: { daily: -7 } }`, "retention.daily must not be negative"},
 		"disk threshold too high": {`
-disk: { min_free_percent: 95 }`, "disk.min_free_percent: must be between 0"},
+disk: { min_free_percent: 95 }`, "disk: min_free_percent must be at most 90"},
 		"disk threshold negative": {`
-disk: { min_free_percent: -5 }`, "disk.min_free_percent: must be between 0"},
+disk: { min_free_percent: -5 }`, "disk: min_free_percent must not be negative"},
 		"disk path relative": {`
-disk: { paths: [data] }`, "disk.paths[0]"},
+disk: { paths: [data] }`, "disk: paths[0] must be an absolute path"},
 		"heartbeat over http": {`
 heartbeat: { url: "http://hc.example.com/ping/x" }`, "heartbeat: url must start with https://"},
 		"api without a token": {`

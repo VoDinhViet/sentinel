@@ -17,15 +17,15 @@ type Config struct {
 	Disk           DiskSettings          `yaml:"disk"`
 	Heartbeat      Heartbeat             `yaml:"heartbeat"`
 	API            API                   `yaml:"api"`
-	Repositories   map[string]Repository `yaml:"repositories"`
-	Jobs           []Job                 `yaml:"jobs"`
+	Repositories   map[string]Repository `yaml:"repositories" validate:"dive"`
+	Jobs           []Job                 `yaml:"jobs" validate:"dive"`
 	VerifySchedule string                `yaml:"verify_schedule"`
 	// Resources limits how much of the server a backup may take.
 	Resources Resources `yaml:"resources"`
 	// ShutdownWait is how long the daemon lets running backups finish when it is stopped.
-	ShutdownWait time.Duration `yaml:"shutdown_wait"`
+	ShutdownWait time.Duration `yaml:"shutdown_wait" validate:"gte=0"`
 	Defaults     Defaults      `yaml:"defaults"`
-	UptimeChecks []UptimeCheck `yaml:"uptime"`
+	UptimeChecks []UptimeCheck `yaml:"uptime" validate:"dive"`
 
 	// EnvRefs are the variables the file refers to with ${VAR}, sorted. Set when it is parsed, not read
 	// from YAML. restic and the dump tools get every value of the config explicitly, so they do not
@@ -38,12 +38,12 @@ type Config struct {
 type Resources struct {
 	// Priority is "low" (default: nice 10 and the lowest best-effort disk priority for restic
 	// and the dump tool it starts) or "normal".
-	Priority string `yaml:"priority"`
+	Priority string `yaml:"priority" validate:"oneof=low normal"`
 	// MaxParallel is how many backups may run at once across the daemon and every
 	// `sentinel backup run` on the machine; the others wait for a free slot. Default 1.
-	MaxParallel int `yaml:"max_parallel"`
+	MaxParallel int `yaml:"max_parallel" validate:"min=1"`
 	// UploadLimitKiB caps the upload speed of every backup, in KiB/s (0 = no cap).
-	UploadLimitKiB int `yaml:"upload_limit_kib"`
+	UploadLimitKiB int `yaml:"upload_limit_kib" validate:"gte=0"`
 }
 
 // Resource priorities.
@@ -71,24 +71,24 @@ type Notifiers struct {
 }
 
 type Telegram struct {
-	Token  string `yaml:"token"`
-	ChatID string `yaml:"chat_id"`
+	Token  string `yaml:"token" validate:"required"`
+	ChatID string `yaml:"chat_id" validate:"required"`
 }
 
 type SMTP struct {
-	Host string   `yaml:"host"`
+	Host string   `yaml:"host" validate:"required"`
 	Port int      `yaml:"port"`
 	User string   `yaml:"user"`
 	Pass string   `yaml:"pass"`
 	From string   `yaml:"from"`
-	To   []string `yaml:"to"`
+	To   []string `yaml:"to" validate:"min=1"`
 	// InsecurePlaintext lets a mail go out unencrypted when a server that is not this machine offers no
 	// STARTTLS. Off by default: the alert text quotes file names and error output.
 	InsecurePlaintext bool `yaml:"insecure_plaintext"`
 }
 
 type Webhook struct {
-	URL string `yaml:"webhook"`
+	URL string `yaml:"webhook" validate:"required,https_url"`
 }
 
 type AlertSettings struct {
@@ -105,17 +105,17 @@ const DefaultHeartbeatEvery = 5 * time.Minute
 // an Uptime Kuma push monitor) can tell the daemon is alive: when the requests stop, that service sends
 // the alert that Sentinel, being down, cannot. It is off when URL is empty.
 type Heartbeat struct {
-	URL   string        `yaml:"url"`
-	Every time.Duration `yaml:"every"`
+	URL   string        `yaml:"url" validate:"omitempty,https_url"`
+	Every time.Duration `yaml:"every" validate:"omitempty,gte=1m"`
 }
 
 // API is the HTTP API of the daemon (package api). It is off when Listen is empty.
 type API struct {
 	// Listen is the host:port to listen on, e.g. 127.0.0.1:9311.
-	Listen string `yaml:"listen"`
+	Listen string `yaml:"listen" validate:"omitempty,listen_addr"`
 	// Token is the bearer token every /api/ request must carry; write it as ${SENTINEL_API_TOKEN} and
 	// keep the value in the env file.
-	Token string `yaml:"token"`
+	Token string `yaml:"token" validate:"required_with=Listen,omitempty,api_token"`
 }
 
 // MinTokenLength is the shortest API token accepted.
@@ -143,10 +143,10 @@ const DefaultMinFreePercent = 10
 type DiskSettings struct {
 	// MinFreePercent is the share of free space (0-90) below which the alert opens; 0 turns the alert
 	// off. Unset means DefaultMinFreePercent, which is why it is a pointer.
-	MinFreePercent *int `yaml:"min_free_percent"`
+	MinFreePercent *int `yaml:"min_free_percent" validate:"omitnil,gte=0,lte=90"`
 	// Paths are file systems to watch besides the ones Sentinel always watches (the state database, the
 	// restic cache and each local repository).
-	Paths []string `yaml:"paths"`
+	Paths []string `yaml:"paths" validate:"dive,abspath"`
 }
 
 // MinFree is the share of free space below which the disk alert opens, 0 when it is off.
@@ -158,8 +158,8 @@ func (d DiskSettings) MinFree() int {
 }
 
 type Repository struct {
-	URL      string            `yaml:"url"`
-	Password string            `yaml:"password"`
+	URL      string            `yaml:"url" validate:"required"`
+	Password string            `yaml:"password" validate:"required"`
 	Env      map[string]string `yaml:"env"`
 }
 
@@ -173,13 +173,13 @@ const (
 
 // Job is one configured backup: what to back up, when, and where to.
 type Job struct {
-	Name         string        `yaml:"name"`
-	Type         string        `yaml:"type"`
+	Name         string        `yaml:"name" validate:"required"`
+	Type         string        `yaml:"type" validate:"oneof=postgres mysql mongodb files"`
 	Schedule     string        `yaml:"schedule"`
-	Timeout      time.Duration `yaml:"timeout"`
-	Postgres     *Postgres     `yaml:"postgres"`
-	MySQL        *MySQL        `yaml:"mysql"`
-	MongoDB      *MongoDB      `yaml:"mongodb"`
+	Timeout      time.Duration `yaml:"timeout" validate:"gte=0"`
+	Postgres     *Postgres     `yaml:"postgres" validate:"required_if=Type postgres"`
+	MySQL        *MySQL        `yaml:"mysql" validate:"required_if=Type mysql"`
+	MongoDB      *MongoDB      `yaml:"mongodb" validate:"required_if=Type mongodb"`
 	Paths        []string      `yaml:"paths"`
 	Excludes     []string      `yaml:"exclude"`
 	Repositories []string      `yaml:"repositories"`
@@ -200,7 +200,7 @@ type Postgres struct {
 	Port     int    `yaml:"port"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
-	Database string `yaml:"database"`
+	Database string `yaml:"database" validate:"required"`
 }
 
 // MySQL covers MySQL and MariaDB servers.
@@ -209,18 +209,18 @@ type MySQL struct {
 	Port     int    `yaml:"port"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
-	Database string `yaml:"database"`
+	Database string `yaml:"database" validate:"required"`
 	// TLS is "" (the client's default), "disabled" or "required". Recent
 	// MariaDB clients insist on TLS and fail against a server that has none.
-	TLS string `yaml:"tls"`
+	TLS string `yaml:"tls" validate:"omitempty,oneof=disabled required"`
 }
 
 type MongoDB struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
+	User     string `yaml:"user" validate:"required_with=Password"`
 	Password string `yaml:"password"`
-	Database string `yaml:"database"`
+	Database string `yaml:"database" validate:"required"`
 	// AuthDatabase is where the user is defined (default "admin" when a user is set).
 	AuthDatabase string `yaml:"auth_database"`
 }
@@ -278,11 +278,11 @@ const (
 )
 
 type UptimeCheck struct {
-	Name           string        `yaml:"name"`
-	Type           string        `yaml:"type"`
-	URL            string        `yaml:"url"`
-	Address        string        `yaml:"address"`
-	Host           string        `yaml:"host"`
+	Name           string        `yaml:"name" validate:"required"`
+	Type           string        `yaml:"type" validate:"oneof=http tcp ping"`
+	URL            string        `yaml:"url" validate:"required_if=Type http"`
+	Address        string        `yaml:"address" validate:"required_if=Type tcp"`
+	Host           string        `yaml:"host" validate:"required_if=Type ping"`
 	Interval       time.Duration `yaml:"interval"`
 	Timeout        time.Duration `yaml:"timeout"`
 	ExpectStatus   int           `yaml:"expect_status"`
