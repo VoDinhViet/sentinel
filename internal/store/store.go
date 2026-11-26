@@ -125,7 +125,7 @@ func Open(path string) (*Store, error) {
 		for _, suffix := range walSuffixes {
 			if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				if !modeUnsupported(err) {
-					_ = db.Close()
+					_ = s.Close() // the chmod error is the one to report
 					return nil, err
 				}
 				warnModeUnsupported(path+suffix, err)
@@ -165,11 +165,12 @@ func warnModeUnsupported(path string, err error) {
 }
 
 func (s *Store) Close() error {
+	// The reader closes first, so the writer is the last connection and the one that checkpoints the WAL.
 	var readerErr error
 	if s.reader != s.db {
 		readerErr = s.reader.Close()
 	}
-	return errors.Join(s.db.Close(), readerErr)
+	return errors.Join(readerErr, s.db.Close())
 }
 
 // readerConns is how many read-only connections the store keeps: enough for the manager, the API and the

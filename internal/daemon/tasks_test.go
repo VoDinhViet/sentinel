@@ -47,10 +47,12 @@ func TestPruneRepositoriesPrunesEachUsedRepositoryOnceAndAlertsOnFailure(t *test
 		ServerName: "h",
 		Repositories: map[string]config.Repository{
 			"s3": {URL: "/r1", Password: "p"}, "local": {URL: "/r2", Password: "p"}, "unused": {URL: "/r3", Password: "p"},
+			"keeps-all": {URL: "/r4", Password: "p"},
 		},
 		Jobs: []config.Job{
-			{Name: "a", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"s3", "local"}},
+			{Name: "a", Type: config.JobFiles, Paths: []string{"/x"}, Timeout: time.Minute, Repositories: []string{"s3", "local"}, Retention: config.Retention{Last: 3}},
 			{Name: "b", Type: config.JobFiles, Paths: []string{"/y"}, Timeout: time.Minute, Repositories: []string{"s3"}},
+			{Name: "c", Type: config.JobFiles, Paths: []string{"/z"}, Timeout: time.Minute, Repositories: []string{"keeps-all"}}, // no retention: nothing to prune
 		},
 	}
 	rec := &recorder{}
@@ -67,10 +69,10 @@ func TestPruneRepositoriesPrunesEachUsedRepositoryOnceAndAlertsOnFailure(t *test
 	}
 	commands := strings.Split(strings.TrimSpace(string(recorded)), "\n")
 	if len(commands) != 2 {
-		t.Fatalf("one prune for each of the two repositories the jobs use, none for the unused one: %q", commands)
+		t.Fatalf("one prune for each of the two repositories the jobs use, none for the unused one nor the one whose jobs forget nothing: %q", commands)
 	}
 	for _, command := range commands {
-		if !strings.Contains(command, "prune") || strings.Contains(command, "/r3") {
+		if !strings.Contains(command, "prune") || strings.Contains(command, "/r3") || strings.Contains(command, "/r4") {
 			t.Errorf("command %q", command)
 		}
 	}

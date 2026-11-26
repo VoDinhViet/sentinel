@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,5 +206,28 @@ func TestStoreOpensInAFolderWithOddCharacters(t *testing.T) {
 	}
 	if alerts, err := s.Alerts(ctx, true); err != nil || len(alerts) != 1 {
 		t.Fatalf("alerts = %v, %v", alerts, err)
+	}
+}
+
+// Closing leaves no -wal or -shm file behind (checked: this holds with either closing order too).
+func TestCloseLeavesNoWALFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordCheck(context.Background(), CheckResult{Name: "web", At: time.Now(), OK: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LatestChecks(context.Background()); err != nil { // the reader has the file open too
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); err == nil {
+			t.Errorf("%s is left after Close", suffix)
+		}
 	}
 }

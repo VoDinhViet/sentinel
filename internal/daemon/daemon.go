@@ -62,6 +62,13 @@ type Daemon struct {
 	// (a "backup now" overlapping a scheduled run would fight over the repository
 	// lock and dump the same database twice).
 	running sync.Map // job name -> *sync.Mutex
+	// gates keeps a prune of a repository apart from the backups into it.
+	gates sync.Map // repository name -> *repoGate
+}
+
+func (d *Daemon) gate(repoName string) *repoGate {
+	gate, _ := d.gates.LoadOrStore(repoName, new(repoGate))
+	return gate.(*repoGate)
 }
 
 // Run schedules all work and blocks until ctx is cancelled. It then stops
@@ -175,6 +182,14 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 	}
 	defer jobLock.(*sync.Mutex).Unlock()
 
+	// The repositories are entered in name order, and a prune holds one at a time, so they cannot wait for each other.
+	for _, repoName := range slices.Sorted(slices.Values(job.Repositories)) {
+		if err := d.gate(repoName).enter(ctx); err != nil {
+			return []store.BackupRun{{Job: job.Name, Repository: repoName, Error: backup.Stopped}} // shutting down, still waiting for a prune
+		}
+		defer d.gate(repoName).leave()
+	}
+
 	runs := d.Runner.Run(ctx, job)
 	if len(runs) == 1 && runs[0].Error == backup.AlreadyRunning {
 		return runs // another sentinel process holds the job: nothing ran, nothing to alert
@@ -244,17 +259,38 @@ func (d *Daemon) usedRepositories() []string {
 	return slices.Sorted(maps.Keys(usedRepos))
 }
 
+// prunedRepositories are the repositories a job with a retention backs up to: the others forget nothing,
+// so a prune there would only take the lock to find nothing to remove.
+func (d *Daemon) prunedRepositories() []string {
+	repoNames := map[string]bool{}
+	for _, job := range d.Config.Jobs {
+		if job.Retention.Empty() {
+			continue
+		}
+		for _, repoName := range job.Repositories {
+			repoNames[repoName] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(repoNames))
+}
+
 // PruneRepositories removes the data of the snapshots that retention forgot, once per repository. A job
 // only forgets (see backup.Runner.DeferPrune): prune reads the whole repository and holds its lock, which
 // is too much to do after every backup.
 func (d *Daemon) PruneRepositories(ctx context.Context) {
-	for _, repoName := range d.usedRepositories() {
+	for _, repoName := range d.prunedRepositories() {
+		// The backups into the repository end first and the ones that come meanwhile wait: see repoGate.
+		// The wait is not part of the prune's own timeout.
+		if d.gate(repoName).exclusive(ctx) != nil {
+			return
+		}
 		resticClient, err := d.Runner.Restic(repoName)
 		if err == nil {
 			pruneCtx, cancel := context.WithTimeout(ctx, d.verifyTimeout())
 			err = resticClient.Prune(pruneCtx)
 			cancel()
 		}
+		d.gate(repoName).release()
 		if ctx.Err() != nil {
 			return
 		}
