@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -98,6 +99,18 @@ func NewMulti(settings config.Notifiers) *Multi {
 
 func (m *Multi) Send(ctx context.Context, msg Message) error {
 	return errors.Join(m.SendEach(ctx, msg)...)
+}
+
+// Deliver is Send for a caller that only needs the message to arrive somewhere: it fails when no
+// notifier took it, not when some other notifier did (the failed ones are already logged by SendEach,
+// and sending again would repeat the message to the ones that got it). With no notifier configured
+// there is nobody to deliver to and it is not an error.
+func (m *Multi) Deliver(ctx context.Context, msg Message) error {
+	errs := m.SendEach(ctx, msg)
+	if len(errs) == 0 || slices.Contains(errs, nil) {
+		return nil
+	}
+	return errors.Join(errs...)
 }
 
 // SendEach is Send but returns one error per notifier, in order (nil = sent).

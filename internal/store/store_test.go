@@ -171,6 +171,39 @@ func TestAlerts(t *testing.T) {
 	}
 }
 
+func TestAlertKeepsItsPendingMessage(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	since := time.Unix(100, 0)
+	waiting := Alert{Key: "disk:/", Firing: true, Since: since, LastNotified: since, Message: "disk full",
+		Pending: &PendingMessage{Level: 2, Title: "disk full", Body: "95% used"}}
+	if err := s.SaveAlert(ctx, waiting); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveAlert(ctx, Alert{Key: "uptime:web", Since: since, LastNotified: since}); err != nil {
+		t.Fatal(err)
+	}
+	alerts, err := s.Alerts(ctx, false)
+	if err != nil || len(alerts) != 2 {
+		t.Fatalf("alerts = %+v, %v", alerts, err)
+	}
+	if got := alerts[0].Pending; got == nil || *got != *waiting.Pending {
+		t.Errorf("disk:/ pending = %+v, want %+v", got, waiting.Pending)
+	}
+	if alerts[1].Pending != nil {
+		t.Errorf("uptime:web pending = %+v, want none", alerts[1].Pending)
+	}
+
+	waiting.Pending = nil
+	if err := s.SaveAlert(ctx, waiting); err != nil {
+		t.Fatal(err)
+	}
+	alerts, _ = s.Alerts(ctx, false)
+	if alerts[0].Pending != nil {
+		t.Errorf("pending = %+v after it was cleared", alerts[0].Pending)
+	}
+}
+
 func TestChecksPrune(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -315,6 +348,11 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, column := range []string{"pending_level", "pending_title", "pending_body"} { // added after version 3
+		if _, err := s.db.Exec(`ALTER TABLE alerts DROP COLUMN ` + column); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := s.db.Exec(`PRAGMA user_version = 2`); err != nil {
 		t.Fatal(err)
 	}
@@ -341,8 +379,8 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 		t.Errorf("keys after migration = %v, want %v", got, want)
 	}
 	var version int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 3 {
-		t.Errorf("user_version = %d, %v; want 3", version, err)
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != len(migrations) {
+		t.Errorf("user_version = %d, %v; want %d", version, err, len(migrations))
 	}
 }
 

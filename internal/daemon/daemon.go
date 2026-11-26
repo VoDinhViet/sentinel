@@ -25,6 +25,9 @@ import (
 	"sentinel/internal/store"
 )
 
+// retryAlertsEvery is how often alert messages that no notifier took are sent again.
+const retryAlertsEvery = 5 * time.Minute
+
 // Task is work repeated at a fixed interval.
 type Task struct {
 	Name  string
@@ -99,6 +102,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	tasks := append([]Task{
 		{Name: "stale-backups", Every: 15 * time.Minute, Run: d.CheckStale},
+		{Name: "retry-alerts", Every: retryAlertsEvery, Run: d.Alerts.RetryPending},
 		{Name: "prune-history", Every: 24 * time.Hour, Run: d.pruneHistory},
 	}, d.Tasks...)
 	for _, task := range tasks {

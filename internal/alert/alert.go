@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 	"sentinel/internal/store"
 )
 
+// Notifier sends a message. Deliver returns an error only when the message reached nobody: the
+// alert then keeps it and sends it again (see RetryPending) instead of dropping it.
 type Notifier interface {
-	Send(ctx context.Context, msg notify.Message) error
+	Deliver(ctx context.Context, msg notify.Message) error
 }
 
 type Manager struct {
@@ -54,8 +57,10 @@ func (m *Manager) Load(ctx context.Context) error {
 	return nil
 }
 
-// update applies change to the alert for key under the lock, persists it, and
-// returns the message to send (if any). Sending happens outside the lock.
+// update applies change to the alert for key under the lock, persists it, and delivers the
+// message it returns (if any). The message is stored with the alert before it is sent, so one that
+// no notifier takes, or that a crash interrupts, is sent again by RetryPending. A newer message of
+// the same alert replaces one still waiting. Sending happens outside the lock.
 func (m *Manager) update(ctx context.Context, key string, change func(alert *store.Alert, exists bool) *notify.Message) {
 	m.mu.Lock()
 	if m.alertByKey == nil {
@@ -64,27 +69,81 @@ func (m *Manager) update(ctx context.Context, key string, change func(alert *sto
 	alert, exists := m.alertByKey[key]
 	alert.Key = key
 	msg := change(&alert, exists)
+	if msg != nil {
+		alert.Pending = &store.PendingMessage{Level: int(msg.Level), Title: msg.Title, Body: msg.Body}
+	}
 	m.alertByKey[key] = alert
 	m.mu.Unlock()
 
-	if m.Store != nil {
-		if err := m.Store.SaveAlert(context.WithoutCancel(ctx), alert); err != nil {
-			slog.Error("save alert", "key", key, "error", err)
-		}
-	}
+	m.save(ctx, alert)
 	if msg != nil {
-		m.send(ctx, *msg)
+		m.deliverPending(ctx, key)
 	}
 }
 
+func (m *Manager) save(ctx context.Context, alert store.Alert) {
+	if m.Store == nil {
+		return
+	}
+	if err := m.Store.SaveAlert(context.WithoutCancel(ctx), alert); err != nil {
+		slog.Error("save alert", "key", alert.Key, "error", err)
+	}
+}
+
+// deliverPending sends the message waiting on key's alert and clears it once a notifier took it.
+// When it fails the message stays, for the next RetryPending.
+func (m *Manager) deliverPending(ctx context.Context, key string) {
+	m.mu.Lock()
+	sent := m.alertByKey[key].Pending
+	m.mu.Unlock()
+	if sent == nil {
+		return
+	}
+	slog.Info("alert", "level", notify.Level(sent.Level), "title", sent.Title)
+	if m.Notifier != nil {
+		msg := notify.Message{Level: notify.Level(sent.Level), Server: m.Server, Title: sent.Title, Body: sent.Body}
+		if err := m.Notifier.Deliver(context.WithoutCancel(ctx), msg); err != nil {
+			slog.Warn("alert not delivered, will try again", "key", key, "error", err)
+			return
+		}
+	}
+	m.mu.Lock()
+	alert := m.alertByKey[key]
+	if alert.Pending == nil || *alert.Pending != *sent { // a newer message replaced it and has its own delivery
+		m.mu.Unlock()
+		return
+	}
+	alert.Pending = nil
+	m.alertByKey[key] = alert
+	m.mu.Unlock()
+	m.save(ctx, alert)
+}
+
+// RetryPending sends again every message that no notifier has taken, in key order.
+func (m *Manager) RetryPending(ctx context.Context) {
+	m.mu.Lock()
+	var keys []string
+	for key, alert := range m.alertByKey {
+		if alert.Pending != nil {
+			keys = append(keys, key)
+		}
+	}
+	m.mu.Unlock()
+	slices.Sort(keys)
+	for _, key := range keys {
+		m.deliverPending(ctx, key)
+	}
+}
+
+// send delivers a one-off message that is not tied to an alert. A failure is logged by the
+// notifiers and not retried.
 func (m *Manager) send(ctx context.Context, msg notify.Message) {
 	msg.Server = m.Server
 	slog.Info("alert", "level", msg.Level, "title", msg.Title)
 	if m.Notifier == nil {
 		return
 	}
-	// Notification failures are logged by the notifier; they must not stop the caller.
-	_ = m.Notifier.Send(context.WithoutCancel(ctx), msg)
+	_ = m.Notifier.Deliver(context.WithoutCancel(ctx), msg)
 }
 
 // Fire marks key as failing. It notifies when the alert opens and again every

@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,7 +18,7 @@ type recorder struct {
 	msgs []notify.Message
 }
 
-func (r *recorder) Send(_ context.Context, m notify.Message) error {
+func (r *recorder) Deliver(_ context.Context, m notify.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.msgs = append(r.msgs, m)
@@ -131,5 +132,119 @@ func TestStatePersistsAcrossRestart(t *testing.T) {
 	m2.Resolve(ctx, "disk:/", "disk ok", "")
 	if got := rec2.take(); len(got) != 1 || got[0].Level != notify.Resolved {
 		t.Fatalf("resolve after restart = %+v", got)
+	}
+}
+
+// outage is a notifier that takes nothing while down is set.
+type outage struct {
+	recorder
+	down bool
+}
+
+func (o *outage) Deliver(ctx context.Context, msg notify.Message) error {
+	if o.down {
+		return errors.New("every notifier failed")
+	}
+	return o.recorder.Deliver(ctx, msg)
+}
+
+// A message that no notifier takes is not lost: it goes out when they are back, once.
+func TestUndeliveredMessagesAreSentAgain(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	notifiers := &outage{down: true}
+	clk := &clock{t: time.Unix(1_700_000_000, 0)}
+	m := &Manager{Notifier: notifiers, Store: st, Server: "web-01", Cooldown: time.Hour, Now: clk.now}
+	if err := m.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "HTTP 502")
+	if got := notifiers.take(); len(got) != 0 {
+		t.Fatalf("delivered during the outage: %v", got)
+	}
+	m.RetryPending(ctx)
+	if got := notifiers.take(); len(got) != 0 {
+		t.Fatalf("delivered during the outage: %v", got)
+	}
+
+	notifiers.down = false
+	m.RetryPending(ctx)
+	got := notifiers.take()
+	if len(got) != 1 || got[0].Level != notify.Critical || got[0].Title != "web is down" || got[0].Body != "HTTP 502" || got[0].Server != "web-01" {
+		t.Fatalf("retry = %+v, want the opening message once", got)
+	}
+	m.RetryPending(ctx)
+	if got := notifiers.take(); len(got) != 0 {
+		t.Fatalf("a delivered message was sent again: %v", got)
+	}
+}
+
+// The resolution of an alert is as worth keeping as its opening.
+func TestUndeliveredResolutionIsSentAgain(t *testing.T) {
+	ctx := context.Background()
+	notifiers := &outage{}
+	m := &Manager{Notifier: notifiers, Server: "web-01", Cooldown: time.Hour}
+	m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "")
+	notifiers.take()
+
+	notifiers.down = true
+	m.Resolve(ctx, "uptime:web", "web is up", "")
+	notifiers.down = false
+	m.RetryPending(ctx)
+	if got := notifiers.take(); len(got) != 1 || got[0].Level != notify.Resolved {
+		t.Fatalf("retry = %+v, want the resolution", got)
+	}
+}
+
+// A restart in the middle of an outage keeps the waiting message, and a newer message of the same alert replaces it.
+func TestPendingMessageSurvivesRestartAndNewerOneReplacesIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	down := &outage{down: true}
+	first := &Manager{Notifier: down, Store: st, Server: "web-01", Cooldown: time.Hour}
+	if err := first.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first.Fire(ctx, "disk:/", notify.Warning, "disk full", "95% used")
+
+	up := &outage{}
+	second := &Manager{Notifier: up, Store: st, Server: "web-01", Cooldown: time.Hour}
+	if err := second.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Fixed before the retry ran: only the resolution is worth sending.
+	down.down = true
+	second.Notifier = down
+	second.Resolve(ctx, "disk:/", "disk ok", "")
+	second.Notifier = up
+	second.RetryPending(ctx)
+	got := up.take()
+	if len(got) != 1 || got[0].Level != notify.Resolved {
+		t.Fatalf("after restart = %+v, want only the resolution", got)
+	}
+}
+
+// Without notifiers there is nobody to send to, so nothing waits.
+func TestNoNotifierLeavesNothingPending(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	m := &Manager{Store: st, Cooldown: time.Hour}
+	m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "")
+	stored, err := st.Alerts(ctx, false)
+	if err != nil || len(stored) != 1 || stored[0].Pending != nil {
+		t.Fatalf("stored = %+v, %v; want one alert with nothing pending", stored, err)
 	}
 }

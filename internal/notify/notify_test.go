@@ -248,3 +248,25 @@ func TestMultiDoesNotRetryARejectedRequest(t *testing.T) {
 		}
 	}
 }
+
+// Deliver fails only when no notifier took the message, so a retry does not repeat it to the ones that did.
+func TestDeliverFailsOnlyWhenNobodyTookTheMessage(t *testing.T) {
+	ok := &fakeNotifier{name: "ok"}
+	dead := &fakeNotifier{name: "dead", failures: 100}
+	other := &fakeNotifier{name: "other", failures: 100}
+	for name, tc := range map[string]struct {
+		notifiers []Notifier
+		wantErr   bool
+	}{
+		"none configured":    {nil, false},
+		"one took it":        {[]Notifier{dead, ok}, false},
+		"all of them failed": {[]Notifier{dead, other}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := &Multi{Notifiers: tc.notifiers, Attempts: 1, Backoff: time.Millisecond}
+			if err := m.Deliver(context.Background(), msg); (err != nil) != tc.wantErr {
+				t.Errorf("Deliver = %v, want error: %v", err, tc.wantErr)
+			}
+		})
+	}
+}

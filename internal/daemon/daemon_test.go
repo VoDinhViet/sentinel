@@ -56,7 +56,7 @@ type recorder struct {
 	msgs []notify.Message
 }
 
-func (r *recorder) Send(_ context.Context, m notify.Message) error {
+func (r *recorder) Deliver(_ context.Context, m notify.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.msgs = append(r.msgs, m)
