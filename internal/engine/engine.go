@@ -4,11 +4,9 @@
 package engine
 
 import (
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -57,12 +55,6 @@ func For(jobType string) (Engine, bool) {
 	return dbEngine, ok
 }
 
-// IsDatabase reports whether a backup job type is a database engine.
-func IsDatabase(jobType string) bool {
-	_, ok := engines[jobType]
-	return ok
-}
-
 // ToolsFor returns the distinct binaries needed by the database jobs among
 // jobs, in first-seen order.
 func ToolsFor(jobs []config.Job) []string {
@@ -81,15 +73,6 @@ func ToolsFor(jobs []config.Job) []string {
 		}
 	}
 	return tools
-}
-
-// Capabilities lists the engine job types this build supports ("engine:postgres").
-func Capabilities() []string {
-	var capabilities []string
-	for _, jobType := range slices.Sorted(maps.Keys(engines)) {
-		capabilities = append(capabilities, "engine:"+jobType)
-	}
-	return capabilities
 }
 
 var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)

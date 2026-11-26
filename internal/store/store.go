@@ -1,5 +1,5 @@
 // Package store persists backup runs, check results and alert state
-// in SQLite so the CLI and a future dashboard can read history.
+// in SQLite so the daemon and the CLI share history.
 package store
 
 import (
@@ -306,11 +306,6 @@ func (s *Store) RecentBackups(ctx context.Context, perPair int) ([]BackupRun, er
 			FROM backup_runs) WHERE recency <= ? ORDER BY job, repository, id`, perPair)
 }
 
-// BackupRunsSince returns up to limit runs with id > afterID, oldest first.
-func (s *Store) BackupRunsSince(ctx context.Context, afterID int64, limit int) ([]BackupRun, error) {
-	return s.queryBackups(ctx, `SELECT `+backupCols+` FROM backup_runs WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
-}
-
 type CheckResult struct {
 	ID      int64
 	Name    string
@@ -358,12 +353,6 @@ func (s *Store) RecentChecks(ctx context.Context, perName int) ([]CheckResult, e
 	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM (
 			SELECT *, ROW_NUMBER() OVER (PARTITION BY name ORDER BY id DESC) AS recency
 			FROM check_results) WHERE recency <= ? ORDER BY name, id`, perName)
-}
-
-// ChecksSince returns up to limit results with id > afterID, oldest first.
-func (s *Store) ChecksSince(ctx context.Context, afterID int64, limit int) ([]CheckResult, error) {
-	return s.queryChecks(ctx, `SELECT id, name, at, ok, latency_ms, error FROM check_results
-		WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
 }
 
 type Alert struct {

@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"sentinel/internal/backup"
 )
 
 func (m manageModel) View() tea.View {
@@ -223,7 +225,7 @@ func (m manageModel) renderSnapshots() []string {
 		snapshot := m.snapshots[i]
 		size := ""
 		if snapshot.Summary != nil {
-			size = humanBytes(snapshot.Summary.TotalBytes)
+			size = backup.HumanBytes(snapshot.Summary.TotalBytes)
 		}
 		line := fmt.Sprintf("%-10s %-17s %s", shortID(snapshot.ID), snapshot.Time.Local().Format("2006-01-02 15:04"), size)
 		m.hits.add(len(screenLines), 0, m.width, fmt.Sprintf("snap:%d", i))

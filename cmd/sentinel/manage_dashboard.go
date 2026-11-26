@@ -414,7 +414,7 @@ func (m manageModel) overviewBody() []string {
 		label("Jobs") + titleStyle.Render(fmt.Sprintf("%d", jobs)) + "  " + strings.Join(jobStates, " "),
 		label("Alerts") + number(counts.alerts, sevBad),
 		label("Uptime") + titleStyle.Render(fmt.Sprintf("%d", len(m.report.Checks))) + "  " + uptimeState,
-		label("Repos") + titleStyle.Render(fmt.Sprintf("%d", len(seenRepositories))) + "  " + dimStyle.Render(humanBytes(storedBytes)),
+		label("Repos") + titleStyle.Render(fmt.Sprintf("%d", len(seenRepositories))) + "  " + dimStyle.Render(backup.HumanBytes(storedBytes)),
 	}
 }
 
@@ -445,7 +445,7 @@ func (m manageModel) runningBody(inner int) []string {
 		case current.Percent != nil:
 			lines = append(lines, progressBar(*current.Percent, max(inner-6, 8), level)+fmt.Sprintf(" %3.0f%%", *current.Percent))
 		default:
-			lines = append(lines, dimStyle.Render("đã xử lý ")+humanBytes(current.BytesDone))
+			lines = append(lines, dimStyle.Render("đã xử lý ")+backup.HumanBytes(current.BytesDone))
 		}
 		lines = append(lines, dimStyle.Render(truncate(runningProgress(current), inner)))
 		if warning := runningWarning(current); warning != "" {
@@ -469,7 +469,7 @@ func (m manageModel) runningBody(inner int) []string {
 		if current.Percent != nil {
 			line += progressBar(*current.Percent, max(inner-nameWidth-7, 4), sevRun) + fmt.Sprintf(" %3.0f%%", *current.Percent)
 		} else {
-			line += dimStyle.Render(humanBytes(current.BytesDone))
+			line += dimStyle.Render(backup.HumanBytes(current.BytesDone))
 		}
 		lines = append(lines, line)
 	}

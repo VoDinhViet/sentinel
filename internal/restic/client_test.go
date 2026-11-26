@@ -71,7 +71,7 @@ func TestBackupReportsProgressAndKeepsTheRest(t *testing.T) {
 	var seen []Status
 	sum, err := client.Backup(context.Background(), BackupOptions{Paths: []string{"/x"}, OnStatus: func(status Status) { seen = append(seen, status) }})
 	if len(seen) != 2 || seen[0].BytesDone != 1000 || seen[0].TotalBytes != 0 || seen[1].BytesDone != 2000 || seen[1].TotalBytes != 4000 ||
-		seen[1].PercentDone != 0.5 || seen[1].FilesDone != 2 || seen[1].Elapsed.Seconds() != 3 {
+		seen[1].PercentDone != 0.5 || seen[1].FilesDone != 2 {
 		t.Errorf("progress = %+v", seen)
 	}
 	if !errors.Is(err, ErrIncomplete) || !strings.Contains(err.Error(), "permission denied") || sum.SnapshotID != "abc123" {

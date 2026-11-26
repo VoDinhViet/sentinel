@@ -6,6 +6,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"sentinel/internal/backup"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
 )
@@ -53,7 +54,7 @@ func printSnapListing(w io.Writer, listing snapListing) {
 		for _, snap := range repo.Snapshots {
 			size := ""
 			if snap.TotalBytes != nil {
-				size = humanBytes(*snap.TotalBytes)
+				size = backup.HumanBytes(*snap.TotalBytes)
 			}
 			fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", repo.Repository, snap.ShortID, snap.Time.Local().Format("2006-01-02 15:04"), size)
 		}

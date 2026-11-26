@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"sentinel/internal/backup"
 	"sentinel/internal/termtext"
 )
 
@@ -326,9 +327,9 @@ func (b browseState) sizeNote(row browseRow) string {
 	case !size.done:
 		return "…"
 	case size.complete:
-		return "≈ " + humanBytes(size.bytes)
+		return "≈ " + backup.HumanBytes(size.bytes)
 	}
-	return "> " + humanBytes(size.bytes)
+	return "> " + backup.HumanBytes(size.bytes)
 }
 
 func (m manageModel) renderBrowse() []string {

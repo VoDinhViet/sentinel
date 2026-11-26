@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"sentinel/internal/backup"
 	"sentinel/internal/configedit"
 	"sentinel/internal/schedule"
 )
@@ -24,24 +25,24 @@ func (m manageModel) tabs() []manageTab {
 	now := m.report.GeneratedAt
 	// Columns are ordered by importance: a narrow screen drops the last ones.
 	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LẦN CUỐI", "KẾT QUẢ", "LỊCH SỬ", "SNAPSHOT", "THÊM", "TỔNG", "LẦN TỚI"}, statusCol: 3, historyCol: 4}
-	for _, backup := range m.report.Jobs {
-		nextRun, _ := m.nextRun(backup.Job)
+	for _, latestRun := range m.report.Jobs {
+		nextRun, _ := m.nextRun(latestRun.Job)
 		line := manageLine{
-			cells:   []string{backup.Job, backup.Repository, relativeAgo(backup.FinishedAt, now), "ok", "", shortID(backup.SnapshotID), humanBytes(backup.BytesAdded), humanBytes(backup.TotalBytes), nextRun},
-			detail:  backup.Job + " → " + backup.Repository + ": " + backup.Result,
-			job:     backup.Job,
-			history: backup.Recent, repository: backup.Repository,
+			cells:   []string{latestRun.Job, latestRun.Repository, relativeAgo(latestRun.FinishedAt, now), "ok", "", shortID(latestRun.SnapshotID), backup.HumanBytes(latestRun.BytesAdded), backup.HumanBytes(latestRun.TotalBytes), nextRun},
+			detail:  latestRun.Job + " → " + latestRun.Repository + ": " + latestRun.Result,
+			job:     latestRun.Job,
+			history: latestRun.Recent, repository: latestRun.Repository,
 		}
 		switch {
-		case !backup.Success:
+		case !latestRun.Success:
 			line.severity, line.cells[3], line.cells[5], line.cells[6], line.cells[7] = sevBad, "LỖI", "", "", ""
-			line.sub = firstLine(backup.Error)
-		case backup.Warning != "":
+			line.sub = firstLine(latestRun.Error)
+		case latestRun.Warning != "":
 			line.severity, line.cells[3] = sevWarn, "cảnh báo"
-			line.sub = firstLine(backup.Warning)
+			line.sub = firstLine(latestRun.Warning)
 		}
-		line.fields = m.backupFields(line, backup.SnapshotID, backup.FinishedAt)
-		if running, ok := m.runningFor(backup.Job, backup.Repository); ok {
+		line.fields = m.backupFields(line, latestRun.SnapshotID, latestRun.FinishedAt)
+		if running, ok := m.runningFor(latestRun.Job, latestRun.Repository); ok {
 			line.severity, line.cells[3], line.detail, line.running, line.sub = sevRun, runningResult(running), runningDetail(running, now), true, runningBrief(running, now)
 		}
 		backups.lines = append(backups.lines, line)
@@ -219,8 +220,8 @@ func (m manageModel) summary() string {
 }
 
 func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {
-	for _, backup := range m.report.Jobs {
-		if backup.Job == jobRepo.job && backup.Repository == jobRepo.repository {
+	for _, latestRun := range m.report.Jobs {
+		if latestRun.Job == jobRepo.job && latestRun.Repository == jobRepo.repository {
 			return true
 		}
 	}

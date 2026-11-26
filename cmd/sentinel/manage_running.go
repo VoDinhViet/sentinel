@@ -28,7 +28,7 @@ func runningResult(running status.Running) string {
 	case running.Percent != nil:
 		return fmt.Sprintf("⏳ %.0f%%", *running.Percent)
 	}
-	return "⏳ " + humanBytes(running.BytesDone)
+	return "⏳ " + backup.HumanBytes(running.BytesDone)
 }
 
 // runningBrief is the short line under a running backup's row: the progress, how long it has run
@@ -46,15 +46,15 @@ func runningBrief(running status.Running, now time.Time) string {
 
 // runningProgress is "1.2 GiB / 1.9 GiB · 12 MiB/s · còn ~25 phút".
 func runningProgress(running status.Running) string {
-	text := humanBytes(running.BytesDone)
+	text := backup.HumanBytes(running.BytesDone)
 	if running.BytesTotal > 0 {
-		text += " / " + humanBytes(running.BytesTotal)
+		text += " / " + backup.HumanBytes(running.BytesTotal)
 		if running.Estimated {
 			text += " (ước lượng)"
 		}
 	}
 	if running.BytesPerSecond > 0 {
-		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
+		text += " · " + backup.HumanBytes(int64(running.BytesPerSecond)) + "/s"
 	}
 	if running.RemainingSeconds > 0 {
 		text += " · " + timeLeftText(running.RemainingSeconds)
@@ -82,14 +82,14 @@ func runningDetail(running status.Running, now time.Time) string {
 	text += "đang backup, "
 	switch {
 	case running.Percent != nil && running.Estimated:
-		text += fmt.Sprintf("~%.0f%% (đã dump %s, ước lượng ~%s theo lần backup trước)", *running.Percent, humanBytes(running.BytesDone), humanBytes(running.BytesTotal))
+		text += fmt.Sprintf("~%.0f%% (đã dump %s, ước lượng ~%s theo lần backup trước)", *running.Percent, backup.HumanBytes(running.BytesDone), backup.HumanBytes(running.BytesTotal))
 	case running.Percent != nil:
-		text += fmt.Sprintf("%.0f%% (%s / %s)", *running.Percent, humanBytes(running.BytesDone), humanBytes(running.BytesTotal))
+		text += fmt.Sprintf("%.0f%% (%s / %s)", *running.Percent, backup.HumanBytes(running.BytesDone), backup.HumanBytes(running.BytesTotal))
 	default:
-		text += "đã xử lý " + humanBytes(running.BytesDone) + " (chưa có lần backup trước để ước lượng %)"
+		text += "đã xử lý " + backup.HumanBytes(running.BytesDone) + " (chưa có lần backup trước để ước lượng %)"
 	}
 	if running.BytesPerSecond > 0 {
-		text += " · " + humanBytes(int64(running.BytesPerSecond)) + "/s"
+		text += " · " + backup.HumanBytes(int64(running.BytesPerSecond)) + "/s"
 	}
 	if running.RemainingSeconds > 0 {
 		text += " · " + timeLeftText(running.RemainingSeconds)

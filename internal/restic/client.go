@@ -189,7 +189,6 @@ type Status struct {
 	BytesDone, TotalBytes int64
 	FilesDone, TotalFiles int64
 	PercentDone           float64 // 0 to 1, only when TotalBytes is known
-	Elapsed               time.Duration
 }
 
 // statusFilter is the writer restic's output goes to: it passes status lines to onStatus and
@@ -225,7 +224,7 @@ func (f *statusFilter) line(line []byte) {
 		if json.Unmarshal(bytes.TrimSpace(line), &msg) == nil && msg.MessageType == "status" {
 			f.onStatus(Status{
 				BytesDone: msg.BytesDone, TotalBytes: msg.TotalBytes, FilesDone: msg.FilesDone, TotalFiles: msg.TotalFiles,
-				PercentDone: msg.PercentDone, Elapsed: time.Duration(msg.SecondsElapsed * float64(time.Second)),
+				PercentDone: msg.PercentDone,
 			})
 			return
 		}
@@ -243,7 +242,6 @@ type message struct {
 	Error       struct {
 		Message string `json:"message"`
 	} `json:"error"`
-	Item string `json:"item"`
 
 	// summary fields
 	FilesNew            int64  `json:"files_new"`
@@ -253,12 +251,11 @@ type message struct {
 	SnapshotID          string `json:"snapshot_id"`
 
 	// status fields
-	SecondsElapsed float64 `json:"seconds_elapsed"`
-	PercentDone    float64 `json:"percent_done"`
-	TotalFiles     int64   `json:"total_files"`
-	FilesDone      int64   `json:"files_done"`
-	TotalBytes     int64   `json:"total_bytes"`
-	BytesDone      int64   `json:"bytes_done"`
+	PercentDone float64 `json:"percent_done"`
+	TotalFiles  int64   `json:"total_files"`
+	FilesDone   int64   `json:"files_done"`
+	TotalBytes  int64   `json:"total_bytes"`
+	BytesDone   int64   `json:"bytes_done"`
 }
 
 // errorMessage is the reason a restic command failed, with credentials masked and terminal escape

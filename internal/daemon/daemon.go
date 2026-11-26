@@ -25,6 +25,9 @@ import (
 	"sentinel/internal/store"
 )
 
+// historyMaxAge is how long uptime check results are kept.
+const historyMaxAge = 30 * 24 * time.Hour
+
 // retryAlertsEvery is how often alert messages that no notifier took are sent again.
 const retryAlertsEvery = 5 * time.Minute
 
@@ -50,8 +53,6 @@ type Daemon struct {
 	ForceStop <-chan struct{}
 	// ShutdownTimeout bounds how long Run waits for jobs after cancelling them.
 	ShutdownTimeout time.Duration
-	// HistoryMaxAge is how long check results are kept.
-	HistoryMaxAge time.Duration
 
 	started time.Time
 	// running holds one mutex per job name, so a job never runs twice at once
@@ -296,11 +297,7 @@ func isStale(job *config.Job, lastSuccess, started, now time.Time) (stale bool, 
 }
 
 func (d *Daemon) pruneHistory(ctx context.Context) {
-	maxAge := d.HistoryMaxAge
-	if maxAge == 0 {
-		maxAge = 30 * 24 * time.Hour
-	}
-	if err := d.Store.Prune(ctx, time.Now().Add(-maxAge)); err != nil {
+	if err := d.Store.Prune(ctx, time.Now().Add(-historyMaxAge)); err != nil {
 		slog.Error("prune history", "error", err)
 	}
 }

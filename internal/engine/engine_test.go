@@ -21,8 +21,10 @@ func TestForKnowsDatabaseTypesOnly(t *testing.T) {
 	if _, ok := For(config.JobPostgres); !ok {
 		t.Fatal("postgres engine not registered")
 	}
-	if IsDatabase(config.JobFiles) || IsDatabase("") || IsDatabase("oracle") {
-		t.Fatal("non-database types must not resolve to an engine")
+	for _, jobType := range []string{config.JobFiles, "", "oracle"} {
+		if _, ok := For(jobType); ok {
+			t.Fatalf("%q must not resolve to an engine", jobType)
+		}
 	}
 }
 
@@ -83,12 +85,6 @@ func TestToolsForDeduplicates(t *testing.T) {
 	}
 	if got := ToolsFor([]config.Job{{Type: config.JobFiles}}); len(got) != 0 {
 		t.Errorf("files-only config needs no tools, got %v", got)
-	}
-}
-
-func TestCapabilitiesListEngines(t *testing.T) {
-	if got := Capabilities(); !slices.Equal(got, []string{"engine:mongodb", "engine:mysql", "engine:postgres"}) {
-		t.Errorf("capabilities = %v", got)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"sentinel/internal/backup"
 	"sentinel/internal/schedule"
 )
 
@@ -322,7 +323,7 @@ func folderNote(folder string) string {
 	var disk syscall.Statfs_t
 	free := ""
 	if syscall.Statfs(existing, &disk) == nil {
-		free = " · còn trống " + humanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " trên ổ đĩa này"
+		free = " · còn trống " + backup.HumanBytes(int64(disk.Bavail)*int64(disk.Bsize)) + " trên ổ đĩa này"
 	}
 	writable := canWrite(fileInfo)
 	switch {

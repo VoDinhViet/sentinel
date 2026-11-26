@@ -122,7 +122,7 @@ func (a *app) backupCmd() *cobra.Command {
 				fmt.Fprintln(table, "REPOSITORY\tRESULT\tSNAPSHOT\tADDED\tDURATION")
 				for _, run := range runs {
 					fmt.Fprintf(table, "%s\t%s\t%.8s\t%s\t%s\n", run.Repository, run.Summary(), run.SnapshotID,
-						humanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
+						backup.HumanBytes(run.BytesAdded), run.FinishedAt.Sub(run.StartedAt).Round(time.Second))
 				}
 				table.Flush()
 			}
@@ -252,19 +252,6 @@ func (a *app) backupCmd() *cobra.Command {
 	}
 	cmd.AddCommand(stopCmd)
 	return cmd
-}
-
-func humanBytes(size int64) string {
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for scaled := size / unit; scaled >= unit; scaled /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
 func stderrIsTerminal() bool {
