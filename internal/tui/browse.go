@@ -57,6 +57,17 @@ type browseState struct {
 	sizes   map[string]folderSize
 }
 
+// linksToFolder says that an entry that is not a folder itself is a symlink to one. Only a symlink needs a
+// stat: the listing already told the type of every other entry, and a folder of 50 000 files must not cost
+// 50 000 more calls.
+func linksToFolder(child os.DirEntry, path string) bool {
+	if child.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := os.Stat(path)
+	return err == nil && target.IsDir()
+}
+
 // folderRows lists the folders directly under dir: symlinks to a folder count, hidden ones come last.
 func folderRows(dir string) []browseRow {
 	children, err := os.ReadDir(dir)
@@ -66,10 +77,8 @@ func folderRows(dir string) []browseRow {
 	var visible, hidden []browseRow
 	for _, child := range children {
 		path := filepath.Join(dir, child.Name())
-		if !child.IsDir() {
-			if fileInfo, err := os.Stat(path); child.Type()&os.ModeSymlink == 0 || err != nil || !fileInfo.IsDir() {
-				continue
-			}
+		if !child.IsDir() && !linksToFolder(child, path) {
+			continue
 		}
 		row := browseRow{kind: browseFolder, name: termtext.Clean(child.Name()) + "/", path: path, hidden: strings.HasPrefix(child.Name(), "."), denied: !readableDir(path)}
 		if row.hidden {
