@@ -7,6 +7,7 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 - **Backup** PostgreSQL, MySQL/MariaDB, MongoDB và file/thư mục bằng [restic](https://restic.net) (mã hóa, chống trùng lặp, snapshot) lên thư mục, S3 (AWS, MinIO, R2, Wasabi…), sftp hoặc Google Drive (qua [rclone](https://rclone.org)); có retention và `restic check` hằng tuần (mặc định chủ nhật 04:00; đổi bằng `verify_schedule`, tắt bằng `verify_schedule: manual`).
 - **Uptime** HTTP (status, từ khóa, hạn chứng chỉ TLS), TCP, ping.
 - **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, báo khi một job quá lâu chưa backup thành công, và báo khi ổ đĩa đang chứa state, cache restic hoặc repository local còn trống dưới 10% (đổi bằng `disk.min_free_percent`, `0` để tắt). Tin không gửi được tới kênh nào được lưu lại và gửi lại sau tối đa 5 phút.
+- **Heartbeat**: lỗi duy nhất Sentinel không tự báo được là chính daemon dừng. Đặt `heartbeat.url` (healthchecks.io, push monitor của Uptime Kuma; chỉ https): daemon gọi URL đó lúc khởi động rồi mỗi `heartbeat.every` (mặc định 5m), dịch vụ bên ngoài báo cho bạn khi các lần gọi ngừng. `sentinel doctor` nhắc nếu chưa đặt.
 
 Sentinel không có web UI, không có server trung tâm và không đo CPU/RAM/disk (dùng công cụ giám sát riêng cho việc đó). Phiên bản hiện tại: v0.1.0.
 
@@ -111,7 +112,7 @@ sentinel backup stop appdb           # dừng backup đang chạy của job
 sentinel backup list appdb           # liệt kê snapshot
 sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                       # chạy mọi uptime check một lần
-sentinel status                      # backup gần nhất, cảnh báo đang mở, uptime
+sentinel status                      # daemon có đang chạy không, backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json              # như trên, cho script
 sentinel notify test                 # gửi tin thử tới mọi kênh cảnh báo
 journalctl -u sentinel -f            # log của daemon

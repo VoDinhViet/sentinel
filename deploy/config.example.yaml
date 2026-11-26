@@ -81,6 +81,13 @@ jobs:
 
 verify_schedule: weekly sun 04:00    # `restic check` of every repository; this is the default, `manual` turns it off
 
+# The one failure Sentinel cannot report itself is the daemon stopping. Give it a URL (healthchecks.io, an
+# Uptime Kuma push monitor): it is requested at start and then every `every`, and the service on the other end
+# alerts you when the requests stop. https only.
+# heartbeat:
+#   url: ${HEARTBEAT_URL}
+#   every: 5m
+
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;
 # min_free_percent: 0 turns the alert off.

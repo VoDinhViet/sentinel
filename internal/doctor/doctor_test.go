@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sentinel/internal/config"
 	"sentinel/internal/store"
@@ -71,5 +72,16 @@ func TestLocaleWarnsUnlessUTF8(t *testing.T) {
 				t.Errorf("Locale(%v) = %+v, want warn %v", test.env, finding, test.warn)
 			}
 		})
+	}
+}
+
+func TestHeartbeatFindingWarnsWhenNothingWatchesTheDaemon(t *testing.T) {
+	off := heartbeatFinding(&config.Config{})
+	if off.Err == nil || !off.Warn || off.Hint == "" {
+		t.Errorf("without a heartbeat: %+v, want a warning with a hint", off)
+	}
+	on := heartbeatFinding(&config.Config{Heartbeat: config.Heartbeat{URL: "https://hc-ping.com/x", Every: 5 * time.Minute}})
+	if on.Err != nil || !strings.Contains(on.Info, "5m0s") {
+		t.Errorf("with a heartbeat: %+v", on)
 	}
 }

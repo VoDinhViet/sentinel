@@ -32,6 +32,18 @@ func (r *Runner) LockDaemon() (held bool, release func(), err error) {
 	return r.lockNamed("daemon.lock")
 }
 
+// DaemonRunning reports whether a daemon holds the daemon lock of this state directory. It takes the
+// lock for an instant to find out, so a daemon starting at that very moment can fail to start and
+// be restarted by its service manager; ask rarely (a status command), not in a loop.
+func (r *Runner) DaemonRunning() (bool, error) {
+	free, release, err := r.lockNamed("daemon.lock")
+	if err != nil {
+		return false, err
+	}
+	release()
+	return !free, nil
+}
+
 // lockNamed takes an exclusive advisory lock on a file of that name in the "locks" directory.
 func (r *Runner) lockNamed(fileName string) (held bool, release func(), err error) {
 	if r.Config == nil || r.Config.StorePath == "" {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sentinel/internal/backup"
 	"sentinel/internal/status"
 )
 
@@ -33,6 +34,9 @@ func (a *app) statusCmd() *cobra.Command {
 			report, err := status.Build(cmd.Context(), cfg, st, time.Now())
 			if err != nil {
 				return err
+			}
+			if running, err := (&backup.Runner{Config: cfg}).DaemonRunning(); err == nil {
+				report.DaemonRunning = &running
 			}
 			if output == outputJSON {
 				return writeJSON(cmd.OutOrStdout(), report)
@@ -69,7 +73,8 @@ func printStatus(w io.Writer, report status.Report) error {
 	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	now := report.GeneratedAt
 
-	fmt.Fprintf(w, "Server: %s\n\n", report.Server)
+	fmt.Fprintf(w, "Server: %s\n", report.Server)
+	fmt.Fprintf(w, "Daemon: %s\n\n", daemonState(report.DaemonRunning))
 
 	fmt.Fprintf(w, "Open alerts: %d\n", len(report.Alerts))
 	for _, alert := range report.Alerts {
@@ -118,4 +123,16 @@ func printStatus(w io.Writer, report status.Report) error {
 		fmt.Fprintf(table, "  %s\t%s\t%s\t%s\n", check.Name, state, latency, ago(check.At, now))
 	}
 	return table.Flush()
+}
+
+// daemonState says whether the daemon is running, and what to do when it is not: with no daemon
+// nothing is backed up on schedule, checked or alerted.
+func daemonState(running *bool) string {
+	switch {
+	case running == nil:
+		return "unknown (cannot read the daemon lock)"
+	case *running:
+		return "running"
+	}
+	return "NOT RUNNING: nothing is backed up or checked on schedule (start it: sudo systemctl start sentinel)"
 }

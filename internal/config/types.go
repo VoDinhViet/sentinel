@@ -13,6 +13,7 @@ type Config struct {
 	Notifiers      Notifiers             `yaml:"notifiers"`
 	Alert          AlertSettings         `yaml:"alert"`
 	Disk           DiskSettings          `yaml:"disk"`
+	Heartbeat      Heartbeat             `yaml:"heartbeat"`
 	Repositories   map[string]Repository `yaml:"repositories"`
 	Jobs           []Job                 `yaml:"jobs"`
 	VerifySchedule string                `yaml:"verify_schedule"`
@@ -95,6 +96,17 @@ type AlertSettings struct {
 	Cooldown time.Duration `yaml:"cooldown"`
 	// NotifySuccess sends a message after every successful backup.
 	NotifySuccess bool `yaml:"notify_success"`
+}
+
+// DefaultHeartbeatEvery is how often the heartbeat URL is requested when the config sets no interval.
+const DefaultHeartbeatEvery = 5 * time.Minute
+
+// Heartbeat is a URL the daemon requests on a schedule, so a service outside the server (healthchecks.io,
+// an Uptime Kuma push monitor) can tell the daemon is alive: when the requests stop, that service sends
+// the alert that Sentinel, being down, cannot. It is off when URL is empty.
+type Heartbeat struct {
+	URL   string        `yaml:"url"`
+	Every time.Duration `yaml:"every"`
 }
 
 // DefaultMinFreePercent is the share of a file system that must stay free before the daemon raises

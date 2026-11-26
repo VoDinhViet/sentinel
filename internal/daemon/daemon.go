@@ -33,6 +33,8 @@ type Task struct {
 	Name  string
 	Every time.Duration
 	Run   func(ctx context.Context)
+	// AtStart also runs the task once when the daemon starts, not only after the first interval.
+	AtStart bool
 }
 
 type Daemon struct {
@@ -110,6 +112,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		slog.Debug("scheduled task", "task", task.Name, "every", task.Every)
 	}
 
+	var startup sync.WaitGroup
+	for _, task := range tasks {
+		if task.AtStart {
+			startup.Go(func() { task.Run(jobCtx) })
+		}
+	}
 	cronRunner.Start()
 	slog.Info("sentinel started", "server", d.Config.ServerName, "backups", len(d.Config.Jobs), "tasks", len(tasks))
 	<-ctx.Done()
@@ -133,6 +141,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 	cancelJobs()
+	startup.Wait() // the tasks started with the daemon end with their context
 	timeout := d.ShutdownTimeout
 	if timeout == 0 {
 		timeout = time.Minute

@@ -30,6 +30,9 @@ func (c *Config) applyDefaults() {
 	if c.VerifySchedule == "" {
 		c.VerifySchedule = DefaultVerifySchedule
 	}
+	if c.Heartbeat.URL != "" && c.Heartbeat.Every == 0 {
+		c.Heartbeat.Every = DefaultHeartbeatEvery
+	}
 	if c.ShutdownWait == 0 {
 		c.ShutdownWait = 2 * time.Hour
 	}

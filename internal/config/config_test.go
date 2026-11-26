@@ -148,6 +148,10 @@ disk: { min_free_percent: 95 }`, "disk.min_free_percent: must be between 0"},
 disk: { min_free_percent: -5 }`, "disk.min_free_percent: must be between 0"},
 		"disk path relative": {`
 disk: { paths: [data] }`, "disk.paths[0]"},
+		"heartbeat over http": {`
+heartbeat: { url: "http://hc.example.com/ping/x" }`, "heartbeat: url must start with https://"},
+		"heartbeat too often": {`
+heartbeat: { url: "https://hc.example.com/ping/x", every: 10s }`, "heartbeat: every must be at least 1m"},
 		"negative default retention": {`
 repositories: { r: { url: "/tmp/r", password: p } }
 defaults: { retention: { monthly: -2 } }`, "defaults.retention.monthly must not be negative"},
@@ -462,5 +466,20 @@ func TestDiskAlertIsOnUnlessZero(t *testing.T) {
 				t.Errorf("MinFree = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHeartbeatIsOffWithoutAURLAndDefaultsToFiveMinutes(t *testing.T) {
+	t.Setenv("HC_URL", "https://hc-ping.com/abc")
+	cfg, err := Parse([]byte("heartbeat: { url: '${HC_URL}' }"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Heartbeat.URL != "https://hc-ping.com/abc" || cfg.Heartbeat.Every != DefaultHeartbeatEvery {
+		t.Errorf("heartbeat = %+v", cfg.Heartbeat)
+	}
+	cfg, err = Parse([]byte(""))
+	if err != nil || cfg.Heartbeat.URL != "" || cfg.Heartbeat.Every != 0 {
+		t.Errorf("heartbeat without a url = %+v, %v; want it off", cfg.Heartbeat, err)
 	}
 }

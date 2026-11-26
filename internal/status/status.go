@@ -15,9 +15,12 @@ import (
 type Report struct {
 	Server      string    `json:"server"`
 	GeneratedAt time.Time `json:"generated_at"`
-	Alerts      []Alert   `json:"alerts"`
-	Jobs        []Job     `json:"jobs"`
-	Checks      []Check   `json:"checks"`
+	// DaemonRunning says whether `sentinel run` holds the state directory's lock; absent when it
+	// could not be found out (no access to the lock file).
+	DaemonRunning *bool   `json:"daemon_running,omitempty"`
+	Alerts        []Alert `json:"alerts"`
+	Jobs          []Job   `json:"jobs"`
+	Checks        []Check `json:"checks"`
 	// Running are the backups in progress right now, from any process (daemon, CLI, detached).
 	Running []Running `json:"running"`
 }

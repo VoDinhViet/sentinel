@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,5 +25,26 @@ func TestRelativeAgo(t *testing.T) {
 	}
 	if got := relativeAgo(time.Time{}, now); got != "chưa có" {
 		t.Errorf("zero time = %q, want chưa có", got)
+	}
+}
+
+func TestDaemonStateSaysWhatToDoWhenItIsNotRunning(t *testing.T) {
+	running, stopped := true, false
+	for name, tc := range map[string]struct {
+		running *bool
+		want    string
+	}{
+		"running":   {&running, "running"},
+		"stopped":   {&stopped, "NOT RUNNING"},
+		"not known": {nil, "unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := daemonState(tc.running); !strings.HasPrefix(got, tc.want) {
+				t.Errorf("daemonState = %q, want it to start with %q", got, tc.want)
+			}
+		})
+	}
+	if got := daemonState(&stopped); !strings.Contains(got, "systemctl start sentinel") {
+		t.Errorf("daemonState = %q, want the command to start it", got)
 	}
 }

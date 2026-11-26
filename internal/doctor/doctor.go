@@ -172,5 +172,18 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 		notifierFinding.Err, notifierFinding.Warn = errors.New("none configured: alerts will only be logged"), true
 		notifierFinding.Hint = "add telegram, smtp, discord or slack under notifiers: in the config"
 	}
-	return append(findings, notifierFinding)
+	return append(findings, notifierFinding, heartbeatFinding(cfg))
+}
+
+// heartbeatFinding warns when nothing outside the server would notice the daemon stopping: its own
+// alerts cannot report that.
+func heartbeatFinding(cfg *config.Config) Finding {
+	if cfg.Heartbeat.URL != "" {
+		return Finding{Name: "heartbeat", Info: fmt.Sprintf("requested every %s", cfg.Heartbeat.Every)}
+	}
+	return Finding{
+		Name: "heartbeat", Warn: true,
+		Err:  errors.New("not configured: nothing notices when the daemon stops"),
+		Hint: "set heartbeat.url to a healthchecks.io or Uptime Kuma push URL",
+	}
 }

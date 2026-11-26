@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"sentinel/internal/schedule"
 )
@@ -121,6 +122,11 @@ func (c *Config) validate() error {
 	if c.ShutdownWait < 0 {
 		add("shutdown_wait: must not be negative")
 	}
+	if c.Heartbeat.URL != "" {
+		if problem := heartbeatProblem(c.Heartbeat); problem != "" {
+			add("heartbeat: %s", problem)
+		}
+	}
 	if c.Disk.MinFree() < 0 || c.Disk.MinFree() > 90 {
 		add("disk.min_free_percent: must be between 0 (off) and 90")
 	}
@@ -187,6 +193,18 @@ func webhookProblem(webhook string) string {
 		return ""
 	case !strings.HasPrefix(webhook, "https://"):
 		return "webhook must start with https://"
+	}
+	return ""
+}
+
+// heartbeatProblem says what is wrong with the heartbeat settings, "" when nothing is. The URL often
+// carries the secret that identifies the check, so like a webhook it must not travel over plain http.
+func heartbeatProblem(heartbeat Heartbeat) string {
+	switch {
+	case !strings.Contains(heartbeat.URL, "${") && !strings.HasPrefix(heartbeat.URL, "https://"):
+		return "url must start with https://"
+	case heartbeat.Every < time.Minute:
+		return "every must be at least 1m"
 	}
 	return ""
 }
