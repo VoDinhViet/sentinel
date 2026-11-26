@@ -12,6 +12,10 @@ ExecStart=/usr/local/bin/sentinel run --config /etc/sentinel/config.yaml
 # (for example AWS_* or RCLONE_CONFIG_*). Sentinel does not pass the variables of config.yaml on to
 # restic or the dump tools, and it refuses PATH, LD_* and *_COMMAND names in the config.
 EnvironmentFile=-/etc/sentinel/sentinel.env
+# systemd gives a service that runs as root without User= no HOME. restic then stops with "unable to
+# locate cache directory" and rclone cannot find /root/.config/rclone. `sentinel doctor` run from a
+# shell has HOME, so it does not show this. Set it to the home of the user the unit runs as.
+Environment=HOME=/root
 Restart=on-failure
 RestartSec=10s
 # On stop the daemon lets running backups finish for up to `shutdown_wait` (default 2h) and only

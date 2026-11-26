@@ -265,6 +265,7 @@ Màn hình `sentinel manage` có chữ tiếng Việt và vẽ khung, nên cần
 - Khi repository đang bị khóa, daemon thử lại 3 lần, cách nhau 5 phút. Sentinel không bao giờ tự `unlock`.
 - Daemon khởi động lại thì không gửi lại các cảnh báo đang mở, nhưng vẫn báo khi chúng được khắc phục.
 - Lịch sử uptime giữ 30 ngày; lịch sử backup giữ vĩnh viễn.
+- Backup theo lịch báo `unable to locate cache directory: neither $XDG_CACHE_HOME nor $HOME are defined`: systemd không đặt `HOME` cho service chạy root khi unit không có `User=`, nên restic không tìm được thư mục cache. Unit mới của repo đã có `Environment=HOME=/root`; unit cài từ bản cũ thì chạy lại `deploy/install.sh` hoặc thêm dòng đó vào `/etc/systemd/system/sentinel.service` rồi `systemctl daemon-reload && systemctl restart sentinel`. `sentinel doctor` chạy từ shell có `HOME` nên không thấy lỗi này; thử đúng môi trường của daemon bằng `systemd-run --wait --pipe -p EnvironmentFile=/etc/sentinel/sentinel.env sentinel backup run <job>`.
 - MariaDB client ≥ 11.4 mặc định đòi TLS; server không có TLS thì đặt `tls: disabled` trong khối `mysql:`.
 
 ## Phát triển
