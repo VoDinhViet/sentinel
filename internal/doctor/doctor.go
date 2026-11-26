@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"sentinel/internal/backup"
@@ -146,25 +147,7 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 	}
 	findings = append(findings, storeFinding)
 
-	runner := &backup.Runner{Config: cfg}
-	for _, name := range slices.Sorted(maps.Keys(cfg.Repositories)) {
-		repoFinding := Finding{Name: "repository " + name}
-		client, _ := runner.Restic(name)
-		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		initialized, err := client.Exists(checkCtx)
-		cancel()
-		switch {
-		case err != nil:
-			repoFinding.Err = err
-			repoFinding.Hint = "check the repository url, its credentials and the network"
-		case !initialized:
-			repoFinding.Err = errors.New("not initialized (run: sentinel backup init <job>)")
-			repoFinding.Hint = "run: sentinel backup init <job> (once per repository)"
-		default:
-			repoFinding.Info = "reachable"
-		}
-		findings = append(findings, repoFinding)
-	}
+	findings = append(findings, repositoryFindings(ctx, cfg)...)
 
 	notifierCount := len(notify.FromConfig(cfg.Notifiers))
 	notifierFinding := Finding{Name: "notifiers", Info: fmt.Sprintf("%d configured (test with: sentinel notify test)", notifierCount)}
@@ -177,6 +160,40 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 		findings = append(findings, apiFinding(cfg))
 	}
 	return findings
+}
+
+// repositoryFindings checks every repository at the same time, in the order of their names: one that cannot be
+// reached takes up to its whole timeout to say so, and the ones after it must not wait for that or run out of
+// the time the caller gave the whole check.
+func repositoryFindings(ctx context.Context, cfg *config.Config) []Finding {
+	runner := &backup.Runner{Config: cfg}
+	names := slices.Sorted(maps.Keys(cfg.Repositories))
+	findings := make([]Finding, len(names))
+	var checks sync.WaitGroup
+	for i, name := range names {
+		checks.Go(func() { findings[i] = repositoryFinding(ctx, runner, name) })
+	}
+	checks.Wait()
+	return findings
+}
+
+func repositoryFinding(ctx context.Context, runner *backup.Runner, name string) Finding {
+	repoFinding := Finding{Name: "repository " + name}
+	client, _ := runner.Restic(name)
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	initialized, err := client.Exists(checkCtx)
+	switch {
+	case err != nil:
+		repoFinding.Err = err
+		repoFinding.Hint = "check the repository url, its credentials and the network"
+	case !initialized:
+		repoFinding.Err = errors.New("not initialized (run: sentinel backup init <job>)")
+		repoFinding.Hint = "run: sentinel backup init <job> (once per repository)"
+	default:
+		repoFinding.Info = "reachable"
+	}
+	return repoFinding
 }
 
 // apiFinding warns when the API can be reached from other machines: the token travels in clear text.

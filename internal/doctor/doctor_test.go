@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,5 +95,34 @@ func TestAPIFindingWarnsOnlyWhenOtherMachinesCanReachIt(t *testing.T) {
 	open := apiFinding(&config.Config{API: config.API{Listen: "0.0.0.0:9311"}})
 	if open.Err == nil || !open.Warn || open.Hint == "" {
 		t.Errorf("all interfaces: %+v, want a warning with a hint", open)
+	}
+}
+
+// The repositories are checked at the same time: one that is slow to answer must not make the ones after it wait.
+func TestRepositoriesAreCheckedAtTheSameTimeAndReportedInOrder(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "restic")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nsleep 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repos := map[string]config.Repository{}
+	for _, name := range []string{"d", "a", "c", "b"} {
+		repos[name] = config.Repository{URL: "/r/" + name, Password: "x"}
+	}
+	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	began := time.Now()
+	findings := repositoryFindings(context.Background(), &config.Config{Repositories: repos})
+	if took := time.Since(began); took > 2500*time.Millisecond {
+		t.Errorf("four repositories of one second each took %v: they are checked one after the other", took)
+	}
+	var names []string
+	for _, finding := range findings {
+		names = append(names, finding.Name)
+		if finding.Err != nil {
+			t.Errorf("%s: %v", finding.Name, finding.Err)
+		}
+	}
+	if want := "repository a,repository b,repository c,repository d"; strings.Join(names, ",") != want {
+		t.Errorf("order = %v", names)
 	}
 }
