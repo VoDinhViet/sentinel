@@ -114,7 +114,7 @@ func newManageActions(cfg *config.Config, st *store.Store, configPath string) ma
 			ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 			defer cancel()
 			start := time.Now()
-			err = engine.Probe(ctx, probeJob)
+			err = engine.Probe(ctx, probeJob, cfg.EnvRefs)
 			return time.Since(start), err
 		},
 		doctor: func(ctx context.Context) []doctor.Finding {

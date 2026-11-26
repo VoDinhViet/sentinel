@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"sentinel/internal/config"
+	"sentinel/internal/restic"
 )
 
 // maxProbeStderr is how much of the end of a tool's error output a failed probe keeps.
@@ -29,9 +29,10 @@ type lightProbe interface {
 // uses, with the same credentials, and stops it as soon as the tool starts writing the dump.
 // A tool that is not installed, a host that does not answer, a wrong password or a database
 // that does not exist all end the tool before it writes anything, and its own message is the
-// error. Nothing is written anywhere and the database is only read. Engines with a lightProbe
+// error. The tool does not inherit the variables in dropEnv (the ones the config refers to, as for
+// a backup), so a notifier token is not its to see. Nothing is written anywhere and the database is only read. Engines with a lightProbe
 // run a schema-free dump to the end instead.
-func Probe(ctx context.Context, job *config.Job) error {
+func Probe(ctx context.Context, job *config.Job, dropEnv []string) error {
 	dbEngine, ok := For(job.Type)
 	if !ok {
 		return fmt.Errorf("%q is not a database job", job.Type)
@@ -54,7 +55,7 @@ func Probe(ctx context.Context, job *config.Job) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, tool, dump.Command[1:]...)
-	cmd.Env = append(os.Environ(), dump.Env...)
+	cmd.Env = append(restic.InheritedEnv(dropEnv), dump.Env...)
 	cmd.WaitDelay = 2 * time.Second // a tool that left a child holding its pipes must not hang the probe
 	var stderr tailBuffer
 	cmd.Stderr = &stderr

@@ -102,16 +102,23 @@ func (c *Client) bin() string {
 	return c.Bin
 }
 
-// env passes the repository and secrets through the environment so they never
-// appear in the process list.
-func (c *Client) env() []string {
-	inherited := os.Environ()
-	env := make([]string, 0, len(inherited)+2+len(c.Repo.Env)+len(c.ExtraEnv))
-	for _, entry := range inherited {
-		if name, _, _ := strings.Cut(entry, "="); !slices.Contains(c.DropEnv, name) || isProcessSetting(name) {
+// InheritedEnv is the environment a tool started for a job may inherit: this process's own, without
+// the variables in dropEnv (the ones the config refers to with ${VAR}, see Client.DropEnv), except the
+// ordinary process settings that carry no secret.
+func InheritedEnv(dropEnv []string) []string {
+	var env []string
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); !slices.Contains(dropEnv, name) || isProcessSetting(name) {
 			env = append(env, entry)
 		}
 	}
+	return env
+}
+
+// env passes the repository and secrets through the environment so they never
+// appear in the process list.
+func (c *Client) env() []string {
+	env := InheritedEnv(c.DropEnv)
 	env = append(env,
 		"RESTIC_REPOSITORY="+c.Repo.URL,
 		"RESTIC_PASSWORD="+c.Repo.Password,
