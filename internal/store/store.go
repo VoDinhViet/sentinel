@@ -19,7 +19,12 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db *sql.DB // the one connection that writes
+	// reader serves the queries that only read, on connections of their own: in WAL mode a reader does not
+	// wait for the writer, so a status built while a prune deletes rows (or the other way round) does not
+	// stall behind it. It is db itself for a :memory: database, which exists in one connection only, and
+	// when the read-only connections cannot be opened.
+	reader *sql.DB
 }
 
 var migrations = []string{
@@ -105,10 +110,15 @@ func Open(path string) (*Store, error) {
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY between
 	// our own goroutines and keeps :memory: databases shared.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, reader: db}
 	if err := s.migrate(); err != nil {
 		_ = db.Close() // the migration error is the one to report
 		return nil, err
+	}
+	if onDisk {
+		if reader := openReader(path); reader != nil {
+			s.reader = reader
+		}
 	}
 	if onDisk {
 		// A WAL file left by an older version keeps its own mode.
@@ -154,7 +164,36 @@ func warnModeUnsupported(path string, err error) {
 	slog.Warn("cannot restrict the state database to its owner: the file system does not allow changing modes", "path", path, "error", err)
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	var readerErr error
+	if s.reader != s.db {
+		readerErr = s.reader.Close()
+	}
+	return errors.Join(s.db.Close(), readerErr)
+}
+
+// readerConns is how many read-only connections the store keeps: enough for the manager, the API and the
+// daemon's own checks to read at once.
+const readerConns = 4
+
+// openReader opens the database read-only on connections of its own. It returns nil when it cannot, and
+// the store then reads through its writer as it did before.
+func openReader(path string) *sql.DB {
+	// A path is not a URI: the characters that start the query or the fragment are escaped.
+	escaped := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
+	db, err := sql.Open("sqlite", "file:"+escaped+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		slog.Warn("open read-only connections of the state database", "error", err)
+		return nil
+	}
+	db.SetMaxOpenConns(readerConns)
+	if err := db.Ping(); err != nil {
+		slog.Warn("open read-only connections of the state database", "error", err)
+		_ = db.Close()
+		return nil
+	}
+	return db
+}
 
 func (s *Store) migrate() error {
 	var version int
@@ -264,7 +303,7 @@ func (s *Store) RecordBackup(ctx context.Context, run BackupRun) error {
 // repository. ok is false if it never has.
 func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (finishedAt time.Time, ok bool, err error) {
 	var finishedUnix sql.NullInt64
-	err = s.db.QueryRowContext(ctx,
+	err = s.reader.QueryRowContext(ctx,
 		`SELECT MAX(finished_at) FROM backup_runs WHERE job = ? AND success = 1`, job).Scan(&finishedUnix)
 	if err != nil || !finishedUnix.Valid {
 		return time.Time{}, false, err
@@ -276,7 +315,7 @@ func (s *Store) LastSuccessfulBackup(ctx context.Context, job string) (finishedA
 // read (restic's total_bytes_processed; for a database, the size of the dump): the best guide
 // to how big the next one will be. ok is false when there is no such backup.
 func (s *Store) LastBackupSize(ctx context.Context, job, repository string) (size int64, ok bool, err error) {
-	err = s.db.QueryRowContext(ctx,
+	err = s.reader.QueryRowContext(ctx,
 		`SELECT total_bytes FROM backup_runs WHERE job = ? AND repository = ? AND success = 1 AND total_bytes > 0
 		 ORDER BY finished_at DESC, id DESC LIMIT 1`, job, repository).Scan(&size)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -289,7 +328,7 @@ const backupCols = `id, job, repository, started_at, finished_at, success,
 	snapshot_id, files_new, files_changed, bytes_added, total_bytes, error`
 
 func (s *Store) queryBackups(ctx context.Context, query string, args ...any) ([]BackupRun, error) {
-	runRows, err := s.db.QueryContext(ctx, query, args...)
+	runRows, err := s.reader.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +381,7 @@ func (s *Store) RecordCheck(ctx context.Context, check CheckResult) error {
 }
 
 func (s *Store) queryChecks(ctx context.Context, query string, args ...any) ([]CheckResult, error) {
-	checkRows, err := s.db.QueryContext(ctx, query, args...)
+	checkRows, err := s.reader.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +455,7 @@ func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
 	if firingOnly {
 		query += ` WHERE firing = 1`
 	}
-	alertRows, err := s.db.QueryContext(ctx, query+` ORDER BY key`)
+	alertRows, err := s.reader.QueryContext(ctx, query+` ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}

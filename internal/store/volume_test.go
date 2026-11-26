@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,56 @@ func TestRecordBackupCapsALongError(t *testing.T) {
 	}
 	if !utf8.ValidString(got) {
 		t.Error("the cut error is not valid UTF-8")
+	}
+}
+
+// A status read is not held up by a write that is under way: the writer has the one connection and the
+// write lock, and the reads go through connections of their own.
+func TestReadsDoNotWaitForTheWriter(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	if err := s.RecordCheck(ctx, CheckResult{Name: "web", At: time.Unix(1_700_000_000, 0), OK: true}); err != nil {
+		t.Fatal(err)
+	}
+	if s.reader == s.db {
+		t.Fatal("an on-disk store must read through connections of its own")
+	}
+
+	tx, err := s.db.Begin() // immediate: the write lock and the only writer connection
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback() //nolint:errcheck // the test ends the transaction one way or the other
+	if _, err := tx.Exec(`INSERT INTO check_results (name, at, ok, latency_ms, error) VALUES ('web', 1, 1, 1, '')`); err != nil {
+		t.Fatal(err)
+	}
+
+	reading, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	latest, err := s.LatestChecks(reading)
+	if err != nil || len(latest) != 1 {
+		t.Fatalf("a read must go on while a write is open: %v %v", latest, err)
+	}
+	if alerts, err := s.Alerts(reading, false); err != nil || len(alerts) != 0 {
+		t.Fatalf("alerts: %v %v", alerts, err)
+	}
+}
+
+// A path is not a URI: a folder with a space or a % in its name must still open for reading.
+func TestStoreOpensInAFolderWithOddCharacters(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "state dir %41", "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if s.reader == s.db {
+		t.Fatal("the read-only connections did not open")
+	}
+	if err := s.SaveAlert(ctx, Alert{Key: "k", Firing: true, Since: time.Unix(5, 0), LastNotified: time.Unix(5, 0)}); err != nil {
+		t.Fatal(err)
+	}
+	if alerts, err := s.Alerts(ctx, true); err != nil || len(alerts) != 1 {
+		t.Fatalf("alerts = %v, %v", alerts, err)
 	}
 }
