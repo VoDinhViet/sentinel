@@ -1,11 +1,16 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	"sentinel/internal/restic"
 	"sentinel/internal/status"
 )
+
+// slowCallTimeout ends a request that waits for restic or the doctor, before the server's write timeout does.
+const slowCallTimeout = 100 * time.Second
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -54,7 +59,9 @@ func (s *Server) snapshots(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the repository query parameter is required")
 		return
 	}
-	snaps, err := s.backend.ListSnapshots(r.Context(), r.PathValue("job"), repo)
+	ctx, cancel := context.WithTimeout(r.Context(), slowCallTimeout)
+	defer cancel()
+	snaps, err := s.backend.ListSnapshots(ctx, r.PathValue("job"), repo)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -98,13 +105,15 @@ type finding struct {
 
 func (s *Server) doctor(w http.ResponseWriter, r *http.Request) {
 	findings := []finding{}
-	for _, f := range s.backend.Doctor(r.Context()) {
+	ctx, cancel := context.WithTimeout(r.Context(), slowCallTimeout)
+	defer cancel()
+	for _, f := range s.backend.Doctor(ctx) {
 		entry := finding{Name: f.Name, Level: "ok", Message: f.Info, Hint: f.Hint}
 		switch {
 		case f.Err != nil && f.Warn:
-			entry.Level, entry.Message = "warning", f.Err.Error()
+			entry.Level, entry.Message = "warning", restic.Redact(f.Err.Error())
 		case f.Err != nil:
-			entry.Level, entry.Message = "failed", f.Err.Error()
+			entry.Level, entry.Message = "failed", restic.Redact(f.Err.Error())
 		}
 		findings = append(findings, entry)
 	}

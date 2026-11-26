@@ -128,3 +128,14 @@ func sessionOf(t *testing.T, pid string) string {
 	fields := strings.Fields(string(raw[strings.LastIndex(string(raw), ")")+1:]))
 	return fields[3]
 }
+
+func TestDetachedArgsPutTheJobNameAfterTheDoubleDash(t *testing.T) {
+	got := strings.Join(detachedArgs("--detach", "/etc/sentinel/config.yaml", "s3"), " ")
+	want := "backup run --config /etc/sentinel/config.yaml --repository s3 -- --detach"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+	if got := strings.Join(detachedArgs("shop", "/c.yaml", ""), " "); got != "backup run --config /c.yaml -- shop" {
+		t.Errorf("without a repository: %q", got)
+	}
+}

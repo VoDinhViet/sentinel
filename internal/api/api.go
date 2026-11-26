@@ -35,7 +35,7 @@ type Server struct {
 	token   string
 }
 
-// New returns the server for a backend. token must not be empty.
+// New returns the server for a backend. With an empty token it refuses every /api/ request.
 func New(backend Backend, token string) *Server {
 	return &Server{backend: backend, token: token}
 }

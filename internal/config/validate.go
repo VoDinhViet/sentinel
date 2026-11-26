@@ -224,7 +224,7 @@ func apiProblem(api API) string {
 	if api.Token == "" {
 		return "token is required: write token: ${SENTINEL_API_TOKEN} and put the value in the env file"
 	}
-	if !strings.Contains(api.Token, "${") && len(api.Token) < MinTokenLength {
+	if !wholeEnvRef.MatchString(api.Token) && len(api.Token) < MinTokenLength { // an unexpanded ${VAR} is checked once it has a value
 		return fmt.Sprintf("token must be at least %d characters", MinTokenLength)
 	}
 	return ""

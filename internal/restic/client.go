@@ -262,7 +262,7 @@ type message struct {
 // sequences removed (file names in the error are chosen by other users): it is stored, logged, printed
 // and sent in alerts.
 func errorMessage(stdout, stderr []byte) string {
-	return termtext.Clean(redact(pickErrorMessage(stdout, stderr)))
+	return termtext.Clean(Redact(pickErrorMessage(stdout, stderr)))
 }
 
 // pickErrorMessage prefers restic's JSON exit_error, then per-item errors, then

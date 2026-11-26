@@ -229,3 +229,29 @@ func TestServeStopsWhenItsContextIsDone(t *testing.T) {
 		t.Fatal("Serve did not stop")
 	}
 }
+
+func TestAServerWithoutATokenRefusesEverything(t *testing.T) {
+	for name, header := range map[string]string{"no header": "", "empty bearer": "Bearer ", "any bearer": "Bearer x"} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/v1/status", nil)
+			if header != "" {
+				req.Header.Set("Authorization", header)
+			}
+			rec := httptest.NewRecorder()
+			New(&fakeBackend{}, "").Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", rec.Code)
+			}
+		})
+	}
+}
+
+func TestDoctorHidesCredentialsInAnError(t *testing.T) {
+	backend := &fakeBackend{findings: []doctor.Finding{
+		{Name: "repository s3", Err: errors.New("open s3:https://backup-user:hunter2@storage.example/repo: refused")},
+	}}
+	rec := call(t, backend, "GET", "/api/v1/doctor", testToken)
+	if strings.Contains(rec.Body.String(), "hunter2") {
+		t.Errorf("the password is in the response: %s", rec.Body)
+	}
+}

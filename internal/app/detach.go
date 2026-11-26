@@ -59,16 +59,23 @@ func startDetachedBackup(cfg *config.Config, configPath, jobName, repo string) (
 	if err != nil {
 		return 0, "", fmt.Errorf("find the sentinel binary: %w", err)
 	}
-	args := []string{"backup", "run", jobName, "--config", configPath}
-	if repo != "" {
-		args = append(args, "--repository", repo)
-	}
+	args := detachedArgs(jobName, configPath, repo)
 	logPath = detachedLogPath(cfg, jobName)
 	pid, exited, err := spawnDetached(exe, args, logPath)
 	if err != nil {
 		return 0, logPath, err
 	}
 	return pid, logPath, awaitStart(progressDir, jobName, pid, exited, logPath, startWait)
+}
+
+// detachedArgs is the command line of the detached backup. The job name comes after "--", so a
+// name that starts with a dash is not read as a flag.
+func detachedArgs(jobName, configPath, repo string) []string {
+	args := []string{"backup", "run", "--config", configPath}
+	if repo != "" {
+		args = append(args, "--repository", repo)
+	}
+	return append(args, "--", jobName)
 }
 
 // spawnDetached starts a command in a new session with its output appended to logPath (0600),

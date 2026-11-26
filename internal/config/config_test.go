@@ -503,3 +503,18 @@ func TestAPILoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestAPITokenIsCheckedAfterTheVariableIsExpanded(t *testing.T) {
+	t.Setenv("API_TOKEN", "short")
+	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err == nil || !strings.Contains(err.Error(), "at least 16 characters") {
+		t.Errorf("a short value must be refused: %v", err)
+	}
+	t.Setenv("API_TOKEN", "short${x}")
+	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err == nil {
+		t.Error("a short value that contains ${ must be refused")
+	}
+	t.Setenv("API_TOKEN", "0123456789abcdef")
+	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err != nil {
+		t.Errorf("a long value is accepted: %v", err)
+	}
+}

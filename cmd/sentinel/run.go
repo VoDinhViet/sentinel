@@ -49,14 +49,14 @@ func (a *cliApp) runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer stopAPI()
+			defer stopAPI() // also when the daemon fails to start while ctx is still live
 			return dm.Run(ctx)
 		},
 	}
 }
 
-// startAPI listens on api.listen, when it is set, and serves the API until ctx is done. The
-// returned function waits for the server to stop. A port that cannot be taken is an error here, at
+// startAPI listens on api.listen, when it is set, and serves the API until ctx is done or the
+// returned function is called, which waits for the server to stop. A port that cannot be taken is an error here, at
 // startup, not a line in the log of a daemon that goes on without its API.
 func (a *cliApp) startAPI(ctx context.Context, cfg *config.Config, st *store.Store) (stop func(), err error) {
 	if cfg.API.Listen == "" {
@@ -67,15 +67,16 @@ func (a *cliApp) startAPI(ctx context.Context, cfg *config.Config, st *store.Sto
 		return nil, fmt.Errorf("api.listen: %w", err)
 	}
 	handler := api.New(app.New(cfg, st, a.configPath), cfg.API.Token).Handler()
+	apiCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := api.Serve(ctx, ln, handler); err != nil {
+		if err := api.Serve(apiCtx, ln, handler); err != nil {
 			slog.Error("api stopped", "err", err)
 		}
 	}()
 	slog.Info("api listening", "addr", ln.Addr().String())
-	return func() { <-done }, nil
+	return func() { cancel(); <-done }, nil
 }
 
 // forceStopSignal is closed by the second stop signal (the first one already ended the daemon's

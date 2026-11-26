@@ -49,8 +49,8 @@ func TestRedactHidesCredentialsInBackendMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := redact(tt.text); got != tt.want {
-				t.Errorf("redact(%q)\n got %q\nwant %q", tt.text, got, tt.want)
+			if got := Redact(tt.text); got != tt.want {
+				t.Errorf("Redact(%q)\n got %q\nwant %q", tt.text, got, tt.want)
 			}
 		})
 	}

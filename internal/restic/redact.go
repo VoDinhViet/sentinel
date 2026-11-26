@@ -12,10 +12,10 @@ var (
 	secretValueRe = regexp.MustCompile(`(?i)\b([a-z0-9_]*(?:secret|passw(?:or)?d|pass|token|key|signature|credential)[a-z0-9_]*)=('[^']*'|"[^"]*"|[^\s,:&'"]+)`)
 )
 
-// redact masks credentials in text that restic or a backend printed, before it is stored, logged or
+// Redact masks credentials in text that restic or a backend printed, before it is stored, logged or
 // sent in an alert. Backend errors quote the repository address and the request that failed, and an
 // rclone connection string or a URL can carry the keys inside it.
-func redact(text string) string {
+func Redact(text string) string {
 	text = userinfoRe.ReplaceAllString(text, "${1}***@")
 	return secretValueRe.ReplaceAllString(text, "${1}=***")
 }
