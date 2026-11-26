@@ -14,12 +14,17 @@ import (
 const (
 	manageRefresh        = 5 * time.Second
 	manageRefreshRunning = 2 * time.Second
+	manageLoadTimeout    = 30 * time.Second // a load that hangs must still end, or the refresh would never come back
 	minColumn            = 6
 )
 
 // RunManage opens the terminal manager on svc and returns when the user leaves it.
 func RunManage(ctx context.Context, svc *app.Service) error {
-	load := func() (status.Report, error) { return svc.Status(ctx, time.Now()) }
+	load := func() (status.Report, error) {
+		loadCtx, cancel := context.WithTimeout(ctx, manageLoadTimeout)
+		defer cancel()
+		return svc.Status(loadCtx, time.Now())
+	}
 	model := newManageModel(ctx, load, newManageActions(svc), jobRepositoriesOfService(svc))
 	_, err := tea.NewProgram(model, tea.WithContext(ctx)).Run()
 	return err
@@ -98,6 +103,7 @@ type manageModel struct {
 	report          status.Report
 	loadErr         error
 	loaded          bool
+	reportAsked     time.Time // when the load behind m.report began; an older answer arriving late is dropped
 
 	screens  []screen // opened over the tabs, the last on show; see screen.go
 	tab      int
@@ -129,6 +135,10 @@ type (
 	reportMsg struct {
 		report status.Report
 		err    error
+		asked  time.Time
+		// periodic says the load was the timed refresh: its answer starts the next one, so loads never pile up
+		// behind a slow database.
+		periodic bool
 	}
 	refreshMsg       struct{}
 	spinMsg          struct{}

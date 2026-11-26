@@ -14,13 +14,20 @@ func newManageModel(ctx context.Context, load func() (status.Report, error), act
 }
 
 func (m manageModel) Init() tea.Cmd {
-	return tea.Batch(m.reload(), m.scheduleRefresh(), tea.RequestBackgroundColor)
+	return tea.Batch(m.reloadPeriodic(), tea.RequestBackgroundColor)
 }
 
-func (m manageModel) reload() tea.Cmd {
+// reload loads the report once, after an action changed something.
+func (m manageModel) reload() tea.Cmd { return m.loadReport(false) }
+
+// reloadPeriodic is the timed refresh: the next one is scheduled when its report arrives.
+func (m manageModel) reloadPeriodic() tea.Cmd { return m.loadReport(true) }
+
+func (m manageModel) loadReport(periodic bool) tea.Cmd {
+	asked := time.Now()
 	return func() tea.Msg {
 		report, err := m.load()
-		return reportMsg{report: report, err: err}
+		return reportMsg{report: report, err: err, asked: asked, periodic: periodic}
 	}
 }
 
@@ -49,18 +56,24 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(msg.Width-frameCols, 1), max(msg.Height-frameRows, 1)
 	case reportMsg:
-		m.loaded, m.loadErr = true, msg.err
-		if msg.err == nil {
-			m.report = msg.report
+		if !msg.asked.Before(m.reportAsked) { // an older load answering after a newer one must not undo it
+			m.reportAsked = msg.asked
+			m.loaded, m.loadErr = true, msg.err
+			if msg.err == nil {
+				m.report = msg.report
+			}
+			m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 		}
-		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+		if msg.periodic {
+			return m, m.scheduleRefresh()
+		}
 	case folderSizedMsg:
 		return m.onFolderSized(msg), nil
 	case doctorMsg:
 		m.doctor.running, m.doctor.findings = false, msg.findings
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case refreshMsg:
-		return m, tea.Batch(m.reload(), m.scheduleRefresh())
+		return m, m.reloadPeriodic()
 	case spinMsg:
 		return m.onSpin()
 	case backupStartedMsg:
