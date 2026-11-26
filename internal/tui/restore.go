@@ -76,7 +76,7 @@ type confirmScreen struct {
 func (s confirmScreen) onKey(m manageModel, key, text string) (manageModel, tea.Cmd) {
 	switch key {
 	case "esc":
-		return m.pop(), nil
+		return m.pop().pop(), nil // back to the snapshot list, not to the folder prompt
 	case "enter":
 		return s.start(m)
 	}
@@ -126,18 +126,27 @@ type resultScreen struct {
 func (m manageModel) afterRestore(msg restoreDoneMsg) manageModel {
 	m.endBusy()
 	done, ok := m.top().(confirmScreen)
-	if !ok {
+	if !ok { // the confirmation is always under the busy screen; if not, still say how it ended
+		m.notice, m.noticeBad = restoreEnd(msg), msg.err != nil
 		return m
 	}
 	m = m.pop().pop()
 	if msg.err != nil {
-		return m.push(resultScreen{text: "Restore thất bại: " + msg.err.Error(), bad: true})
+		return m.push(resultScreen{text: restoreEnd(msg), bad: true})
 	}
 	text := fmt.Sprintf("Đã restore %s của %s từ %s vào %s.", shortID(done.snap.ID), done.job, done.repo, done.target)
 	if msg.hint != "" {
 		text += "\n\nNạp lại bằng lệnh:\n  " + msg.hint + "\n\nLệnh này thay thế dữ liệu hiện có: hãy thử trên database hoặc server tạm trước."
 	}
 	return m.push(resultScreen{text: text})
+}
+
+// restoreEnd is the one line that says a restore failed, or finished.
+func restoreEnd(msg restoreDoneMsg) string {
+	if msg.err != nil {
+		return "Restore thất bại: " + msg.err.Error()
+	}
+	return "Restore xong."
 }
 
 func (s resultScreen) onKey(m manageModel, _, _ string) (manageModel, tea.Cmd) {

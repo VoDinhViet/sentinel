@@ -320,3 +320,69 @@ func TestCtrlCCancelsARunningActionButQDoesNotQuit(t *testing.T) {
 		t.Error("ctrl+c must cancel the running action")
 	}
 }
+
+func TestEscOnTheConfirmationReturnsToTheSnapshotList(t *testing.T) {
+	screen := modelWith(t, &fakeActions{})
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "/tmp/r")
+	model, _ = screen.onKey("enter", "")
+	if _, ok := openScreen[confirmScreen](model.(manageModel)); !ok {
+		t.Fatal("confirmation missing")
+	}
+	model, _ = model.(manageModel).onKey("esc", "")
+	if _, ok := openScreen[snapshotsScreen](model.(manageModel)); !ok {
+		t.Error("esc on the confirmation returns to the snapshot list")
+	}
+}
+
+// Another snapshot chosen after backing out restores that one, with the folder and the name asked again.
+func TestBackingOutAndChoosingAnotherSnapshotAsksAgain(t *testing.T) {
+	fake := &fakeActions{}
+	screen := modelWith(t, fake)
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "/tmp/r")
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "app")
+	model, _ = screen.onKey("esc", "") // back to the list
+	model, _ = model.(manageModel).onKey("down", "")
+	model, _ = model.(manageModel).onKey("enter", "")
+	asked, ok := openScreen[targetScreen](model.(manageModel))
+	if !ok || asked.target != "" || asked.snap.ID != "older00000000000" {
+		t.Fatalf("a new target prompt for the other snapshot: %+v", asked)
+	}
+	screen = typeText(t, model.(manageModel), "/tmp/other")
+	model, _ = screen.onKey("enter", "")
+	if confirm, _ := openScreen[confirmScreen](model.(manageModel)); confirm.typed != "" || confirm.target != "/tmp/other" {
+		t.Errorf("the confirmation starts empty for the new restore: %+v", confirm)
+	}
+	if len(fake.restored) != 0 {
+		t.Errorf("nothing restored yet: %v", fake.restored)
+	}
+}
+
+func TestCancellingARestoreEndsOnTheTabs(t *testing.T) {
+	fake := &fakeActions{}
+	screen := modelWith(t, fake)
+	model, cmd := screen.onKey("s", "")
+	screen = feed(t, model.(manageModel), messagesOf(cmd))
+	fake.failWith = context.Canceled
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "/tmp/r")
+	model, _ = screen.onKey("enter", "")
+	screen = typeText(t, model.(manageModel), "appdb")
+	model, cmd = screen.onKey("enter", "")
+	screen = model.(manageModel)
+	model, _ = screen.onKey("enter", "") // enter on the busy screen does nothing
+	if !isBusy(model.(manageModel)) {
+		t.Fatal("the busy screen stays until the action answers")
+	}
+	screen = feed(t, screen, messagesOf(cmd))
+	model, _ = screen.onKey("x", "x")
+	if !model.(manageModel).onTabs() {
+		t.Error("a failed restore closes back to the tabs")
+	}
+}
