@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // fillHistory writes perName results for each of names, oldest first, and a backup run history of
@@ -131,5 +132,26 @@ func TestPruneDeletesEveryBatch(t *testing.T) {
 	}
 	if err := s.Prune(ctx, recent.Add(-time.Hour)); err != nil {
 		t.Errorf("a second prune of nothing: %v", err)
+	}
+}
+
+func TestRecordBackupCapsALongError(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	long := strings.Repeat("không đọc được tệp /srv/data/tệp-lớn\n", 5000)
+	run := BackupRun{Job: "web", Repository: "main", StartedAt: time.Unix(100, 0), FinishedAt: time.Unix(160, 0), Error: long}
+	if err := s.RecordBackup(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.LatestBackups(ctx)
+	if err != nil || len(latest) != 1 {
+		t.Fatalf("latest = %v, %v", latest, err)
+	}
+	got := latest[0].Error
+	if len(got) > maxErrorBytes+len("… (cut)") || !strings.HasSuffix(got, "… (cut)") || !strings.HasPrefix(long, strings.TrimSuffix(got, "… (cut)")) {
+		t.Errorf("error of %d bytes kept as %d bytes: %.60q…", len(long), len(got), got)
+	}
+	if !utf8.ValidString(got) {
+		t.Error("the cut error is not valid UTF-8")
 	}
 }

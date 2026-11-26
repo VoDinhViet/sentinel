@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -238,12 +239,24 @@ func (r BackupRun) Summary() string {
 	return "ok"
 }
 
+// maxErrorBytes caps the error kept with a run: restic lists every file it could not read, and the history
+// and the screens that draw it need the start of that, not a megabyte.
+const maxErrorBytes = 4096
+
+// capError cuts text to maxErrorBytes without splitting a character.
+func capError(text string) string {
+	if len(text) <= maxErrorBytes {
+		return text
+	}
+	return strings.ToValidUTF8(text[:maxErrorBytes], "") + "… (cut)"
+}
+
 func (s *Store) RecordBackup(ctx context.Context, run BackupRun) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO backup_runs
 		(job, repository, started_at, finished_at, success, snapshot_id, files_new, files_changed, bytes_added, total_bytes, error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.Job, run.Repository, run.StartedAt.Unix(), run.FinishedAt.Unix(), run.Success, run.SnapshotID,
-		run.FilesNew, run.FilesChanged, run.BytesAdded, run.TotalBytes, run.Error)
+		run.FilesNew, run.FilesChanged, run.BytesAdded, run.TotalBytes, capError(run.Error))
 	return err
 }
 

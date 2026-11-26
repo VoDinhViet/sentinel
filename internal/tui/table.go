@@ -308,13 +308,19 @@ func placeholderText(line manageLine, selected bool, inner int) string {
 	return "  " + dimStyle.Render(text)
 }
 
+// truncate shortens text to width cells with a "…" at the end, in one pass over the runes: an error of
+// restic can be a few KB on one line and this runs at every draw.
 func truncate(text string, width int) string {
 	if lipgloss.Width(text) <= width {
 		return text
 	}
-	runes := []rune(text)
-	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > width {
-		runes = runes[:len(runes)-1]
+	used, kept := 0, 0
+	for index, char := range text {
+		used += lipgloss.Width(string(char))
+		if used+1 > width {
+			break
+		}
+		kept = index + len(string(char))
 	}
-	return string(runes) + "…"
+	return text[:kept] + "…"
 }
