@@ -19,4 +19,4 @@ paths:
 - **Docker**: the image packages the prebuilt `bin/sentinel` on Alpine with restic, rclone and the dump tools; it runs as root unless
   compose sets uid 10001. Keep dump tool versions compatible with the engines the e2e tests cover.
 - **e2e scripts** (`test/*.sh`) clean up their containers on exit and must keep passing: `make e2e`, `make e2e-engines`.
-- Operator docs for these files (`README.md`, `gm/`) are Vietnamese; update them when behaviour or flags change.
+- Operator docs for these files (`README.md`) are Vietnamese; update them when behaviour or flags change.

@@ -49,4 +49,4 @@ appends a history row; `Save…` upserts state or a file; `Find…` returns one 
 - Bubbletea messages are `<thing><past tense>Msg` (`reportLoadedMsg`); tabs are named constants, never bare `0`/`2`.
 - Short names that stay fine: `err`, `ctx`, `i`/`j` in short loops, 1–2 letter receivers, cobra `cmd`/`args`, `t` in tests, `tx`.
 - User-facing contract (YAML keys, CLI names and flags, `status -o json`, SQLite schema, restic tag `job=<name>`, dump file
-  names) changes only on purpose, with the README, `gm/` and `deploy/` examples updated in the same commit.
+  names) changes only on purpose, with the README and `deploy/` examples updated in the same commit.

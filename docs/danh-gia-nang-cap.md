@@ -41,7 +41,7 @@ Ba vấn đề phụ khi nâng cấp và cấu hình: `install.sh` không restar
 | B9 | Không có lệnh `unlock` cho lock cũ | tìm `unlock` không thấy |
 | B10 | Restore và check không dùng `nice`/`ionice`; không có `--limit-download` | `internal/backup/restore.go:18` |
 | B11 | Thiếu: `pg_dumpall` (roles, globals), chế độ mọi database, SQLite, Redis, `keep-within`, `keep-hourly`, `exclude-caches` | tìm không thấy |
-| B12 | Không có version cho schema config; chỉ có bảng `renamedKeys` | `internal/config/load.go:187` |
+| B12 | Không có version cho schema config; khóa lạ trong config cũ chỉ báo `field X not found`, không có gợi ý | `internal/config/load.go` |
 | B13 | Validate không chặn `timeout` âm và retention âm; nếu mọi số retention đều âm thì `forget --prune` chạy mà không có luật giữ | `internal/config/validate.go`, `internal/restic/client.go:384` |
 | B14 | Probe kết nối database truyền toàn bộ `os.Environ()` cho tiến trình dump, khác với đường backup | `internal/engine/probe.go:57` |
 | B15 | Mật khẩu Postgres đi qua `PGPASSWORD`; mật khẩu repository không có tùy chọn file | `internal/engine/postgres.go:39`, `internal/config/validate.go:21` |
