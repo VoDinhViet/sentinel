@@ -5,8 +5,8 @@ checks, alerts). It is a CLI plus a daemon (`sentinel run`) driven by a YAML con
 
 **Direction (RFC 0002, in progress):** an optional control plane, `sentinel-server`, that agents dial out to over mTLS. The
 repo is three Go modules joined by `go.work`: `pkg/` (shared: `agentapi`, `alert`, `notify`, `termtext`, `yamlenv`; `pki`
-comes later), `agent/` (this code, binary `sentinel`) and `server/` (binaries `sentinel-server` and `sentinelctl`, not yet
-there). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
+comes later), `agent/` (this code, binary `sentinel`) and `server/` (`sentinel-server`: init, enroll, passwd, audit verify so far;
+`serve` and `sentinelctl` come next). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
 `agent/` and `pkg/`, and works with no control plane at all, so it can be rolled out to many servers by itself. The daemon can
 still serve a small JSON HTTP API (`internal/api`, `net/http`, bearer token, off unless `api.listen` is set) and watch other
 servers (`internal/fleet`); both go away when the control plane replaces them. The admin of the control plane signs in with one
@@ -23,5 +23,5 @@ operators use.
   an action that runs a shell or takes a path, a package name or a free-form command. The agent's local allowlist
   (`control_plane.allow`, everything off by default) has the last word; the control plane cannot widen it.
 - `internal/app` (agent) and `server/internal/app` are the services their CLI, TUI and HTTP layers call; `server/internal/httpapi`
-  holds handlers only. `pkg/` never imports `agent/` or `server/`, and `server/` never imports `agent/` outside tests.
+  holds handlers only. `pkg/` never imports `agent/` or `server/`, and `server/` never imports `agent/` outside tests (`make layers` checks it).
 - Path-scoped rules live in `.claude/rules/` (Go code, deploy/ops).

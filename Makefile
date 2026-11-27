@@ -4,13 +4,13 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build install uninstall dist lint vuln layers test e2e e2e-engines docker clean
+.PHONY: build build-server install uninstall dist lint vuln layers test e2e e2e-engines docker clean
 
 # Go toolchain: the one on this machine, or the golang image through docker when Go is not installed.
 HAVE_GO := $(shell command -v go 2>/dev/null)
 
 # The Go modules of the repo (see go.work). Each has its own go.mod, so the Go tools run once in each.
-MODULES := pkg agent
+MODULES := pkg agent server
 DOCKER_GO = docker run --rm -v "$(CURDIR)":/work -w /work -v sentinel-gocache:/root/.cache -v sentinel-gopath:/go \
 	-e CGO_ENABLED=0 -e GOWORK -e GOFLAGS=-buildvcs=false golang:1.27
 ifeq ($(HAVE_GO),)
@@ -27,6 +27,16 @@ ifeq ($(HAVE_GO),)
 		&& chown $(shell id -u):$(shell id -g) bin bin/sentinel'
 else
 	CGO_ENABLED=0 go -C agent build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel ./cmd/sentinel
+endif
+
+# The control plane, bin/sentinel-server. sentinelctl joins it when it exists.
+build-server:
+ifeq ($(HAVE_GO),)
+	mkdir -p bin
+	$(DOCKER_GO) sh -c 'go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel-server ./cmd/sentinel-server \
+		&& chown $(shell id -u):$(shell id -g) bin bin/sentinel-server'
+else
+	CGO_ENABLED=0 go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel-server ./cmd/sentinel-server
 endif
 
 # Release files for deploy/install.sh: sentinel_linux_<arch>.tar.gz (the binary, README.md, deploy/) and
@@ -65,10 +75,12 @@ vuln:
 	for m in $(MODULES); do $(GO) -C $$m run $(GOVULNCHECK) ./... || exit 1; done
 
 # The agent is shipped alone to many servers: it builds without go.work, uses pkg and nothing of the
-# control plane, and pkg uses neither the agent nor the server. Only pkg/pki may turn off the
+# control plane, and pkg uses neither the agent nor the server. The server never uses the agent either. Only pkg/pki may turn off the
 # system check of a server certificate (it replaces it with a check against a pinned CA).
 layers:
 	GOWORK=off $(GO) -C agent build -o /dev/null ./cmd/sentinel
+	GOWORK=off $(GO) -C server build -o /dev/null ./cmd/sentinel-server
+	! $(GO) -C server list -deps ./... | grep '^sentinel/agent'
 	! $(GO) -C agent list -deps ./... | grep '^sentinel/server'
 	! $(GO) -C pkg list -deps ./... | grep -E '^sentinel/(agent|server)'
 	! grep -rn --include='*.go' InsecureSkipVerify agent pkg server 2>/dev/null | grep -v '^pkg/pki/'

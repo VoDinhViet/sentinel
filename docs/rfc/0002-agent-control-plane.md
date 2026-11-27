@@ -152,7 +152,8 @@ Chỉ **một mật khẩu quản trị**. Không username, role, API token, cer
 - Băm bằng PBKDF2-HMAC-SHA256 (`crypto/pbkdf2`), 600.000 vòng, salt 16 byte, lưu `pbkdf2-sha256$<vòng>$<salt>$<hash>`. So sánh bằng `subtle.ConstantTimeCompare`. Tối thiểu 12 ký tự.
 - `sentinelctl login` hỏi mật khẩu (hoặc `--password-stdin`), gọi `POST /v1/admin/login`, nhận session token 256-bit. Session hết hạn sau 12 giờ, hoặc 1 giờ không dùng. Server chỉ lưu SHA-256 của token.
 - Client giữ session ở `~/.config/sentinel/session` (0600); từ chối file có quyền rộng hơn.
-- Chống dò mật khẩu: một IP sai 5 lần liên tiếp bị chặn 15 phút; toàn server không quá 30 lần sai mỗi giờ. Không khoá toàn cục, vì như vậy kẻ tấn công khoá được cả admin thật.
+- Chống dò mật khẩu: một IP sai 5 lần liên tiếp bị chặn 15 phút (kể cả khi sau đó nhập đúng). Khi cả server đã thấy 30 lần sai trong một giờ, mỗi IP chỉ được sai 1 lần trước khi bị chặn. Không có khoá toàn cục: một IP chưa sai lần nào vẫn đăng nhập được, nên kẻ tấn công không khoá được admin thật. Lần sai bị quên sau một giờ; đăng nhập đúng xoá bộ đếm của IP đó. Đổi mật khẩu cũng đi qua cùng bộ đếm, nên không dùng nó để dò mật khẩu cũ được. Mỗi lượt thử được đếm **trước** khi băm, trong cùng transaction với việc kiểm tra bị chặn, nên gửi 1000 request cùng lúc từ một IP cũng chỉ được 5 lượt. Tối đa 2 lần băm chạy song song. Còn lại: nhiều IP khác nhau (IPv6 /64) vẫn tốn CPU băm và thêm dòng audit `login.fail`; nhật ký không bao giờ xoá, nên đây là giới hạn đã biết.
+- Audit ghi mọi lần đăng nhập đúng, sai và lần bị chặn đầu tiên; không ghi các request bị chặn tiếp theo và các lần join sai token (chỉ `slog`), vì nhật ký không bao giờ xoá và ai cũng gửi được request sai.
 - `sentinelctl passwd` đổi mật khẩu và thu hồi mọi session. Quên mật khẩu thì chạy `sentinel-server passwd` bằng root trên máy server.
 - Audit ghi người thao tác là `admin` cùng IP và 8 ký tự đầu của hash session.
 
