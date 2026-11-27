@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"slices"
@@ -225,7 +227,32 @@ func fleetFinding(settings config.Fleet) Finding {
 	if err != nil {
 		return Finding{Name: "fleet", Warn: true, Err: err, Hint: "fix the fleet file: until then the daemon watches no server"}
 	}
+	if open := serversOverPlainHTTP(cfg.Servers); len(open) > 0 {
+		return Finding{
+			Name: "fleet", Warn: true,
+			Err:  fmt.Errorf("%s: asked over http:// on another machine, so the token is sent without TLS", strings.Join(open, ", ")),
+			Hint: "give that server api.tls_cert and api.tls_key and use https://, or reach it through an SSH tunnel",
+		}
+	}
 	return Finding{Name: "fleet", Info: fmt.Sprintf("watching %d servers every %s, alert after %d failed rounds", len(cfg.Servers), settings.Every, settings.FailAfter)}
+}
+
+// serversOverPlainHTTP names the servers whose token travels in clear text to another machine: an
+// http:// address that is not this machine's own.
+func serversOverPlainHTTP(servers []fleet.Server) []string {
+	var open []string
+	for _, server := range servers {
+		address, err := url.Parse(server.URL)
+		if err == nil && address.Scheme == "http" && !isThisMachine(address.Hostname()) {
+			open = append(open, server.Name)
+		}
+	}
+	return open
+}
+
+func isThisMachine(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || (ip != nil && ip.IsLoopback())
 }
 
 // certificateWarnDays is how long before it expires a certificate of the API is reported.
@@ -233,7 +260,7 @@ const certificateWarnDays = 14
 
 // apiTLSFinding checks what the daemon will do at start: load the certificate and its key. It fails
 // for a pair that cannot be loaded or a certificate that has expired, and warns when the
-// certificate expires soon or its key can be read by other users.
+// certificate expires soon or its key can be read by other users (both are said when both hold).
 func apiTLSFinding(settings config.API, now time.Time) Finding {
 	pair, err := tls.LoadX509KeyPair(settings.TLSCert, settings.TLSKey)
 	if err != nil {
@@ -244,14 +271,22 @@ func apiTLSFinding(settings config.API, now time.Time) Finding {
 		return Finding{Name: "api", Err: fmt.Errorf("tls_cert is not a certificate: %w", err)}
 	}
 	expiry := leaf.NotAfter.Format("2006-01-02")
-	switch left := leaf.NotAfter.Sub(now); {
-	case left <= 0:
+	left := leaf.NotAfter.Sub(now)
+	if left <= 0 {
 		return Finding{Name: "api", Err: fmt.Errorf("the certificate of the API expired on %s", expiry), Hint: "renew it and restart the daemon"}
-	case left < certificateWarnDays*24*time.Hour:
-		return Finding{Name: "api", Warn: true, Err: fmt.Errorf("the certificate of the API expires on %s", expiry), Hint: "renew it and restart the daemon: it is read at start"}
+	}
+	// Every warning is shown: one must not hide the other.
+	var problems, hints []string
+	if left < certificateWarnDays*24*time.Hour {
+		problems = append(problems, "the certificate of the API expires on "+expiry)
+		hints = append(hints, "renew it and restart the daemon: it is read at start")
 	}
 	if info, err := os.Stat(settings.TLSKey); err == nil && info.Mode().Perm()&0o077 != 0 {
-		return Finding{Name: "api", Warn: true, Err: fmt.Errorf("%s, the private key of the API, can be read by other users", settings.TLSKey), Hint: "run chmod 600 on it"}
+		problems = append(problems, fmt.Sprintf("%s, the private key of the API, can be read by other users", settings.TLSKey))
+		hints = append(hints, "run chmod 600 on it")
+	}
+	if len(problems) > 0 {
+		return Finding{Name: "api", Warn: true, Err: errors.New(strings.Join(problems, "; ")), Hint: strings.Join(hints, "; ")}
 	}
 	return Finding{Name: "api", Info: fmt.Sprintf("HTTPS on %s, the certificate expires on %s", settings.Listen, expiry)}
 }

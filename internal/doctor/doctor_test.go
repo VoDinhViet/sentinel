@@ -201,6 +201,13 @@ func TestAPIFindingChecksTheCertificateInsteadOfWarningAboutPlainHTTP(t *testing
 	}
 }
 
+func TestAPIFindingSaysEveryWarning(t *testing.T) {
+	finding := apiFinding(&config.Config{API: writeAPICertificate(t, time.Now().Add(7*24*time.Hour), 0o644)})
+	if finding.Err == nil || !finding.Warn || !strings.Contains(finding.Err.Error(), "expires on") || !strings.Contains(finding.Err.Error(), "can be read by other users") {
+		t.Errorf("finding = %+v, want the expiry and the key said together", finding)
+	}
+}
+
 func TestAPIFindingFailsForFilesThatCannotBeLoaded(t *testing.T) {
 	missing := config.API{Listen: "0.0.0.0:9311", TLSCert: "/nowhere/cert.pem", TLSKey: "/nowhere/key.pem"}
 	if finding := apiFinding(&config.Config{API: missing}); finding.Err == nil || finding.Warn || !strings.Contains(finding.Err.Error(), "cannot be loaded") {
@@ -229,5 +236,35 @@ func TestFleetFindingReadsTheFileTheDaemonWillWatch(t *testing.T) {
 	missing := config.Fleet{Config: filepath.Join(dir, "none.yaml"), Every: time.Minute, FailAfter: 3}
 	if finding := fleetFinding(missing); finding.Err == nil || !finding.Warn {
 		t.Errorf("no file: %+v", finding)
+	}
+}
+
+func TestFleetFindingWarnsOfATokenSentOverPlainHTTPToAnotherMachine(t *testing.T) {
+	tests := map[string]struct {
+		url      string
+		wantWarn bool
+	}{
+		"https":              {"https://web-01.example.com:9311", false},
+		"http to loopback":   {"http://127.0.0.1:9311", false},
+		"http to localhost":  {"http://localhost:9311", false},
+		"http to IPv6 local": {"http://[::1]:9311", false},
+		"http to a host":     {"http://web-01.example.com:9311", true},
+		"http to an address": {"http://10.0.0.5:9311", true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "fleet.yaml")
+			content := "servers:\n  - { name: web-01, url: '" + tc.url + "', token: read-token-0123456789 }\n"
+			if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			finding := fleetFinding(config.Fleet{Config: file, Every: time.Minute, FailAfter: 3})
+			if warned := finding.Err != nil && finding.Warn; warned != tc.wantWarn {
+				t.Errorf("finding = %+v, want a warning: %v", finding, tc.wantWarn)
+			}
+			if finding.Err != nil && !strings.Contains(finding.Err.Error(), "web-01") {
+				t.Errorf("the warning must name the server: %v", finding.Err)
+			}
+		})
 	}
 }
