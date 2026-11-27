@@ -15,6 +15,7 @@ import (
 	"sentinel/internal/app"
 	"sentinel/internal/backup"
 	"sentinel/internal/doctor"
+	"sentinel/internal/fleet"
 	"sentinel/internal/host"
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
@@ -376,6 +377,36 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "\x1b") || strings.Contains(rec.Body.String(), `\u001b`) { // the byte, or its JSON escape
 		t.Errorf("a control character of a unit description reached the response: %s", rec.Body)
+	}
+}
+
+// The fleet client reads this route into its own type. Whatever the route says, that type must
+// have a place for it, and the other way round, or the two ends have drifted apart.
+func TestTheFleetClientReadsEveryFieldOfHost(t *testing.T) {
+	backend := &fakeBackend{hostReport: app.HostReport{State: host.State{
+		Systemd: true, Sentinel: host.Unit{Name: "sentinel.service"}, Errs: []error{errors.New("x")},
+		Disks: []host.Disk{{Mount: "/"}}, FailedUnits: []host.Unit{{Name: "nginx.service"}},
+	}}}
+	body := call(t, backend, "GET", "/api/v1/host", testToken).Body.Bytes()
+
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.DisallowUnknownFields()
+	var read fleet.HostStatus
+	if err := decoder.Decode(&read); err != nil {
+		t.Fatalf("the fleet type cannot hold what the route sends: %v", err)
+	}
+	again, err := json.Marshal(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent, kept map[string]any
+	if json.Unmarshal(body, &sent) != nil || json.Unmarshal(again, &kept) != nil {
+		t.Fatal("not JSON")
+	}
+	for key := range sent {
+		if _, ok := kept[key]; !ok {
+			t.Errorf("the route sends %q and the fleet type drops it", key)
+		}
 	}
 }
 

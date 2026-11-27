@@ -344,9 +344,16 @@ func TestBrowserMouse(t *testing.T) {
 	if screen.browse.cursor != min(alpha+wheelStep, len(rows)-1) {
 		t.Errorf("the wheel moves the cursor: %d", screen.browse.cursor)
 	}
-	screen, _ = clickOn(t, screen, "bro:"+itoa(screen.browse.cursor))
-	if screen.browse.dir == root {
-		t.Error("a click on the selected row opens it")
+	// The wheel can land on locked/, which a user who is not root cannot list and so cannot enter; open
+	// a folder that can always be listed.
+	beta := slices.IndexFunc(rows, func(row browseRow) bool { return row.name == "beta/" })
+	screen, _ = clickOn(t, screen, "bro:"+itoa(beta))
+	if screen.browse.cursor != beta || screen.browse.dir != root {
+		t.Errorf("a click on another row selects it: cursor %d dir %q", screen.browse.cursor, screen.browse.dir)
+	}
+	screen, _ = clickOn(t, screen, "bro:"+itoa(beta))
+	if want := filepath.Join(root, "beta"); screen.browse.dir != want {
+		t.Errorf("a click on the selected row opens it: dir %q, want %q", screen.browse.dir, want)
 	}
 	screen, _ = clickOn(t, screen, "ctrl+s")
 	if !screen.formOpen() || !strings.Contains(screen.form.field("paths").value, filepath.Join(root, "alpha")) {
