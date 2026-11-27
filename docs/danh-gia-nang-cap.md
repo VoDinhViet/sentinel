@@ -55,7 +55,7 @@ Ba vấn đề phụ khi nâng cấp và cấu hình: `install.sh` không restar
 | M2 | Lỗi gửi alert bị bỏ qua và `LastNotified` đã được đặt trước khi gửi, nên alert mở gửi lỗi sẽ im lặng tới lần nhắc kế tiếp (tối đa 1 giờ); tin RESOLVED lỗi thì mất hẳn | `internal/alert/alert.go:87`, `:97` |
 | M3 | Gửi alert nằm trong task probe, thử lại có thể mất khoảng 50 giây, trong thời gian đó cron bỏ lượt probe | `internal/daemon/daemon.go:78` |
 | M4 | Một lần thành công là đóng alert uptime, không chống flapping | `internal/daemon/uptime_tracker.go:74` |
-| M5 | Không có cảnh báo ổ đĩa đầy. Phần đo CPU/RAM/disk đã bị xóa cùng đợt bỏ Beszel (commit `dda2b02`) | `internal/store/store.go:65` |
+| M5 | Không có cảnh báo ổ đĩa đầy: phần đo CPU/RAM/disk đã bị xóa cùng đợt bỏ Beszel (commit `dda2b02`), bảng `metrics` bị `DROP` | `internal/store/store.go:71` (migration). **Đã xử lý**: daemon kiểm tra ổ đĩa mỗi 15 phút và mở alert khi trống dưới `disk.min_free_percent` (mặc định 10%), `internal/daemon/disk.go`. CPU và RAM vẫn không đo để cảnh báo; tab Server chỉ cho xem lúc này |
 | M6 | Không reload cấu hình khi đổi file, phải restart | tìm SIGHUP không thấy |
 | M7 | Alert của check hoặc job đã xóa khỏi config vẫn mở mãi | `internal/store/store.go:389` |
 | M8 | Probe còn ít: chỉ http (GET), tcp, ping; không có DNS, header, auth, ngưỡng latency | `internal/uptime/uptime.go:32` |
@@ -130,4 +130,6 @@ Rà soát an toàn sau khi làm P1 đã tìm ra và sửa thêm:
 
 ## Ngoài phạm vi
 
-Không đề xuất tính năng AI hay LLM, web UI, central server. Việc đo CPU và RAM của máy chủ vẫn nằm ngoài Sentinel; chỉ thêm lại cảnh báo ổ đĩa đầy vì chính ổ đầy làm hỏng backup.
+Giám sát nhiều server vẫn không cần central server: làm theo mô hình pull, máy xem gọi API của từng daemon, xem [RFC 0001](rfc/0001-multi-server-monitoring.md).
+
+Không đề xuất tính năng AI hay LLM, web UI, central server. Sentinel chỉ cho xem CPU, RAM, swap và ổ đĩa lúc này ở tab Server của `sentinel manage`; không lưu lịch sử và không cảnh báo về CPU hay RAM, việc đó để công cụ giám sát riêng. Cảnh báo duy nhất về máy chủ là ổ đĩa sắp đầy (`disk.min_free_percent`), vì chính ổ đầy làm hỏng backup.
