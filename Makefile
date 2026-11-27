@@ -65,11 +65,13 @@ vuln:
 	for m in $(MODULES); do $(GO) -C $$m run $(GOVULNCHECK) ./... || exit 1; done
 
 # The agent is shipped alone to many servers: it builds without go.work, uses pkg and nothing of the
-# control plane, and pkg uses neither the agent nor the server.
+# control plane, and pkg uses neither the agent nor the server. Only pkg/pki may turn off the
+# system check of a server certificate (it replaces it with a check against a pinned CA).
 layers:
 	GOWORK=off $(GO) -C agent build -o /dev/null ./cmd/sentinel
 	! $(GO) -C agent list -deps ./... | grep '^sentinel/server'
 	! $(GO) -C pkg list -deps ./... | grep -E '^sentinel/(agent|server)'
+	! grep -rn --include='*.go' InsecureSkipVerify agent pkg server 2>/dev/null | grep -v '^pkg/pki/'
 
 test: layers lint vuln
 	for m in $(MODULES); do $(GO) -C $$m vet ./... && $(GO) -C $$m test ./... || exit 1; done

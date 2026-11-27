@@ -113,18 +113,19 @@ Hướng phụ thuộc, không vòng: `agent → pkg`, `server → pkg`, `pkg` k
 ## 7. PKI và enroll
 
 - **CA** do `sentinel-server init` tạo (ECDSA P-256, 10 năm), khoá ở `state_dir` mode 0600.
+- **Cert server**: do CA ký, hạn 1 năm, SAN là các host/IP trong URL của control plane. Server gửi kèm CA trong chuỗi cert (cert server trước, CA sau) để agent đang join lấy được CA từ fingerprint.
 - **Cert agent**: ECDSA P-256, hạn 90 ngày, tự gia hạn khi còn 30 ngày. Khoá của agent **không rời máy agent**, được sinh lại mỗi lần gia hạn.
-- **Danh tính** lấy từ URI SAN `sentinel://agent/<tên>`. Subject trong CSR bị bỏ qua. Cert chỉ có ExtKeyUsage ClientAuth, không bao giờ IsCA, serial ngẫu nhiên 128-bit.
+- **Danh tính** lấy từ URI SAN `sentinel://agent/<tên>`. CSR chỉ chứa khoá công khai (không có tên): server tự đặt tên, và subject, SAN hay yêu cầu IsCA trong CSR đều bị bỏ qua. Cert chỉ có ExtKeyUsage ClientAuth, không bao giờ IsCA, serial ngẫu nhiên 128-bit.
 - **Thu hồi**: bảng `certs`; control plane kiểm tra serial ở mọi request của agent, nên không cần phát CRL.
 - **Nơi lưu** trên agent: `<thư mục store>/agent/{cert,key,ca}.pem`. Không dùng `/etc` vì `ProtectSystem=full` khoá ghi.
 
 Luồng enroll:
 
 1. `sentinel-server enroll web01` tạo agent `pending` và một join token (24 giờ, dùng một lần, lưu SHA-256), in ra lệnh join.
-2. Trên server: `sentinel agent join --url … --token … --ca-fingerprint sha256:…`. Agent sinh khoá và CSR, gọi `POST /v1/enroll/join` qua kết nối **ghim fingerprint** của cert server (`pki.PinnedTLSConfig`), nhận cert và CA, ghi file.
+2. Trên server: `sentinel agent join --url … --token … --ca-fingerprint sha256:…`. Agent sinh khoá và CSR, gọi `POST /v1/enroll/join` qua kết nối **ghim fingerprint của CA** (`pki.PinnedTLSConfig(fingerprint, host)`: CA trong chuỗi cert server phải có đúng fingerprint, cert server phải do CA đó ký, đúng host trong URL, còn hạn, dùng cho server), nhận cert và CA, ghi file.
 3. Agent chuyển `active`. Từ đó mọi request dùng mTLS.
 
-`pki.PinnedTLSConfig` là nơi duy nhất được dùng `InsecureSkipVerify`, kèm `VerifyConnection` tự kiểm tra chuỗi cert.
+`pki.PinnedTLSConfig` là nơi duy nhất được dùng `InsecureSkipVerify`, kèm `VerifyConnection` tự kiểm tra chuỗi cert. Host được truyền vào vì client dial bằng IP không ghi tên vào `ConnectionState`, và kiểm tra với tên rỗng sẽ bỏ qua bước so host. `make layers` chặn mọi `InsecureSkipVerify` ngoài `pkg/pki`.
 
 ## 8. Giao thức agent
 
@@ -253,7 +254,7 @@ Làm sau khi control plane thay được `fleet status`, `fleet alerts` và Flee
 | Sửa audit | Trigger append-only, chuỗi hash, bản sao journald. Root trên máy control plane vẫn sửa được DB: rủi ro còn lại, ghi rõ |
 | Text độc trong report hoặc log | `termtext.Clean`, `restic.Redact`, `MaxBytesReader`, giới hạn độ dài |
 | Tiêm tham số | Regex, khớp chính xác allowlist, argv slice kèm `--`, `url.PathEscape` cho Docker |
-| Secret lọt qua danh sách tiến trình | Chỉ thu tên và user của tiến trình, không bao giờ cmdline hay env |
+| Secret lọt qua danh sách tiến trình | Chỉ thu tên tiến trình, không bao giờ cmdline, env hay user |
 | Mất control plane | Agent vẫn backup và tự cảnh báo; backup `state_dir` (gồm khoá CA) bằng chính Sentinel |
 
 ## 17. Lộ trình
