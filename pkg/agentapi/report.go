@@ -30,6 +30,8 @@ type Report struct {
 	Backups []BackupStatus `json:"backups"`
 	Checks  []CheckStatus  `json:"checks"`
 	Alerts  []AlertStatus  `json:"alerts"`
+	// Allow is the actions this agent will run: its local allowlist, which the control plane cannot widen.
+	Allow []string `json:"allow"`
 }
 
 // BackupStatus is the latest run of one job into one repository.
@@ -77,6 +79,7 @@ func (r Report) Clean() Report {
 		alert.Key, alert.Message = short(alert.Key), short(alert.Message)
 		return alert
 	})
+	r.Allow = cleanEach(first(r.Allow), short)
 	return r
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -52,6 +53,7 @@ func printDetail(out io.Writer, detail ctlapi.AgentDetail, now time.Time) {
 		return
 	}
 	fmt.Fprintf(out, "  Báo cáo lúc:       %s\n", format.Ago(detail.ReportAt, now))
+	fmt.Fprintf(out, "  Cho phép:          %s\n", allowedText(detail.Report.Allow))
 	printHost(out, detail.Report.Host)
 	printBackups(out, detail.Report.Backups)
 	printChecks(out, detail.Report.Checks)
@@ -150,4 +152,12 @@ chứng chỉ không gia hạn được); cảnh báo trên từng server (backu
 			return nil
 		},
 	}
+}
+
+// allowedText is the actions the server's own allowlist lets run.
+func allowedText(allow []string) string {
+	if len(allow) == 0 {
+		return "không có action nào (control_plane.allow trong config của server)"
+	}
+	return strings.Join(allow, ", ")
 }

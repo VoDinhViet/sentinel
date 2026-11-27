@@ -16,6 +16,9 @@ const (
 	RouteAgents      = "/v1/ctl/agents"
 	RouteAgent       = "/v1/ctl/agents/{name}" // GET shows, DELETE revokes
 	RouteAlerts      = "/v1/ctl/alerts"
+	RouteTasks       = "/v1/ctl/tasks"             // GET lists, POST queues one
+	RouteTask        = "/v1/ctl/tasks/{id}"        // GET shows, DELETE takes back one that is waiting
+	RouteTaskEvents  = "/v1/ctl/tasks/{id}/events" // text/event-stream: state, log and done events
 	RouteAudit       = "/v1/ctl/audit"
 	RouteAuditVerify = "/v1/ctl/audit/verify"
 )
@@ -96,3 +99,48 @@ type AuditVerify struct {
 	Checked int    `json:"checked"`
 	Error   string `json:"error,omitempty"`
 }
+
+// Task is one thing an agent was asked to do.
+type Task struct {
+	ID         int64             `json:"id"`
+	Agent      string            `json:"agent"`
+	Action     string            `json:"action"`
+	Params     map[string]string `json:"params"`
+	State      string            `json:"state"` // queued, sent, succeeded, failed, refused, canceled or expired
+	CreatedAt  time.Time         `json:"created_at"`
+	CreatedBy  string            `json:"created_by"`
+	SentAt     *time.Time        `json:"sent_at,omitempty"`
+	StartedAt  *time.Time        `json:"started_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
+	Output     string            `json:"output,omitempty"`
+	Error      string            `json:"error,omitempty"`
+}
+
+// TaskLine is a line of the log of a task.
+type TaskLine struct {
+	Seq  int64     `json:"seq"`
+	At   time.Time `json:"at"`
+	Text string    `json:"text"`
+}
+
+// TaskDetail is a task with the log its agent wrote while it ran.
+type TaskDetail struct {
+	Task
+	Log []TaskLine `json:"log"`
+}
+
+// CreateTaskRequest queues an action for one server.
+type CreateTaskRequest struct {
+	Agent  string            `json:"agent"`
+	Action string            `json:"action"`
+	Params map[string]string `json:"params"`
+}
+
+// The events of RouteTaskEvents. A "log" event has the sequence number of the line as its id, and its
+// data is a TaskLine, so a client that was cut off resumes with Last-Event-ID. "state" has {"state": …}
+// and "done" is the Task as it ended, after which the stream closes.
+const (
+	EventState = "state"
+	EventLog   = "log"
+	EventDone  = "done"
+)

@@ -97,7 +97,7 @@ func call(t *testing.T, client *http.Client, method, url, token string, body, ta
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
 	defer resp.Body.Close()
-	if target != nil && resp.StatusCode == http.StatusOK {
+	if target != nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated) {
 		if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
 			t.Fatalf("%s %s: decode: %v", method, url, err)
 		}

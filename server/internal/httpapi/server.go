@@ -36,12 +36,13 @@ type Server struct {
 	// attempts are limited separately, by package auth.
 	ctlLimit *ratelimit.Limiter
 	// agentLimit keeps one agent (a compromised one, or one that loops) from loading the database: it
-	// reports about once a minute, and may call a few times at once (join, whoami, report, renew).
+	// reports about once a minute, polls once in 25 seconds, and may call a few times at once (a task's
+	// result and the lines of its log, whoami, report, renew).
 	agentLimit *ratelimit.Limiter
 }
 
 func New(a *app.App) *Server {
-	return &Server{app: a, joinLimit: ratelimit.New(0.2, 10), ctlLimit: ratelimit.New(20, 40), agentLimit: ratelimit.New(0.2, 5)}
+	return &Server{app: a, joinLimit: ratelimit.New(0.2, 10), ctlLimit: ratelimit.New(20, 40), agentLimit: ratelimit.New(1, 10)}
 }
 
 // AgentHandler is the routes of `listen`. Joining needs no certificate; every other route needs the
@@ -52,6 +53,9 @@ func (s *Server) AgentHandler() http.Handler {
 	mux.Handle("GET "+agentapi.RouteWhoAmI, s.agentOnly(s.whoAmI))
 	mux.Handle("POST "+agentapi.RouteReport, s.agentOnly(s.report))
 	mux.Handle("POST "+agentapi.RouteRenew, s.agentOnly(s.renew))
+	mux.Handle("GET "+agentapi.RouteTasks, s.agentOnly(s.pollTasks))
+	mux.Handle("POST "+agentapi.RouteTaskResult, s.agentOnly(s.taskResult))
+	mux.Handle("POST "+agentapi.RouteTaskLog, s.agentOnly(s.taskLog))
 	return recovered(logged(mux))
 }
 
@@ -66,6 +70,11 @@ func (s *Server) CtlHandler() http.Handler {
 	mux.Handle("GET "+ctlapi.RouteAgent, s.signedIn(s.showAgent))
 	mux.Handle("DELETE "+ctlapi.RouteAgent, s.signedIn(s.revokeAgent))
 	mux.Handle("GET "+ctlapi.RouteAlerts, s.signedIn(s.listAlerts))
+	mux.Handle("GET "+ctlapi.RouteTasks, s.signedIn(s.listTasks))
+	mux.Handle("POST "+ctlapi.RouteTasks, s.signedIn(s.createTask))
+	mux.Handle("GET "+ctlapi.RouteTask, s.signedIn(s.showTask))
+	mux.Handle("DELETE "+ctlapi.RouteTask, s.signedIn(s.cancelTask))
+	mux.Handle("GET "+ctlapi.RouteTaskEvents, s.signedIn(s.taskEvents))
 	mux.Handle("GET "+ctlapi.RouteAudit, s.signedIn(s.listAudit))
 	mux.Handle("GET "+ctlapi.RouteAuditVerify, s.signedIn(s.verifyAudit))
 	return recovered(logged(mux))
