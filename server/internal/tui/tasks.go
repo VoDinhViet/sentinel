@@ -85,7 +85,7 @@ func (m model) afterTaskGiven(msg taskGivenMsg) (tea.Model, tea.Cmd) {
 	if next, quit, over := m.fail(msg.err); over {
 		return next, quit
 	}
-	if !m.opened || m.open.name != msg.name {
+	if !m.showsServer() || m.open.name != msg.name {
 		return m, nil
 	}
 	if msg.err != nil {

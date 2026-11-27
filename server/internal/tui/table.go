@@ -43,10 +43,36 @@ func (t table) troubled() int {
 	return count
 }
 
+// only is the table with just these columns, in this order: what a narrow place has room for.
+func (t table) only(columns ...int) table {
+	kept := t
+	kept.headers = cellsOf(t.headers, columns)
+	kept.statusCol = -1
+	for position, column := range columns {
+		if column == t.statusCol {
+			kept.statusCol = position
+		}
+	}
+	kept.lines = make([]tableLine, len(t.lines))
+	for index, line := range t.lines {
+		line.cells = cellsOf(line.cells, columns)
+		kept.lines[index] = line
+	}
+	return kept
+}
+
+func cellsOf(cells []string, columns []int) []string {
+	picked := make([]string, len(columns))
+	for position, column := range columns {
+		picked[position] = cells[column]
+	}
+	return picked
+}
+
 // render draws the header and as many lines as fit in capacity rows, the selected one in view.
 func (t table) render(cursor, width, capacity int) []string {
 	if len(t.lines) == 0 {
-		return []string{dimStyle.Render(truncate(t.empty, width))}
+		return []string{" " + dimStyle.Render(truncate(t.empty, width-1))}
 	}
 	widths := t.widths(max(width-rowMargin, 1))
 	out := []string{"  " + headerStyle.Render(joinCells(t.headers, widths))}

@@ -66,7 +66,9 @@ type model struct {
 	loadedAt time.Time
 
 	opened bool
-	open   serverScreen
+	open   serverScreen // the screen of a server; in the wide layout always the one under the cursor of the list
+
+	inPanels bool // the wide layout: the focus is on a panel of the server (open.current) and not on the list
 }
 
 func newModel(ctx context.Context, source Source, now func() time.Time) model {
@@ -136,7 +138,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		applyPalette(msg.IsDark()) // the terminal answered: use the palette that suits its background
 	case tea.WindowSizeMsg:
+		wasWide := m.wide()
 		m.width, m.height = msg.Width, msg.Height
+		if m.wide() != wasWide {
+			next, ask := m.changeLayout()
+			return next, ask
+		}
 	case listMsg:
 		return m.afterList(msg)
 	case detailMsg:
@@ -169,11 +176,12 @@ func (m model) afterList(msg listMsg) (tea.Model, tea.Cmd) {
 		m.servers, m.alerts, m.loaded, m.loadedAt = msg.servers, msg.alerts, true, msg.at
 	}
 	m.cursor = min(m.cursor, max(len(m.tabTable().lines)-1, 0)) // the list, even while a server is open
-	return m, nil
+	next, ask := m.syncSelection()
+	return next, ask
 }
 
 func (m model) afterDetail(msg detailMsg) (tea.Model, tea.Cmd) {
-	if !m.opened || m.open.name != msg.name { // the person went back, or to another server
+	if !m.showsServer() || m.open.name != msg.name { // the person went back, or to another server
 		return m, nil
 	}
 	m.open.loading, m.open.err = false, msg.err
@@ -209,7 +217,7 @@ func (m model) ask() (model, tea.Cmd) {
 		m.loading = true
 		cmds = append(cmds, m.askList())
 	}
-	if m.opened && !m.open.loading {
+	if m.showsServer() && !m.open.loading {
 		m.open.loading = true
 		cmds = append(cmds, m.askDetail(m.open.name))
 	}

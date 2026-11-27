@@ -16,10 +16,84 @@ func (m model) onKey(key string) (tea.Model, tea.Cmd) {
 		m.help = true
 		return m, nil
 	}
-	if m.opened {
+	switch {
+	case m.wide():
+		return m.onSplitKey(key)
+	case m.opened:
 		return m.onServerKey(key)
 	}
 	return m.onTabKey(key)
+}
+
+// onSplitKey is a key in the wide layout: the focus is on the list, or on one panel of the selected server.
+func (m model) onSplitKey(key string) (tea.Model, tea.Cmd) {
+	if m.inPanels && m.tab == serversTab {
+		return m.onPanelKey(key)
+	}
+	return m.onListKey(key)
+}
+
+func (m model) onListKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q", "esc":
+		return m, tea.Quit
+	case "r":
+		next, ask := m.ask()
+		return next, ask
+	case "1", "2":
+		return m.switchTab(int(key[0] - '1'))
+	case "tab", "right", "l", "enter":
+		if m.tab == alertsTab {
+			return m.switchTab(serversTab)
+		}
+		m.focusPanel(hostPart)
+	case "shift+tab", "left", "h":
+		return m.switchTab((m.tab + tabCount - 1) % tabCount)
+	default:
+		m.cursor = moved(key, m.cursor, len(m.tabTable().lines))
+		next, ask := m.syncSelection()
+		return next, ask
+	}
+	return m, nil
+}
+
+// switchTab shows a tab of the list, and starts the server on the right over.
+func (m model) switchTab(tab int) (tea.Model, tea.Cmd) {
+	m.tab, m.cursor, m.inPanels, m.open = tab, 0, false, serverScreen{}
+	next, ask := m.syncSelection()
+	return next, ask
+}
+
+// focusPanel gives a panel of the selected server the focus; past either end it is the list that has it.
+func (m *model) focusPanel(part int) {
+	m.inPanels = part >= 0 && part < partCount && m.open.name != ""
+	if m.inPanels {
+		m.open.current, m.open.cursor = part, 0
+	}
+}
+
+func (m model) onPanelKey(key string) (tea.Model, tea.Cmd) {
+	if m.open.confirm != nil {
+		return m.onConfirmKey(key)
+	}
+	switch key {
+	case "b", "s":
+		return m.onBackupKey(key)
+	case "q", "esc", "backspace":
+		m.inPanels = false
+	case "r":
+		next, ask := m.ask()
+		return next, ask
+	case "tab", "right", "l":
+		m.focusPanel(m.open.current + 1)
+	case "shift+tab", "left", "h":
+		m.focusPanel(m.open.current - 1)
+	case "1", "2", "3", "4", "5":
+		m.focusPanel(int(key[0] - '1'))
+	default:
+		m.open.cursor = moved(key, m.open.cursor, len(m.open.table(m.now()).lines))
+	}
+	return m, nil
 }
 
 func (m model) onTabKey(key string) (tea.Model, tea.Cmd) {

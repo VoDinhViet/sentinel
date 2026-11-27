@@ -32,6 +32,8 @@ func (m model) render() string {
 	switch {
 	case m.help:
 		body, keys = helpLines(), keyBar(m.width, "bấm phím bất kỳ", "đóng")
+	case m.wide():
+		body, keys = m.splitLines(), m.splitKeys()
 	case m.opened:
 		body, keys = m.serverLines(), m.serverKeys()
 	default:
@@ -52,7 +54,11 @@ func (m model) render() string {
 	case m.height < 3: // no room for the rule: the key bar alone
 		return keys
 	}
-	return strings.Join(append(body, ruleStyle.Render(strings.Repeat("─", max(m.width, 1))), keys), "\n")
+	rule := ruleStyle.Render(strings.Repeat("─", max(m.width, 1)))
+	if m.wide() && !m.help {
+		rule = m.splitRule("┴")
+	}
+	return strings.Join(append(body, rule, keys), "\n")
 }
 
 // header is the name, then a status if there is one, and how fresh the data is at the right.
@@ -75,16 +81,7 @@ func (m model) header(name, status string, statusOf level) string {
 }
 
 func (m model) tabLines() []string {
-	troubledServers := 0
-	for _, server := range m.servers {
-		if server.Status == "OFFLINE" {
-			troubledServers++
-		}
-	}
-	tabs := []string{
-		tabPill(m.tab == serversTab, 1, "Server", troubledServers),
-		tabPill(m.tab == alertsTab, 2, "Alert", len(m.alerts)),
-	}
+	tabs := m.tabPills()
 	current := m.tabTable()
 	lines := []string{m.header("sentinelctl", "", levelNone), " " + strings.Join(tabs, " "), ""}
 	lines = append(lines, current.render(m.cursor, m.width, max(m.height-len(lines)-tableMargin, 3))...)
@@ -126,7 +123,7 @@ func tabPill(open bool, number int, title string, troubled int) string {
 func (m model) serverLines() []string {
 	now := m.now()
 	screen := m.open
-	lines := []string{m.header(m.open.name, format.Status(m.open.detail.Status, m.open.detail.State), statusLevel(m.open.detail.Status)), " " + dimStyle.Render(m.serverInfo(now)), screen.noticeLine(m.width)}
+	lines := []string{m.header(m.open.name, format.Status(m.open.detail.Status, m.open.detail.State), statusLevel(m.open.detail.Status)), " " + dimStyle.Render(m.serverInfo(now, m.width)), screen.noticeLine(m.width)}
 	if screen.err != nil {
 		lines = append(lines, levelStyle(levelBad).Render(" "+truncate("Không đọc được server này: "+screen.err.Error(), m.width-2)), "")
 	}
@@ -142,13 +139,13 @@ func (m model) serverLines() []string {
 }
 
 // serverInfo is what the control plane knows of the server besides its report.
-func (m model) serverInfo(now time.Time) string {
+func (m model) serverInfo(now time.Time, width int) string {
 	detail := m.open.detail
 	info := fmt.Sprintf("thấy %s · phiên bản %s · chứng chỉ hết hạn %s", format.Ago(detail.LastSeen, now), format.Dash(detail.Version), format.Day(detail.CertNotAfter))
 	if detail.ReportAt != nil {
 		info += " · báo cáo " + format.Ago(detail.ReportAt, now)
 	}
-	return truncate(info, m.width-2)
+	return truncate(info, width-2)
 }
 
 // keyBar is the keys and what they do, as many as fit in width.
@@ -180,6 +177,7 @@ func (m model) serverKeys() string {
 func helpLines() []string {
 	keys := [][2]string{
 		{"tab  1 2", "chuyển giữa Server và Alert (trong một server: Máy, Backup, Uptime, Alert, Việc)"},
+		{"tab  →  ←", "terminal rộng từ 110 cột: danh sách bên trái, các khung của server đang chọn bên phải; tab đi qua từng khung, shift+tab đi lùi, 1-5 nhảy tới khung, esc về danh sách"},
 		{"↑ ↓  j k", "chọn một dòng"},
 		{"g  G", "về dòng đầu, dòng cuối"},
 		{"enter", "xem một server: máy, backup, uptime check và cảnh báo của chính nó"},

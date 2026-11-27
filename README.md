@@ -206,7 +206,7 @@ Từ đó daemon báo cáo cho control plane mỗi phút (máy, kết quả back
 
 | Lệnh | Việc |
 |---|---|
-| `sentinelctl` (không đối số) | Mở màn hình terminal: danh sách server và cảnh báo, `enter` để xem một server (máy, backup, uptime, cảnh báo). Tự làm mới mỗi 5 giây; `?` xem phím. Ở mục Backup của một server, `b` chạy và `s` dừng backup của job đang chọn (hỏi `y` trước khi giao); mục Việc (phím `5`) liệt kê các việc đã giao cho server đó. Không chạy trong terminal (script, pipe) thì in trợ giúp |
+| `sentinelctl` (không đối số) | Mở màn hình terminal: danh sách server và cảnh báo. Terminal rộng từ 110 cột thì chia hai cột: danh sách bên trái, năm khung (Máy, Backup, Uptime, Alert, Việc) của server đang chọn bên phải; `↑↓` đổi server, `tab` hoặc `enter` đi qua từng khung, `1`-`5` nhảy tới khung, `esc` về danh sách. Terminal hẹp hơn thì một cột, `enter` để xem một server. Tự làm mới mỗi 5 giây; `?` xem phím. Ở khung (mục) Backup của một server, `b` chạy và `s` dừng backup của job đang chọn (hỏi `y` trước khi giao); khung Việc (phím `5`) liệt kê các việc đã giao cho server đó. Không chạy trong terminal (script, pipe) thì in trợ giúp |
 | `sentinelctl login` / `logout` | Đăng nhập (phiên 12 giờ, hoặc 1 giờ không dùng) / kết thúc phiên |
 | `sentinelctl passwd` | Đổi mật khẩu đăng nhập; mọi phiên kết thúc |
 | `sentinelctl server ls [-o json]` | Các server: trạng thái (PENDING, ONLINE, OFFLINE, REVOKED), lần cuối báo cáo, phiên bản, hạn chứng chỉ |
