@@ -216,6 +216,17 @@ sentinel fleet alerts           # cảnh báo đang mở của mọi server; ser
 
 Gõ `sentinel fleet` không kèm lệnh con trên terminal thì mở màn hình quản lý chỉ có tab **Fleet** (xem [Màn hình quản lý](#màn-hình-quản-lý)), không cần `config.yaml`; ngoài terminal nó in trợ giúp. Trên server đã có config, `sentinel manage` cũng có tab Fleet đó (đọc `fleet.yaml` ở chỗ mặc định).
 
+Muốn **được báo khi một server không còn trả lời**, không chỉ xem lúc mở màn hình, cho daemon của một server (hoặc một máy chuyên canh) đọc cùng file đó trong `config.yaml`:
+
+```yaml
+fleet:
+  config: /etc/sentinel/fleet.yaml   # đường dẫn tuyệt đối tới file fleet
+  every: 1m                          # mặc định 1m, tối thiểu 30s
+  fail_after: 3                      # số vòng liên tiếp lỗi trước khi báo, mặc định 3
+```
+
+Mỗi `every` daemon hỏi từng server trong file và gửi cảnh báo qua `notifiers:` của chính nó khi một server không gọi được `fail_after` vòng liên tiếp (kết nối hỏng, sai token, chứng chỉ không tin được...); cảnh báo `fleet:<tên server>` đóng khi server trả lời lại. Daemon đọc lại file mỗi vòng nên thêm hoặc bớt server không cần restart; server bị bớt khỏi file thì cảnh báo của nó được đóng. Nó **không** nhắc lại cảnh báo mà server kia đã tự gửi (backup lỗi, đĩa đầy): mỗi server vẫn báo qua kênh của nó, máy canh chỉ báo điều server đó không tự báo được là nó đã không còn trả lời. Nếu không đọc được file fleet (sai cú pháp, thiếu token...) daemon báo một cảnh báo riêng thay vì im lặng không canh ai, và không đóng cảnh báo của các server trong lúc đó. `sentinel doctor` kiểm tra file này. Daemon của chính máy canh vẫn cần `heartbeat.url` để biết khi nó chết.
+
 Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. Giữa máy xem và server, dùng `https://` (API có `tls_cert`, hoặc qua reverse proxy) hoặc SSH tunnel, vì `http://` gửi token không mã hóa.
 
 Ngoài `sentinel fleet`, ba việc sau dùng được ngay:

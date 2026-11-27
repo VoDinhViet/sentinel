@@ -143,23 +143,26 @@ Các thay đổi trên chỉ **thêm**: route mới, field mới, khoá config m
 
 ### 7.7. Canh chừng trong daemon (giai đoạn 4)
 
-Daemon của một server đọc thêm khối `fleet:` trong `config.yaml`, trỏ tới một `fleet.yaml`, rồi chạy mỗi server trong file đó như một task `fleet:<server>` cùng loại với task uptime (`Task`, [internal/daemon/daemon.go](../../internal/daemon/daemon.go)):
+Daemon của một server đọc thêm khối `fleet:` trong `config.yaml`, trỏ tới một `fleet.yaml`, rồi chạy một task `fleet` cùng loại với task uptime (`Task`, [internal/daemon/daemon.go](../../internal/daemon/daemon.go)):
 
 ```yaml
 fleet:
   config: /etc/sentinel/fleet.yaml
-  every: 1m
-  fail_after: 3        # số lần liên tiếp không truy cập được trước khi báo
-  stale_after: 10m     # generated_at cũ hơn mức này thì coi là dữ liệu đứng yên
+  every: 1m            # mặc định 1m, tối thiểu 30s
+  fail_after: 3        # số vòng liên tiếp không truy cập được trước khi báo, mặc định 3
 ```
 
-Task mở alert `fleet:<server>` khi:
+Mỗi vòng task đọc lại `fleet.yaml`, hỏi các server song song (`fleet.Poll`) rồi mở alert `fleet:<server>` (mức Critical) khi một server lỗi `fail_after` vòng liên tiếp. Lỗi ở đây gồm không kết nối được, sai token, chứng chỉ không tin được, hay trả mã lạ; lý do nằm trong nội dung alert. Hết lỗi thì đóng alert.
 
-- server không truy cập được `fail_after` lần liên tiếp;
-- `daemon_running` là `false`;
-- `generated_at` cũ hơn `stale_after`.
+Bản cài đặt khác bản nháp đầu của RFC ở ba điểm, đều do đọc code thật:
 
-Hết lỗi thì đóng alert. Làm trong daemon thay vì một lệnh `fleet watch` riêng vì `alert.Manager` đã lo sẵn: lưu trạng thái vào SQLite nên restart không báo lặp, nhắc lại theo cooldown, gửi lại tin lỗi (`RetryPending`) và đóng alert của server đã bỏ khỏi file (`ResolveMissing`). Một lệnh riêng sẽ phải tự viết lại các phần đó và cần thêm một systemd unit.
+- **Một task cho cả file, không phải mỗi server một task.** Đọc lại file mỗi vòng thì server thêm vào được canh ngay, không cần restart, và `ResolveMissing` đóng được alert của server đã bỏ khỏi file; với task dựng lúc daemon khởi động thì cả hai việc đó cần restart.
+- **Bỏ điều kiện `daemon_running=false`.** API chạy bên trong daemon nên nếu trả lời được thì daemon đang chạy; `status.Report.DaemonRunning` chỉ do `sentinel status` điền, API không bao giờ điền nó.
+- **Bỏ `stale_after`.** `generated_at` là lúc API dựng report khi bị gọi, nên luôn là "bây giờ"; nó không thể cũ trừ khi đồng hồ lệch, và lệch đồng hồ không phải thứ cần báo từ đây.
+
+Khi **không đọc được file** (sai cú pháp, thiếu token, file mất), task mở alert `fleet-file` (Warning) thay vì im lặng không canh ai, và giữ nguyên alert của các server trong lúc đó vì không biết gì mới về chúng. Key này không có dấu `:` sau `fleet` nên không bao giờ nhầm với alert của một server tên `config`. `sentinel doctor` kiểm tra file này khi `fleet.config` được đặt.
+
+Làm trong daemon thay vì một lệnh `fleet watch` riêng vì `alert.Manager` đã lo sẵn: lưu trạng thái vào SQLite nên restart không báo lặp, nhắc lại theo cooldown, gửi lại tin lỗi (`RetryPending`) và đóng alert của server đã bỏ khỏi file (`ResolveMissing`). Một lệnh riêng sẽ phải tự viết lại các phần đó và cần thêm một systemd unit.
 
 Task **không** gửi lại các alert mà từng server đã tự gửi, để khỏi báo trùng; nó chỉ báo chuyện mà server kia không tự báo được. Kênh gửi là `notifiers:` của chính daemon.
 

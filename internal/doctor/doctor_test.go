@@ -207,3 +207,27 @@ func TestAPIFindingFailsForFilesThatCannotBeLoaded(t *testing.T) {
 		t.Errorf("finding = %+v, want a failure, as the daemon would not start", finding)
 	}
 }
+
+func TestFleetFindingReadsTheFileTheDaemonWillWatch(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "fleet.yaml")
+	good := "servers:\n  - { name: web-01, url: 'https://web-01:9311', token: read-token-0123456789 }\n  - { name: db-01, url: 'https://db-01:9311', token: read-token-0123456789 }\n"
+	if err := os.WriteFile(file, []byte(good), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings := config.Fleet{Config: file, Every: time.Minute, FailAfter: 3}
+	if finding := fleetFinding(settings); finding.Err != nil || !strings.Contains(finding.Info, "2 servers every 1m0s") {
+		t.Errorf("a good file: %+v", finding)
+	}
+
+	if err := os.WriteFile(file, []byte("servers: []"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if finding := fleetFinding(settings); finding.Err == nil || !finding.Warn || finding.Hint == "" {
+		t.Errorf("a file with no server: %+v, want a warning with a hint", finding)
+	}
+	missing := config.Fleet{Config: filepath.Join(dir, "none.yaml"), Every: time.Minute, FailAfter: 3}
+	if finding := fleetFinding(missing); finding.Err == nil || !finding.Warn {
+		t.Errorf("no file: %+v", finding)
+	}
+}

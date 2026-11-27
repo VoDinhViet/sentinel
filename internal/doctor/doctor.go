@@ -20,6 +20,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/config"
 	"sentinel/internal/engine"
+	"sentinel/internal/fleet"
 	"sentinel/internal/notify"
 	"sentinel/internal/restic"
 	"sentinel/internal/store"
@@ -161,6 +162,9 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 	if cfg.API.Listen != "" {
 		findings = append(findings, apiFinding(cfg))
 	}
+	if cfg.Fleet.Config != "" {
+		findings = append(findings, fleetFinding(cfg.Fleet))
+	}
 	return findings
 }
 
@@ -212,6 +216,16 @@ func apiFinding(cfg *config.Config) Finding {
 		Err:  fmt.Errorf("listens on %s, which other machines can reach, and the token is sent without TLS", cfg.API.Listen),
 		Hint: "listen on 127.0.0.1 and put a TLS reverse proxy or an SSH tunnel in front, or firewall the port",
 	}
+}
+
+// fleetFinding checks the fleet file the daemon is to watch. A file it cannot read means no server is
+// watched, which the daemon says in an alert once it runs: here it is a warning before that.
+func fleetFinding(settings config.Fleet) Finding {
+	cfg, err := fleet.Load(settings.Config)
+	if err != nil {
+		return Finding{Name: "fleet", Warn: true, Err: err, Hint: "fix the fleet file: until then the daemon watches no server"}
+	}
+	return Finding{Name: "fleet", Info: fmt.Sprintf("watching %d servers every %s, alert after %d failed rounds", len(cfg.Servers), settings.Every, settings.FailAfter)}
 }
 
 // certificateWarnDays is how long before it expires a certificate of the API is reported.
