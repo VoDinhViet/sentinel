@@ -31,14 +31,14 @@ func (m manageModel) renderMain() []string {
 	width, height := m.width+frameCols, m.height+frameRows
 	tabs := m.tabs()
 	tab := tabs[m.tab]
-	panels := m.loaded && !m.fleetOnly && width >= topPanelsMinWidth && height >= topPanelsMinHeight
+	panels := m.loaded && width >= topPanelsMinWidth && height >= topPanelsMinHeight
 
 	screenLines := []string{m.titleLine(width)}
 	switch {
 	case panels:
 		screenLines = append(screenLines, m.renderTopPanels(width)...)
 	case m.loaded:
-		screenLines = append(screenLines, " "+m.mainSummary())
+		screenLines = append(screenLines, " "+m.summary())
 	default:
 		screenLines = append(screenLines, "")
 	}
@@ -76,14 +76,6 @@ func (m manageModel) titleLine(width int) string {
 	return left
 }
 
-// mainSummary is the line under the title of a screen without the overview panels.
-func (m manageModel) mainSummary() string {
-	if m.fleetOnly {
-		return m.fleetSummary()
-	}
-	return m.summary()
-}
-
 // positionText is "2/5": which line of the tab is selected.
 func (m manageModel) positionText(tab manageTab) string {
 	if len(tab.lines) == 0 {
@@ -113,11 +105,6 @@ func (m manageModel) footerKeys(tab manageTab) []string {
 			keys = append(keys, "t", "gửi thử")
 		}
 		keys = append(keys, "tab", "chuyển")
-	case fleetTab:
-		keys = []string{"enter", "chi tiết", "tab", "chuyển", "↑↓", "chọn", "r", "hỏi lại"}
-		if m.fleetOnly {
-			keys = []string{"enter", "chi tiết", "↑↓", "chọn", "r", "hỏi lại"}
-		}
 	default:
 		keys = []string{"tab", "chuyển", "↑↓", "chọn", "r", "làm mới"}
 	}
@@ -134,10 +121,8 @@ func (m manageModel) tabTitle(tabs []manageTab, limit int) (string, []tabSpan) {
 	var pills []string
 	var spans []tabSpan
 	column := 0
-	shown := m.shownTabs()
-	for position, label := range m.tabLabels(tabs, limit) {
+	for kind, label := range m.tabLabels(tabs, limit) {
 		label = " " + label + " "
-		kind := shown[position]
 		spans = append(spans, tabSpan{tab: kind, from: column, width: lipgloss.Width(label)})
 		column += lipgloss.Width(label) + lipgloss.Width(gap)
 		switch {
@@ -168,8 +153,8 @@ func (m manageModel) tabLabels(tabs []manageTab, limit int) []string {
 // labelsOf are the tab labels with or without the counts and the names of the tabs that are not open.
 func (m manageModel) labelsOf(tabs []manageTab, counts, names bool) []string {
 	var labels []string
-	for position, kind := range m.shownTabs() {
-		label := fmt.Sprintf("%d", position+1)
+	for kind := range tabs {
+		label := fmt.Sprintf("%d", kind+1)
 		if names || kind == m.tab {
 			label += " " + tabs[kind].title
 		}
@@ -219,8 +204,6 @@ func (m manageModel) emptyText(tab int) string {
 		return m.doctorWaitText()
 	case serverTab:
 		return m.serverWaitText()
-	case fleetTab:
-		return m.fleetWaitText()
 	}
 	return "Không đọc được config."
 }

@@ -21,33 +21,17 @@ const (
 	alertsTab
 )
 
-// tabs turns the report into the seven manager tabs.
-func (m manageModel) tabs() []manageTab {
-	if m.fleetOnly { // the other tabs are about this machine, which has no config here
-		tabs := make([]manageTab, fleetTab+1)
-		tabs[fleetTab] = m.buildFleetTab()
-		return tabs
-	}
-	return []manageTab{m.backupsTab(), checksTabOf(m.report), alertsTabOf(m.report), m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab(), m.buildFleetTab()}
-}
+// tabCount is how many tabs the manager has.
+const tabCount = serverTab + 1
 
-// shownTabs are the tabs on the tab bar, in order: all of them, or the Fleet tab alone.
-func (m manageModel) shownTabs() []int {
-	if m.fleetOnly {
-		return []int{fleetTab}
-	}
-	shown := make([]int, fleetTab+1)
-	for i := range shown {
-		shown[i] = i
-	}
-	return shown
+// tabs turns the report into the six manager tabs.
+func (m manageModel) tabs() []manageTab {
+	return []manageTab{m.backupsTab(), checksTabOf(m.report), alertsTabOf(m.report), m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab()}
 }
 
 // neighbourTab is the tab step places away from the open one (1 next, -1 previous), wrapping round.
 func (m manageModel) neighbourTab(step int) int {
-	shown := m.shownTabs()
-	position := slices.Index(shown, m.tab)
-	return shown[(position+step+len(shown))%len(shown)]
+	return (m.tab + step + tabCount) % tabCount
 }
 
 // backupsTab is the Backups tab of this machine: the report, with the schedules and settings of its config.

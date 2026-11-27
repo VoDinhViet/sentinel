@@ -14,9 +14,6 @@ func newManageModel(ctx context.Context, load func() (status.Report, error), act
 }
 
 func (m manageModel) Init() tea.Cmd {
-	if m.fleetOnly {
-		return tea.Batch(m.askFleet(), tea.RequestBackgroundColor)
-	}
 	return tea.Batch(m.reloadPeriodic(), tea.RequestBackgroundColor)
 }
 
@@ -27,9 +24,6 @@ func (m manageModel) reload() tea.Cmd { return m.loadReport(false) }
 func (m manageModel) reloadPeriodic() tea.Cmd { return m.loadReport(true) }
 
 func (m manageModel) loadReport(periodic bool) tea.Cmd {
-	if m.load == nil { // the manager of `sentinel fleet` has no report of its own
-		return nil
-	}
 	asked := time.Now()
 	return func() tea.Msg {
 		report, err := m.load()
@@ -48,11 +42,10 @@ func (m manageModel) scheduleRefresh() tea.Cmd {
 func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
 	next := model.(manageModel)
-	if next.onTabs() && !next.config.loaded && !next.fleetOnly { // the schedules in the Backups tab and the Config tab come from the file
+	if next.onTabs() && !next.config.loaded { // the schedules in the Backups tab and the Config tab come from the file
 		next = next.refreshConfig()
 	}
 	next, cmd = next.startServerIfNeeded(cmd)
-	next, cmd = next.startFleetIfNeeded(cmd)
 	return next.startDoctorIfNeeded(cmd)
 }
 
@@ -87,21 +80,9 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostReadMsg:
 		m.server.reading, m.server.report = false, msg.report
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
-	case fleetHostReadMsg:
-		return m.afterFleetHostRead(msg), nil
-	case fleetReadMsg:
-		next := m.afterFleetRead(msg)
-		if m.fleetOnly {
-			return next, next.scheduleRefresh()
-		}
-		return next, nil
 	case refreshMsg:
-		if m.fleetOnly {
-			return m.refreshFleetOnly()
-		}
 		next, readHost := m.refreshServer()
-		next, readFleet := next.refreshFleet()
-		return next, tea.Batch(m.reloadPeriodic(), readHost, readFleet)
+		return next, tea.Batch(m.reloadPeriodic(), readHost)
 	case spinMsg:
 		return m.onSpin()
 	case backupStartedMsg:

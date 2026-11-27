@@ -23,10 +23,8 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tab, m.cursor = m.neighbourTab(1), 0
 	case "shift+tab", "left", "h":
 		m.tab, m.cursor = m.neighbourTab(-1), 0
-	case "1", "2", "3", "4", "5", "6", "7":
-		if position := int(key[0] - '1'); position < len(m.shownTabs()) {
-			m.tab, m.cursor = m.shownTabs()[position], 0
-		}
+	case "1", "2", "3", "4", "5", "6":
+		m.tab, m.cursor = int(key[0]-'1'), 0
 	case "down", "j":
 		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case "up", "k":
@@ -43,9 +41,6 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		case serverTab:
 			next, read := m.startServer()
 			return next, read
-		case fleetTab:
-			next, ask := m.startFleet()
-			return next, ask
 		}
 		return m, m.reload()
 	case "b":
@@ -100,9 +95,6 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 	case "s", "enter":
 		if m.tab == configTab {
 			return m.configEdit(), nil
-		}
-		if m.tab == fleetTab {
-			return m.openFleetServer()
 		}
 		if line, ok := m.selectedBackup(); ok {
 			ctx := m.startBusy(fmt.Sprintf("Đang liệt kê snapshot của %s trong %s", line.job, line.repository))
