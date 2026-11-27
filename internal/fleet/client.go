@@ -75,18 +75,18 @@ func transportFor(server Server) (*http.Transport, error) {
 	return transport, nil
 }
 
-// Status is the report of the server (GET /api/v1/status).
+// Status is the report of the server (GET /api/v1/status), its text cleaned of control characters.
 func (c *Client) Status(ctx context.Context) (status.Report, error) {
 	var report status.Report
 	err := c.get(ctx, "/api/v1/status", &report)
-	return report, err
+	return cleanReport(report), err
 }
 
-// Host is how the machine of the server is doing (GET /api/v1/host).
+// Host is how the machine of the server is doing (GET /api/v1/host), its text cleaned too.
 func (c *Client) Host(ctx context.Context) (HostStatus, error) {
 	var host HostStatus
 	err := c.get(ctx, "/api/v1/host", &host)
-	return host, err
+	return cleanHost(host), err
 }
 
 // get reads one JSON answer into target. No error carries the token.

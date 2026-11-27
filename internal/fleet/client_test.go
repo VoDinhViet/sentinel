@@ -212,3 +212,36 @@ func TestNewClientRefusesATLSCAThatIsNotACertificate(t *testing.T) {
 		})
 	}
 }
+
+func TestWhatAServerSaysIsCleanedOfEscapeSequences(t *testing.T) {
+	client := newClientOf(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/host") {
+			w.Write([]byte(`{"hostname":"web\u001b[2J-01","disks":[{"mount":"/\u001b]0;x\u0007"}],"sentinel":{"name":"s\u001b[31m"},"failed_units":[{"description":"d\u001b[0m"}],"errors":["e\u001b[1m"]}`))
+			return
+		}
+		w.Write([]byte(`{"version":"v1\u001b[2J","server":"a\u001b[31mb","alerts":[{"key":"k\u001b[0m","message":"m\u001b]52;c;x\u0007"}],` +
+			`"jobs":[{"job":"j\u001b[1m","repository":"r","result":"FAILED\u001b[2J","error":"e\u0007","recent":["ok\u001b[0m"]}],` +
+			`"checks":[{"name":"c\u001b[1m","error":"x\u001b[2J"}],"running":[{"job":"j\u001b[1m","summary":"s\u001b[0m"}]}`))
+	})
+	report, err := client.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := client.Host(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := []string{
+		report.Version, report.Server, report.Alerts[0].Key, report.Alerts[0].Message, report.Jobs[0].Job, report.Jobs[0].Result, report.Jobs[0].Error,
+		report.Jobs[0].Recent[0], report.Checks[0].Name, report.Checks[0].Error, report.Running[0].Job, report.Running[0].Summary,
+		host.Hostname, host.Disks[0].Mount, host.Sentinel.Name, host.FailedServices[0].Description, host.Errors[0],
+	}
+	for _, text := range texts {
+		if strings.ContainsAny(text, "\x1b\x07") {
+			t.Errorf("%q still has a control character", text)
+		}
+	}
+	if report.Server != "ab" || host.Hostname != "web-01" {
+		t.Errorf("the text around the sequences must be kept: %q, %q", report.Server, host.Hostname)
+	}
+}
