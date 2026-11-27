@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"sentinel/agent/internal/notify"
+	"sentinel/pkg/notify"
 )
 
 func (a *cliApp) notifyCmd() *cobra.Command {

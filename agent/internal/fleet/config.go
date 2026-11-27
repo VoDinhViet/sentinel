@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"sentinel/agent/internal/config"
+	"sentinel/pkg/yamlenv"
 )
 
 // EnvFileName is the file beside the fleet file that holds the secrets its ${VAR} references name.
@@ -69,7 +69,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := config.DecodeStrictWith(raw, &cfg, lookupIn(secrets)); err != nil {
+	if err := yamlenv.DecodeStrictWith(raw, &cfg, lookupIn(secrets)); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := cfg.validate(); err != nil {
@@ -100,7 +100,7 @@ func refusePlainTokensInOpenFile(path string, raw []byte) error {
 		return nil
 	}
 	var written Config
-	if err := config.DecodeStrict(raw, &written, false); err != nil {
+	if err := yamlenv.DecodeStrict(raw, &written, false); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	for _, server := range written.Servers {
@@ -116,16 +116,16 @@ func refusePlainTokensInOpenFile(path string, raw []byte) error {
 // the daemon starts must not inherit the tokens of other servers, and a token changed in the file
 // is seen the next time the file is loaded.
 func readSecrets(path string, raw []byte) (map[string]string, error) {
-	referenced, err := config.RefVars(raw)
+	referenced, err := yamlenv.Refs(raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	envFile := filepath.Join(filepath.Dir(path), EnvFileName)
-	info, err := config.CheckEnvFile(envFile)
+	info, err := yamlenv.CheckEnvFile(envFile)
 	if err != nil || info == nil {
 		return nil, err
 	}
-	return config.ReadEnvFile(envFile, referenced)
+	return yamlenv.ReadEnvFile(envFile, referenced)
 }
 
 // lookupIn finds a variable in the environment first, then in the secrets of fleet.env.

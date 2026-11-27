@@ -7,11 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/store"
 	"sentinel/agent/internal/uptime"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
 // UptimeTracker turns individual probe results into alerts once a check has
@@ -68,7 +69,7 @@ func (t *UptimeTracker) countFailures(name string, ok bool) int {
 }
 
 func (t *UptimeTracker) alertUptime(ctx context.Context, check config.UptimeCheck, probe uptime.Result, failures int) {
-	key := alert.UptimeKey(check.Name)
+	key := alertkey.Uptime(check.Name)
 	endpoint := uptime.Endpoint(check)
 	switch {
 	case probe.OK:
@@ -86,7 +87,7 @@ func (t *UptimeTracker) alertCert(ctx context.Context, check config.UptimeCheck,
 		return
 	}
 	untilExpiry := probe.CertExpiry.Sub(now)
-	key := alert.CertKey(check.Name)
+	key := alertkey.Cert(check.Name)
 	if untilExpiry < time.Duration(check.CertExpiryDays)*24*time.Hour {
 		t.Alerts.Fire(ctx, key, notify.Warning, "TLS certificate for "+check.Name+" expires soon",
 			fmt.Sprintf("%s: certificate expires %s (in %d days).", uptime.Endpoint(check), probe.CertExpiry.Format(time.DateOnly), int(untilExpiry.Hours()/24)))

@@ -23,9 +23,9 @@ import (
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/engine"
 	"sentinel/agent/internal/fleet"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/restic"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/notify"
 )
 
 var minRestic = [3]int{0, 17, 0} // first release with --stdin-from-command

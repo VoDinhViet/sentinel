@@ -8,7 +8,7 @@ import (
 
 	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/status"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 // unreachableAlertKey is the key of the alert row that stands for a server that could not be asked.

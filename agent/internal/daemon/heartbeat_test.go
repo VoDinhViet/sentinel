@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
 func TestHeartbeatTaskIsAbsentWithoutAURL(t *testing.T) {
@@ -26,7 +27,7 @@ func TestHeartbeatIsSentAtStartAndOnTheInterval(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
 	defer server.Close()
-	cfg := &config.Config{ServerName: "h", Heartbeat: config.Heartbeat{URL: server.URL, Every: time.Hour}}
+	cfg := &config.Config{ServerName: "h", Heartbeat: notify.HeartbeatSettings{URL: server.URL, Every: time.Hour}}
 	tasks := heartbeatTask(cfg)
 	if len(tasks) != 1 || !tasks[0].AtStart || tasks[0].Every != time.Hour {
 		t.Fatalf("tasks = %+v", tasks)

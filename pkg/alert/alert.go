@@ -12,8 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"sentinel/agent/internal/notify"
-	"sentinel/agent/internal/store"
+	"sentinel/pkg/notify"
 )
 
 // Notifier sends a message. Deliver returns an error only when the message reached nobody: the
@@ -22,15 +21,44 @@ type Notifier interface {
 	Deliver(ctx context.Context, msg notify.Message) error
 }
 
+// Alert is the state of one alert: whether it fires, since when, and the message that is waiting for
+// a notifier.
+type Alert struct {
+	Key          string
+	Firing       bool
+	Since        time.Time
+	LastNotified time.Time
+	Message      string
+	// Pending is the message of this alert that no notifier has taken yet; nil when nothing waits.
+	Pending *Pending
+}
+
+// Pending is an alert message waiting to be delivered. Level is a notify.Level, kept as a number so
+// a store does not depend on the notifiers.
+type Pending struct {
+	Level int
+	Title string
+	Body  string
+}
+
+// Store keeps the alerts across a restart. Alerts returns every stored alert, or only the open ones
+// when firingOnly is set.
+type Store interface {
+	Alerts(ctx context.Context, firingOnly bool) ([]Alert, error)
+	SaveAlert(ctx context.Context, alert Alert) error
+}
+
 type Manager struct {
 	Notifier Notifier
-	Store    *store.Store // optional; persists state across restarts
+	// Store persists state across restarts; leave it nil to keep state in memory only. Never put a nil
+	// *T in it: an interface that holds a nil pointer is not nil.
+	Store    Store
 	Server   string
 	Cooldown time.Duration
 	Now      func() time.Time
 
 	mu         sync.Mutex
-	alertByKey map[string]store.Alert
+	alertByKey map[string]Alert
 	sending    map[string]bool // keys whose waiting message is being delivered now
 }
 
@@ -45,7 +73,7 @@ func (m *Manager) now() time.Time {
 func (m *Manager) Load(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.alertByKey = map[string]store.Alert{}
+	m.alertByKey = map[string]Alert{}
 	if m.Store == nil {
 		return nil
 	}
@@ -63,16 +91,16 @@ func (m *Manager) Load(ctx context.Context) error {
 // message it returns (if any). The message is stored with the alert before it is sent, so one that
 // no notifier takes, or that a crash interrupts, is sent again by RetryPending. A newer message of
 // the same alert replaces one still waiting. Sending happens outside the lock.
-func (m *Manager) update(ctx context.Context, key string, change func(alert *store.Alert, exists bool) *notify.Message) {
+func (m *Manager) update(ctx context.Context, key string, change func(alert *Alert, exists bool) *notify.Message) {
 	m.mu.Lock()
 	if m.alertByKey == nil {
-		m.alertByKey = map[string]store.Alert{}
+		m.alertByKey = map[string]Alert{}
 	}
 	alert, exists := m.alertByKey[key]
 	alert.Key = key
 	msg := change(&alert, exists)
 	if msg != nil {
-		alert.Pending = &store.PendingMessage{Level: int(msg.Level), Title: msg.Title, Body: msg.Body}
+		alert.Pending = &Pending{Level: int(msg.Level), Title: msg.Title, Body: msg.Body}
 	}
 	m.alertByKey[key] = alert
 	m.saveLocked(ctx, alert)
@@ -85,7 +113,7 @@ func (m *Manager) update(ctx context.Context, key string, change func(alert *sto
 
 // saveLocked persists alert. The caller holds mu, so two saves of the same alert reach the store in
 // the order the changes were made and a stale copy cannot overwrite a newer one.
-func (m *Manager) saveLocked(ctx context.Context, alert store.Alert) {
+func (m *Manager) saveLocked(ctx context.Context, alert Alert) {
 	if m.Store == nil {
 		return
 	}
@@ -200,7 +228,7 @@ func (m *Manager) send(ctx context.Context, msg notify.Message) {
 // Cooldown while it stays open.
 func (m *Manager) Fire(ctx context.Context, key string, level notify.Level, title, body string) {
 	now := m.now()
-	m.update(ctx, key, func(alert *store.Alert, _ bool) *notify.Message {
+	m.update(ctx, key, func(alert *Alert, _ bool) *notify.Message {
 		alert.Message = title
 		if !alert.Firing {
 			alert.Firing, alert.Since, alert.LastNotified = true, now, now
@@ -218,7 +246,7 @@ func (m *Manager) Fire(ctx context.Context, key string, level notify.Level, titl
 // Resolve marks key as healthy, notifying only if it was firing.
 func (m *Manager) Resolve(ctx context.Context, key, title, body string) {
 	now := m.now()
-	m.update(ctx, key, func(alert *store.Alert, exists bool) *notify.Message {
+	m.update(ctx, key, func(alert *Alert, exists bool) *notify.Message {
 		if !alert.Firing {
 			if !exists {
 				alert.Since, alert.LastNotified = now, now

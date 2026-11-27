@@ -19,6 +19,8 @@ import (
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/configedit"
 	"sentinel/agent/internal/restic"
+
+	"sentinel/pkg/yamlenv"
 )
 
 // maxPasswordTries is how often a wrong repository password is asked for again.
@@ -78,7 +80,7 @@ func (a *cliApp) load(mayAsk bool) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	referenced, err := config.RefVars(raw)
+	referenced, err := yamlenv.Refs(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -234,14 +236,14 @@ func (a *cliApp) offerSave(envFile string, asked map[string]string) {
 // refuses a file other users can write (or that belongs to someone else), and warns about one
 // they can read. A file this user cannot read is skipped: the variables may already be set.
 func loadEnvFile(envFile string, referenced []string) error {
-	info, err := config.CheckEnvFile(envFile)
+	info, err := yamlenv.CheckEnvFile(envFile)
 	if err != nil || info == nil {
 		return err
 	}
 	if info.Mode().Perm()&0o004 != 0 {
 		slog.Warn("the env file can be read by every user", "file", envFile, "fix", "chmod 600 "+envFile)
 	}
-	if _, err := config.LoadEnvFile(envFile, referenced); err != nil {
+	if _, err := yamlenv.LoadEnvFile(envFile, referenced); err != nil {
 		if errors.Is(err, os.ErrPermission) {
 			slog.Warn("cannot read the env file; using the environment only", "file", envFile)
 			return nil

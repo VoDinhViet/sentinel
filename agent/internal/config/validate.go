@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"sentinel/agent/internal/schedule"
+	"sentinel/pkg/yamlenv"
 )
 
 // validate reports every problem in the config at once: the rules of single fields first (see
@@ -28,9 +29,9 @@ func (c *Config) repositoryErrors() []error {
 	for name, repo := range c.Repositories {
 		for _, varName := range slices.Sorted(maps.Keys(repo.Env)) {
 			switch {
-			case !envName.MatchString(varName):
+			case !yamlenv.ValidName(varName):
 				errs = append(errs, fmt.Errorf("repository %q: env %q is not a variable name", name, varName))
-			case IsDangerousEnvName(varName):
+			case yamlenv.IsDangerousName(varName):
 				errs = append(errs, fmt.Errorf("repository %q: env %s cannot be set: it changes which programs restic runs", name, varName))
 			}
 		}

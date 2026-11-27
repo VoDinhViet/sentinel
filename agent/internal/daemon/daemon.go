@@ -17,13 +17,14 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/engine"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/schedule"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
 // historyMaxAge is how long uptime check results are kept.
@@ -219,7 +220,7 @@ func (d *Daemon) RunBackup(ctx context.Context, job *config.Job) []store.BackupR
 func (d *Daemon) reportRuns(ctx context.Context, jobName string, runs []store.BackupRun) {
 	var successLines []string
 	for _, run := range runs {
-		key := alert.BackupKey(jobName, run.Repository)
+		key := alertkey.Backup(jobName, run.Repository)
 		if run.Error == backup.Stopped {
 			continue // somebody stopped it on purpose: neither a failure nor a success
 		}
@@ -227,7 +228,7 @@ func (d *Daemon) reportRuns(ctx context.Context, jobName string, runs []store.Ba
 			d.Alerts.Resolve(ctx, key, fmt.Sprintf("Backup %s to %s succeeded", jobName, run.Repository), "")
 			successLines = append(successLines, fmt.Sprintf("%s: snapshot %.8s, +%d bytes", run.Repository, run.SnapshotID, run.BytesAdded))
 			// The snapshot is safe, but retention failed: warn separately from a failed backup.
-			retentionKey := alert.RetentionKey(jobName, run.Repository)
+			retentionKey := alertkey.Retention(jobName, run.Repository)
 			if run.Error != "" {
 				d.Alerts.Fire(ctx, retentionKey, notify.Warning,
 					fmt.Sprintf("Retention for %s in %s failed", jobName, run.Repository), run.Error)
@@ -306,7 +307,7 @@ func (d *Daemon) PruneRepositories(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		key := alert.PruneKey(repoName)
+		key := alertkey.Prune(repoName)
 		if err != nil {
 			d.Alerts.Fire(ctx, key, notify.Warning, "Repository prune failed: "+repoName, err.Error())
 		} else {
@@ -327,7 +328,7 @@ func (d *Daemon) CheckRepositories(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		key := alert.VerifyKey(repoName)
+		key := alertkey.Verify(repoName)
 		if err != nil {
 			d.Alerts.Fire(ctx, key, notify.Critical, "Repository check failed: "+repoName, err.Error())
 		} else {
@@ -350,7 +351,7 @@ func (d *Daemon) CheckStale(ctx context.Context) {
 			lastSuccess = time.Time{}
 		}
 		stale, limit := isStale(job, lastSuccess, d.started, now)
-		key := alert.StaleKey(job.Name)
+		key := alertkey.Stale(job.Name)
 		if stale {
 			lastSuccessText := "never succeeded"
 			if everSucceeded {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"sentinel/pkg/notify"
 )
 
 const validYAML = `
@@ -509,7 +511,7 @@ func TestHeartbeatIsOffWithoutAURLAndDefaultsToFiveMinutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Heartbeat.URL != "https://hc-ping.com/abc" || cfg.Heartbeat.Every != DefaultHeartbeatEvery {
+	if cfg.Heartbeat.URL != "https://hc-ping.com/abc" || cfg.Heartbeat.Every != notify.DefaultHeartbeatEvery {
 		t.Errorf("heartbeat = %+v", cfg.Heartbeat)
 	}
 	cfg, err = Parse([]byte(""))

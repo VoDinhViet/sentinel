@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/store"
 )
@@ -78,10 +78,10 @@ func (d *Daemon) reported(run store.BackupRun) bool {
 	if run.Error == backup.Stopped {
 		return true // nothing to say about a backup somebody stopped
 	}
-	failing := d.Alerts.Firing(alert.BackupKey(run.Job, run.Repository))
+	failing := d.Alerts.Firing(alertkey.Backup(run.Job, run.Repository))
 	if !run.Success {
 		return failing
 	}
 	retentionFailed := run.Error != ""
-	return !failing && d.Alerts.Firing(alert.RetentionKey(run.Job, run.Repository)) == retentionFailed
+	return !failing && d.Alerts.Firing(alertkey.Retention(run.Job, run.Repository)) == retentionFailed
 }

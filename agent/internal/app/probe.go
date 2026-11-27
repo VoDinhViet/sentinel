@@ -11,8 +11,8 @@ import (
 	"sentinel/agent/internal/configedit"
 	"sentinel/agent/internal/doctor"
 	"sentinel/agent/internal/engine"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/notify"
 )
 
 // connectTimeout is how long a connection test waits for the database to answer.

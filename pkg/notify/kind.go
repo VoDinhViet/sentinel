@@ -2,8 +2,6 @@ package notify
 
 import (
 	"slices"
-
-	"sentinel/agent/internal/config"
 )
 
 // Field is one setting of a notifier in the config file, as the editors show it.
@@ -24,7 +22,7 @@ type kind struct {
 	name   string
 	fields []Field
 	// build returns nil when the config has no notifier of this kind.
-	build func(settings config.Notifiers) Notifier
+	build func(settings Settings) Notifier
 }
 
 // kinds are the notifiers, in the order the editors show them.

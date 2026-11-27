@@ -3,14 +3,14 @@ package alert
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/notify"
-	"sentinel/agent/internal/store"
+	"sentinel/pkg/notify"
 )
 
 type recorder struct {
@@ -33,12 +33,48 @@ func (r *recorder) take() []notify.Message {
 	return msgs
 }
 
+// memStore is a Store that keeps the alerts in memory. It copies what it is given and what it returns,
+// as a database does, so a test cannot change a stored alert by holding on to a pointer.
+type memStore struct {
+	mu     sync.Mutex
+	alerts map[string]Alert
+}
+
+func newMemStore() *memStore { return &memStore{alerts: map[string]Alert{}} }
+
+func (s *memStore) SaveAlert(_ context.Context, alert Alert) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.alerts[alert.Key] = copyOf(alert)
+	return nil
+}
+
+func (s *memStore) Alerts(_ context.Context, firingOnly bool) ([]Alert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var alerts []Alert
+	for _, key := range slices.Sorted(maps.Keys(s.alerts)) {
+		if alert := s.alerts[key]; alert.Firing || !firingOnly {
+			alerts = append(alerts, copyOf(alert))
+		}
+	}
+	return alerts, nil
+}
+
+func copyOf(alert Alert) Alert {
+	if alert.Pending != nil {
+		pending := *alert.Pending
+		alert.Pending = &pending
+	}
+	return alert
+}
+
 type clock struct{ t time.Time }
 
 func (c *clock) now() time.Time          { return c.t }
 func (c *clock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
-func newManager(t *testing.T, st *store.Store) (*Manager, *recorder, *clock) {
+func newManager(t *testing.T, st Store) (*Manager, *recorder, *clock) {
 	rec := &recorder{}
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
 	m := &Manager{Notifier: rec, Store: st, Server: "web-01", Cooldown: time.Hour, Now: clk.now}
@@ -110,11 +146,7 @@ func TestKeysAreIndependent(t *testing.T) {
 
 func TestStatePersistsAcrossRestart(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := newMemStore()
 
 	m1, rec1, _ := newManager(t, st)
 	m1.Fire(ctx, "disk:/", notify.Warning, "disk full", "")
@@ -151,11 +183,7 @@ func (o *outage) Deliver(ctx context.Context, msg notify.Message) error {
 // A message that no notifier takes is not lost: it goes out when they are back, once.
 func TestUndeliveredMessagesAreSentAgain(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := newMemStore()
 	notifiers := &outage{down: true}
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
 	m := &Manager{Notifier: notifiers, Store: st, Server: "web-01", Cooldown: time.Hour, Now: clk.now}
@@ -204,11 +232,7 @@ func TestUndeliveredResolutionIsSentAgain(t *testing.T) {
 // A restart in the middle of an outage keeps the waiting message, and a newer message of the same alert replaces it.
 func TestPendingMessageSurvivesRestartAndNewerOneReplacesIt(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := newMemStore()
 	down := &outage{down: true}
 	first := &Manager{Notifier: down, Store: st, Server: "web-01", Cooldown: time.Hour}
 	if err := first.Load(ctx); err != nil {
@@ -236,11 +260,7 @@ func TestPendingMessageSurvivesRestartAndNewerOneReplacesIt(t *testing.T) {
 // Without notifiers there is nobody to send to, so nothing waits.
 func TestNoNotifierLeavesNothingPending(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := newMemStore()
 	m := &Manager{Store: st, Cooldown: time.Hour}
 	m.Fire(ctx, "uptime:web", notify.Critical, "web is down", "")
 	stored, err := st.Alerts(ctx, false)
@@ -269,11 +289,7 @@ func (b *blocking) Deliver(ctx context.Context, msg notify.Message) error {
 // stored meanwhile goes out right after, not at the next retry.
 func TestRetryDuringASlowSendDoesNotRepeatAndTheNewerMessageFollows(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := newMemStore()
 	slow := &blocking{entered: make(chan struct{}), release: make(chan struct{})}
 	m := &Manager{Notifier: slow, Store: st, Server: "web-01", Cooldown: time.Hour}
 	if err := m.Load(ctx); err != nil {

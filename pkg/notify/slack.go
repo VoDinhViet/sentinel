@@ -3,8 +3,6 @@ package notify
 import (
 	"context"
 	"strings"
-
-	"sentinel/agent/internal/config"
 )
 
 type Slack struct{ URL string }
@@ -22,7 +20,7 @@ var slackEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Re
 var slackKind = kind{
 	name:   "slack",
 	fields: []Field{webhookField},
-	build: func(settings config.Notifiers) Notifier {
+	build: func(settings Settings) Notifier {
 		if settings.Slack == nil {
 			return nil
 		}

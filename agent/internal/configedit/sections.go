@@ -12,8 +12,8 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/schedule"
+	"sentinel/pkg/notify"
 )
 
 // The functions here edit the parts of the config that are not backup jobs: repositories,

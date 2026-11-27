@@ -10,13 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"sentinel/agent/internal/config"
 )
 
 // SMTP sends mail with STARTTLS when offered, or implicit TLS on port 465.
 type SMTP struct {
-	Config config.SMTP
+	Config SMTPSettings
 }
 
 func (s *SMTP) Name() string { return "smtp" }
@@ -114,7 +112,7 @@ var smtpKind = kind{
 		{Key: "user", Label: "User"}, {Key: "pass", Label: "Password", Secret: true},
 		{Key: "from", Label: "From"}, {Key: "to", Label: "To", Required: true, List: true},
 	},
-	build: func(settings config.Notifiers) Notifier {
+	build: func(settings Settings) Notifier {
 		if settings.SMTP == nil {
 			return nil
 		}

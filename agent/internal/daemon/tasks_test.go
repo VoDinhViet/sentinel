@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
 )
 
 // The history is pruned when the daemon starts, not only 24 hours later: a daemon that is restarted

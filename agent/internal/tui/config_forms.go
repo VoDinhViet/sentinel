@@ -9,7 +9,7 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/configedit"
-	"sentinel/agent/internal/notify"
+	"sentinel/pkg/notify"
 )
 
 // The forms of the Config tab: repository, uptime check, notifier and settings. They use

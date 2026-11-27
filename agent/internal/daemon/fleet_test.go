@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/status"
+	"sentinel/pkg/alert"
 )
 
 // fleetRounds scripts what the servers answer, one round at a time.
@@ -102,7 +103,7 @@ func TestFleetWatcherKeepsServersApart(t *testing.T) {
 	if got, want := rec.titles(), []string{"CRITICAL web-01 cannot be reached"}; !slices.Equal(got, want) {
 		t.Errorf("messages = %v, want %v", got, want)
 	}
-	if watcher.Alerts.Firing(alert.FleetKey("db-01")) || !watcher.Alerts.Firing(alert.FleetKey("web-01")) {
+	if watcher.Alerts.Firing(alertkey.Fleet("db-01")) || !watcher.Alerts.Firing(alertkey.Fleet("web-01")) {
 		t.Error("the alert of one server must not touch the other")
 	}
 }
@@ -169,7 +170,7 @@ func TestFleetWatcherSaysWhenItCannotReadTheFileAndLeavesTheServersAlertsAlone(t
 	if got := rec.titles(); len(got) != 0 {
 		t.Errorf("the same problem was announced again within the cooldown: %v", got)
 	}
-	if !watcher.Alerts.Firing(alert.FleetKey("web-01")) {
+	if !watcher.Alerts.Firing(alertkey.Fleet("web-01")) {
 		t.Error("the alert of web-01 was closed on the strength of a file nobody could read")
 	}
 

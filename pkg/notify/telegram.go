@@ -2,8 +2,6 @@ package notify
 
 import (
 	"context"
-
-	"sentinel/agent/internal/config"
 )
 
 type Telegram struct {
@@ -33,7 +31,7 @@ var telegramKind = kind{
 		{Key: "token", Label: "Bot token", Secret: true, Required: true},
 		{Key: "chat_id", Label: "Chat id", Required: true},
 	},
-	build: func(settings config.Notifiers) Notifier {
+	build: func(settings Settings) Notifier {
 		if settings.Telegram == nil {
 			return nil
 		}

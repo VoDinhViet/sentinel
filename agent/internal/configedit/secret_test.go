@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"sentinel/agent/internal/config"
+	"sentinel/pkg/yamlenv"
 )
 
 func TestSaveSecretAddsReplacesAndKeepsTheRest(t *testing.T) {
@@ -43,7 +43,7 @@ func TestSaveSecretValuesRoundTripThroughLoadEnvFile(t *testing.T) {
 			t.Fatalf("%q: %v", value, err)
 		}
 		os.Unsetenv("SECRET_ROUNDTRIP")
-		if _, err := config.LoadEnvFile(envFile, []string{"SECRET_ROUNDTRIP"}); err != nil {
+		if _, err := yamlenv.LoadEnvFile(envFile, []string{"SECRET_ROUNDTRIP"}); err != nil {
 			t.Fatalf("%q: %v", value, err)
 		}
 		if got := os.Getenv("SECRET_ROUNDTRIP"); got != value {

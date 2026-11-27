@@ -2,7 +2,7 @@ package fleet
 
 import (
 	"sentinel/agent/internal/status"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 // States of a server, from the worst: it cannot be asked, it has something to look at, it is fine.

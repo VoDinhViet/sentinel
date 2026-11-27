@@ -7,7 +7,7 @@ import (
 
 	"sentinel/agent/internal/app"
 	"sentinel/agent/internal/host"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 // hostTimeout ends a reading of the machine (its systemctl calls have their own, shorter limits).

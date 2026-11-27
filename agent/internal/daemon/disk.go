@@ -12,13 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
-// diskKeyPrefix starts the alert key of every disk alert (see alert.DiskKey).
+// diskKeyPrefix starts the alert key of every disk alert (see alertkey.Disk).
 const diskKeyPrefix = "disk:"
 
 // checkDisksEvery is how often the file systems are looked at.
@@ -134,13 +135,13 @@ func (w *DiskWatcher) Check(ctx context.Context) {
 	var keys []string
 	for _, group := range groups {
 		w.report(ctx, group)
-		keys = append(keys, alert.DiskKey(group.path))
+		keys = append(keys, alertkey.Disk(group.path))
 	}
 	w.Alerts.ResolveMissing(ctx, diskKeyPrefix, keys, "Disk no longer watched")
 }
 
 func (w *DiskWatcher) report(ctx context.Context, group *diskGroup) {
-	key := alert.DiskKey(group.path)
+	key := alertkey.Disk(group.path)
 	free := group.usage.freePercent()
 	holds := strings.Join(group.holds, ", ")
 	if free >= float64(w.MinFreePercent) {

@@ -4,8 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 type Discord struct{ URL string }
@@ -32,7 +31,7 @@ func discordEscape(text string) string {
 var discordKind = kind{
 	name:   "discord",
 	fields: []Field{webhookField},
-	build: func(settings config.Notifiers) Notifier {
+	build: func(settings Settings) Notifier {
 		if settings.Discord == nil {
 			return nil
 		}

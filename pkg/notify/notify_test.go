@@ -12,8 +12,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"sentinel/agent/internal/config"
 )
 
 var msg = Message{Level: Critical, Server: "web-01", Title: "website down", Body: "HTTP 502"}
@@ -122,9 +120,9 @@ func TestMultiRetriesAndIsolatesFailures(t *testing.T) {
 }
 
 func TestFromConfig(t *testing.T) {
-	ns := FromConfig(config.Notifiers{
-		Telegram: &config.Telegram{Token: "t", ChatID: "c"},
-		Slack:    &config.Webhook{URL: "http://x"},
+	ns := FromConfig(Settings{
+		Telegram: &TelegramSettings{Token: "t", ChatID: "c"},
+		Slack:    &WebhookSettings{URL: "http://x"},
 	})
 	if len(ns) != 2 || ns[0].Name() != "telegram" || ns[1].Name() != "slack" {
 		t.Errorf("got %v", ns)
@@ -184,7 +182,7 @@ func fakeSMTP(t *testing.T) (host string, port int, data chan string) {
 
 func TestSMTP(t *testing.T) {
 	host, port, mails := fakeSMTP(t)
-	n := &SMTP{Config: config.SMTP{Host: host, Port: port, From: "sentinel@x.com", To: []string{"ops@x.com"}}}
+	n := &SMTP{Config: SMTPSettings{Host: host, Port: port, From: "sentinel@x.com", To: []string{"ops@x.com"}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := n.Send(ctx, msg); err != nil {

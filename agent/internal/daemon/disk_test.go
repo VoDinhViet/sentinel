@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/config"
+	"sentinel/pkg/alert"
 )
 
 // usageByPath answers a disk check from a table, in percent free of a 100 GB file system.

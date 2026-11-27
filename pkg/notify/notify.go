@@ -17,8 +17,7 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 
-	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 type Level int
@@ -66,7 +65,7 @@ type Notifier interface {
 }
 
 // FromConfig builds one notifier per configured notifier setting.
-func FromConfig(settings config.Notifiers) []Notifier {
+func FromConfig(settings Settings) []Notifier {
 	var notifiers []Notifier
 	for _, k := range kinds {
 		if notifier := k.build(settings); notifier != nil {
@@ -86,7 +85,7 @@ type Multi struct {
 }
 
 // NewMulti fans messages out to every notifier configured in settings.
-func NewMulti(settings config.Notifiers) *Multi {
+func NewMulti(settings Settings) *Multi {
 	return &Multi{Notifiers: FromConfig(settings)}
 }
 

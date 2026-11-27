@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 // restic exit codes (restic >= 0.17).

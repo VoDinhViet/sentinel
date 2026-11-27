@@ -10,9 +10,9 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/configedit"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/schedule"
 	"sentinel/agent/internal/uptime"
+	"sentinel/pkg/notify"
 )
 
 // configTab is the index of the Config tab: the repositories, jobs, uptime checks, notification

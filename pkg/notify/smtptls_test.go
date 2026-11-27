@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"sentinel/agent/internal/config"
 )
 
 func TestIsLoopbackHost(t *testing.T) {
@@ -28,7 +26,7 @@ func TestSMTPRefusesPlaintextToARemoteServerUnlessAllowed(t *testing.T) {
 	isLoopbackHost = func(string) bool { return false } // pretend the fake server is on another machine
 	t.Cleanup(func() { isLoopbackHost = oldIsLoopback })
 
-	settings := config.SMTP{Host: host, Port: port, From: "sentinel@x.com", To: []string{"ops@x.com"}}
+	settings := SMTPSettings{Host: host, Port: port, From: "sentinel@x.com", To: []string{"ops@x.com"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -55,7 +53,7 @@ func TestSMTPToThisMachineMayBePlaintext(t *testing.T) {
 	host, port, mails := fakeSMTP(t) // 127.0.0.1, no STARTTLS
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := (&SMTP{Config: config.SMTP{Host: host, Port: port, From: "a@x.com", To: []string{"b@x.com"}}}).Send(ctx, msg); err != nil {
+	if err := (&SMTP{Config: SMTPSettings{Host: host, Port: port, From: "a@x.com", To: []string{"b@x.com"}}}).Send(ctx, msg); err != nil {
 		t.Fatal(err)
 	}
 	<-mails

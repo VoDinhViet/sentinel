@@ -4,7 +4,7 @@ import (
 	"slices"
 
 	"sentinel/agent/internal/status"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 // What a server sends is text from outside this machine, and the screens print it. The client

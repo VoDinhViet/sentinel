@@ -5,6 +5,8 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"sentinel/pkg/notify"
 )
 
 // DefaultJobTimeout is how long one run of a job may take when the job sets no timeout.
@@ -39,7 +41,7 @@ func (c *Config) applyDefaults() {
 		c.PruneSchedule = DefaultPruneSchedule
 	}
 	if c.Heartbeat.URL != "" && c.Heartbeat.Every == 0 {
-		c.Heartbeat.Every = DefaultHeartbeatEvery
+		c.Heartbeat.Every = notify.DefaultHeartbeatEvery
 	}
 	if c.Fleet.Config != "" {
 		if c.Fleet.Every == 0 {

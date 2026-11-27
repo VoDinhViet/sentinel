@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
 func TestIsStale(t *testing.T) {

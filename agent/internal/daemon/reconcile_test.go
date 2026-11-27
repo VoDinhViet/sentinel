@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
 )
 
 // reconcileDaemon is a daemon for the one job "site" into the repository "s3"; the runs the tests record
@@ -52,7 +53,7 @@ func TestReconcileReportsABackupRunByHand(t *testing.T) {
 	if got := rec.titles(); len(got) != 1 || got[0] != "CRITICAL Backup site to s3 failed" {
 		t.Fatalf("a failed run by hand must reach the alerts, got %v", got)
 	}
-	if !d.Alerts.Firing(alert.BackupKey("site", "s3")) {
+	if !d.Alerts.Firing(alertkey.Backup("site", "s3")) {
 		t.Error("the alert is not open")
 	}
 

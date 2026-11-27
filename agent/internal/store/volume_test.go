@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"sentinel/pkg/alert"
 )
 
 // fillHistory writes perName results for each of names, oldest first, and a backup run history of
@@ -201,7 +203,7 @@ func TestStoreOpensInAFolderWithOddCharacters(t *testing.T) {
 	if s.reader == s.db {
 		t.Fatal("the read-only connections did not open")
 	}
-	if err := s.SaveAlert(ctx, Alert{Key: "k", Firing: true, Since: time.Unix(5, 0), LastNotified: time.Unix(5, 0)}); err != nil {
+	if err := s.SaveAlert(ctx, alert.Alert{Key: "k", Firing: true, Since: time.Unix(5, 0), LastNotified: time.Unix(5, 0)}); err != nil {
 		t.Fatal(err)
 	}
 	if alerts, err := s.Alerts(ctx, true); err != nil || len(alerts) != 1 {

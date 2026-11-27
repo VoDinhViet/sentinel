@@ -12,7 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"sentinel/agent/internal/backup"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 type browseKind int

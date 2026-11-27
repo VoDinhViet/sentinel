@@ -7,20 +7,22 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"sentinel/pkg/notify"
 )
 
 type Config struct {
-	ServerName     string                `yaml:"server_name"`
-	StorePath      string                `yaml:"store"`
-	Notifiers      Notifiers             `yaml:"notifiers"`
-	Alert          AlertSettings         `yaml:"alert"`
-	Disk           DiskSettings          `yaml:"disk"`
-	Heartbeat      Heartbeat             `yaml:"heartbeat"`
-	Fleet          Fleet                 `yaml:"fleet"`
-	API            API                   `yaml:"api"`
-	Repositories   map[string]Repository `yaml:"repositories" validate:"dive"`
-	Jobs           []Job                 `yaml:"jobs" validate:"dive"`
-	VerifySchedule string                `yaml:"verify_schedule"`
+	ServerName     string                   `yaml:"server_name"`
+	StorePath      string                   `yaml:"store"`
+	Notifiers      notify.Settings          `yaml:"notifiers"`
+	Alert          AlertSettings            `yaml:"alert"`
+	Disk           DiskSettings             `yaml:"disk"`
+	Heartbeat      notify.HeartbeatSettings `yaml:"heartbeat"`
+	Fleet          Fleet                    `yaml:"fleet"`
+	API            API                      `yaml:"api"`
+	Repositories   map[string]Repository    `yaml:"repositories" validate:"dive"`
+	Jobs           []Job                    `yaml:"jobs" validate:"dive"`
+	VerifySchedule string                   `yaml:"verify_schedule"`
 	// PruneSchedule is when the data that forgotten snapshots held is removed from each repository.
 	PruneSchedule string `yaml:"prune_schedule"`
 	// Resources limits how much of the server a backup may take.
@@ -66,50 +68,11 @@ type Defaults struct {
 	Retention    Retention `yaml:"retention"`
 }
 
-type Notifiers struct {
-	Telegram *Telegram `yaml:"telegram"`
-	SMTP     *SMTP     `yaml:"smtp"`
-	Discord  *Webhook  `yaml:"discord"`
-	Slack    *Webhook  `yaml:"slack"`
-}
-
-type Telegram struct {
-	Token  string `yaml:"token" validate:"required"`
-	ChatID string `yaml:"chat_id" validate:"required"`
-}
-
-type SMTP struct {
-	Host string   `yaml:"host" validate:"required"`
-	Port int      `yaml:"port"`
-	User string   `yaml:"user"`
-	Pass string   `yaml:"pass"`
-	From string   `yaml:"from"`
-	To   []string `yaml:"to" validate:"min=1"`
-	// InsecurePlaintext lets a mail go out unencrypted when a server that is not this machine offers no
-	// STARTTLS. Off by default: the alert text quotes file names and error output.
-	InsecurePlaintext bool `yaml:"insecure_plaintext"`
-}
-
-type Webhook struct {
-	URL string `yaml:"webhook" validate:"required,https_url"`
-}
-
 type AlertSettings struct {
 	// Cooldown is how often a still-firing alert is re-sent.
 	Cooldown time.Duration `yaml:"cooldown"`
 	// NotifySuccess sends a message after every successful backup.
 	NotifySuccess bool `yaml:"notify_success"`
-}
-
-// DefaultHeartbeatEvery is how often the heartbeat URL is requested when the config sets no interval.
-const DefaultHeartbeatEvery = 5 * time.Minute
-
-// Heartbeat is a URL the daemon requests on a schedule, so a service outside the server (healthchecks.io,
-// an Uptime Kuma push monitor) can tell the daemon is alive: when the requests stop, that service sends
-// the alert that Sentinel, being down, cannot. It is off when URL is empty.
-type Heartbeat struct {
-	URL   string        `yaml:"url" validate:"omitempty,https_url"`
-	Every time.Duration `yaml:"every" validate:"omitempty,gte=1m"`
 }
 
 // DefaultFleetEvery is how often the servers of the fleet are asked when the config sets no interval.

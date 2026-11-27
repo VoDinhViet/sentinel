@@ -6,11 +6,11 @@ import (
 	"slices"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 )
 
 // New builds the daemon for cfg: the alert manager (restored from the store, so a restart

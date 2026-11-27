@@ -3,7 +3,7 @@ package configedit
 import (
 	"errors"
 	"os"
-	"sentinel/agent/internal/notify"
+	"sentinel/pkg/notify"
 	"strings"
 	"testing"
 

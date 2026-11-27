@@ -9,7 +9,7 @@ import (
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/termtext"
 )
 
 type Report struct {

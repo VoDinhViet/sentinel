@@ -3,8 +3,6 @@ package notify
 import (
 	"slices"
 	"testing"
-
-	"sentinel/agent/internal/config"
 )
 
 func TestEveryKindIsKnownByItsName(t *testing.T) {
@@ -23,9 +21,9 @@ func TestEveryKindIsKnownByItsName(t *testing.T) {
 }
 
 func TestFromConfigBuildsOnlyWhatIsConfiguredInTheOrderOfKinds(t *testing.T) {
-	settings := config.Notifiers{
-		Slack:    &config.Webhook{URL: "https://hooks.slack.test/x"},
-		Telegram: &config.Telegram{Token: "t", ChatID: "1"},
+	settings := Settings{
+		Slack:    &WebhookSettings{URL: "https://hooks.slack.test/x"},
+		Telegram: &TelegramSettings{Token: "t", ChatID: "1"},
 	}
 	var names []string
 	for _, notifier := range FromConfig(settings) {
@@ -34,7 +32,7 @@ func TestFromConfigBuildsOnlyWhatIsConfiguredInTheOrderOfKinds(t *testing.T) {
 	if want := []string{"telegram", "slack"}; !slices.Equal(names, want) {
 		t.Fatalf("notifiers = %v, want %v", names, want)
 	}
-	if got := FromConfig(config.Notifiers{}); len(got) != 0 {
+	if got := FromConfig(Settings{}); len(got) != 0 {
 		t.Fatalf("an empty config built %d notifiers", len(got))
 	}
 }

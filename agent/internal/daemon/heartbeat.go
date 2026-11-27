@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"sentinel/agent/internal/config"
-	"sentinel/agent/internal/notify"
+	"sentinel/pkg/notify"
 )
 
 // heartbeatTask requests the heartbeat URL at start and then every cfg.Heartbeat.Every, or is

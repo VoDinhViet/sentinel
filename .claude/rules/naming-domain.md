@@ -41,7 +41,7 @@ shapes (`r`, `x`, `v`, `row`, `data`, `result`, `list`, `items`) stay banned.
 | The admin's login on the control plane | `session` (one admin password, no users) | `user`, `account` |
 
 One entity, one name per layer: config `config.Job` / `config.UptimeCheck`; run-time `uptime.Result`, `restic.Snapshot`;
-stored `store.BackupRun` / `store.CheckResult` / `store.Alert`; report `status.Report`; TUI form `configedit.Job`.
+stored `store.BackupRun` / `store.CheckResult` / `alert.Alert`; report `status.Report`; TUI form `configedit.Job`.
 Never reuse one name for two layers in the same scope.
 
 ## Verbs

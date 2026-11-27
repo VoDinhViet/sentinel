@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/agent/internal/alert"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/uptime"
+	"sentinel/pkg/alert"
 )
 
 func webCheck() config.UptimeCheck {

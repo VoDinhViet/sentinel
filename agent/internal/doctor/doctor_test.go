@@ -17,6 +17,7 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/notify"
 )
 
 func TestRunReportsProblemsWithHints(t *testing.T) {
@@ -88,7 +89,7 @@ func TestHeartbeatFindingWarnsWhenNothingWatchesTheDaemon(t *testing.T) {
 	if off.Err == nil || !off.Warn || off.Hint == "" {
 		t.Errorf("without a heartbeat: %+v, want a warning with a hint", off)
 	}
-	on := heartbeatFinding(&config.Config{Heartbeat: config.Heartbeat{URL: "https://hc-ping.com/x", Every: 5 * time.Minute}})
+	on := heartbeatFinding(&config.Config{Heartbeat: notify.HeartbeatSettings{URL: "https://hc-ping.com/x", Every: 5 * time.Minute}})
 	if on.Err != nil || !strings.Contains(on.Info, "5m0s") {
 		t.Errorf("with a heartbeat: %+v", on)
 	}

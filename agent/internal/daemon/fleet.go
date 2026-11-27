@@ -7,14 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"sentinel/agent/internal/alert"
+	"sentinel/agent/internal/alertkey"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/fleet"
-	"sentinel/agent/internal/notify"
-	"sentinel/agent/internal/termtext"
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
+	"sentinel/pkg/termtext"
 )
 
-// fleetKeyPrefix starts the alert key of every server of the fleet (see alert.FleetKey).
+// fleetKeyPrefix starts the alert key of every server of the fleet (see alertkey.Fleet).
 const fleetKeyPrefix = "fleet:"
 
 // FleetWatcher asks the servers of a fleet file how they are and alerts when one cannot be reached
@@ -68,7 +69,7 @@ func (w *FleetWatcher) Check(ctx context.Context) {
 	var keys []string
 	for _, answer := range answers {
 		w.observe(ctx, answer)
-		keys = append(keys, alert.FleetKey(answer.Server.Name))
+		keys = append(keys, alertkey.Fleet(answer.Server.Name))
 	}
 	w.forgetServersOtherThan(answers)
 	w.Alerts.ResolveMissing(ctx, fleetKeyPrefix, keys, "Server no longer watched")
@@ -76,7 +77,7 @@ func (w *FleetWatcher) Check(ctx context.Context) {
 
 // observe counts the round for one server and raises or resolves its alert.
 func (w *FleetWatcher) observe(ctx context.Context, answer fleet.ServerStatus) {
-	name, key := answer.Server.Name, alert.FleetKey(answer.Server.Name)
+	name, key := answer.Server.Name, alertkey.Fleet(answer.Server.Name)
 	failures := w.countFailures(name, answer.Err == nil)
 	switch {
 	case answer.Err == nil:
@@ -146,7 +147,7 @@ func (w *FleetWatcher) fileUnreadable(ctx context.Context, err error) {
 	if !repeated {
 		slog.Error("cannot read the fleet file", "path", w.Path, "error", err)
 	}
-	w.Alerts.Fire(ctx, alert.FleetFileKey, notify.Warning, "The fleet file cannot be read: no server is being watched",
+	w.Alerts.Fire(ctx, alertkey.FleetFile, notify.Warning, "The fleet file cannot be read: no server is being watched",
 		fmt.Sprintf("%s: %v", w.Path, err))
 }
 
@@ -154,5 +155,5 @@ func (w *FleetWatcher) fileReadable(ctx context.Context) {
 	w.mu.Lock()
 	w.fileErrShown = ""
 	w.mu.Unlock()
-	w.Alerts.Resolve(ctx, alert.FleetFileKey, "The fleet file can be read again", w.Path)
+	w.Alerts.Resolve(ctx, alertkey.FleetFile, "The fleet file can be read again", w.Path)
 }

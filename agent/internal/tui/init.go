@@ -12,8 +12,8 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/configedit"
-	"sentinel/agent/internal/notify"
 	"sentinel/agent/internal/status"
+	"sentinel/pkg/notify"
 )
 
 // InitOutcome is what a finished init tells the user.

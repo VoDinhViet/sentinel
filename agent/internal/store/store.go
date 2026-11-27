@@ -16,6 +16,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"sentinel/pkg/alert"
 )
 
 type Store struct {
@@ -416,28 +418,10 @@ func (s *Store) RecentChecks(ctx context.Context, perName int) ([]CheckResult, e
 		ORDER BY name, id`, perName)
 }
 
-type Alert struct {
-	Key          string
-	Firing       bool
-	Since        time.Time
-	LastNotified time.Time
-	Message      string
-	// Pending is the message of this alert that no notifier has taken yet; nil when nothing waits.
-	Pending *PendingMessage
-}
-
-// PendingMessage is an alert message waiting to be delivered. Level is a notify.Level, kept as a
-// number here so the store does not depend on the notifiers.
-type PendingMessage struct {
-	Level int
-	Title string
-	Body  string
-}
-
-func (s *Store) SaveAlert(ctx context.Context, alert Alert) error {
+func (s *Store) SaveAlert(ctx context.Context, toSave alert.Alert) error {
 	var pendingLevel sql.NullInt64
 	var pendingTitle, pendingBody string
-	if pending := alert.Pending; pending != nil {
+	if pending := toSave.Pending; pending != nil {
 		pendingLevel = sql.NullInt64{Int64: int64(pending.Level), Valid: true}
 		pendingTitle, pendingBody = pending.Title, pending.Body
 	}
@@ -446,12 +430,12 @@ func (s *Store) SaveAlert(ctx context.Context, alert Alert) error {
 		ON CONFLICT(key) DO UPDATE SET firing = excluded.firing, since = excluded.since,
 			last_notified = excluded.last_notified, message = excluded.message,
 			pending_level = excluded.pending_level, pending_title = excluded.pending_title, pending_body = excluded.pending_body`,
-		alert.Key, alert.Firing, alert.Since.Unix(), alert.LastNotified.Unix(), alert.Message, pendingLevel, pendingTitle, pendingBody)
+		toSave.Key, toSave.Firing, toSave.Since.Unix(), toSave.LastNotified.Unix(), toSave.Message, pendingLevel, pendingTitle, pendingBody)
 	return err
 }
 
 // Alerts returns every stored alert; firingOnly limits it to open alerts.
-func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
+func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]alert.Alert, error) {
 	query := `SELECT key, firing, since, last_notified, message, pending_level, pending_title, pending_body FROM alerts`
 	if firingOnly {
 		query += ` WHERE firing = 1`
@@ -461,20 +445,20 @@ func (s *Store) Alerts(ctx context.Context, firingOnly bool) ([]Alert, error) {
 		return nil, err
 	}
 	defer alertRows.Close()
-	var alerts []Alert
+	var alerts []alert.Alert
 	for alertRows.Next() {
-		var alert Alert
+		var stored alert.Alert
 		var sinceUnix, lastNotifiedUnix int64
 		var pendingLevel sql.NullInt64
 		var pendingTitle, pendingBody string
-		if err := alertRows.Scan(&alert.Key, &alert.Firing, &sinceUnix, &lastNotifiedUnix, &alert.Message, &pendingLevel, &pendingTitle, &pendingBody); err != nil {
+		if err := alertRows.Scan(&stored.Key, &stored.Firing, &sinceUnix, &lastNotifiedUnix, &stored.Message, &pendingLevel, &pendingTitle, &pendingBody); err != nil {
 			return nil, err
 		}
-		alert.Since, alert.LastNotified = time.Unix(sinceUnix, 0), time.Unix(lastNotifiedUnix, 0)
+		stored.Since, stored.LastNotified = time.Unix(sinceUnix, 0), time.Unix(lastNotifiedUnix, 0)
 		if pendingLevel.Valid {
-			alert.Pending = &PendingMessage{Level: int(pendingLevel.Int64), Title: pendingTitle, Body: pendingBody}
+			stored.Pending = &alert.Pending{Level: int(pendingLevel.Int64), Title: pendingTitle, Body: pendingBody}
 		}
-		alerts = append(alerts, alert)
+		alerts = append(alerts, stored)
 	}
 	return alerts, alertRows.Err()
 }

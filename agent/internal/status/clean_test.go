@@ -10,6 +10,7 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/pkg/alert"
 )
 
 // The report is printed by `sentinel status` and drawn by `sentinel manage`. Its texts come from the store,
@@ -33,7 +34,7 @@ func TestBuildStripsEscapeSequencesFromStoredText(t *testing.T) {
 	if err := st.RecordCheck(ctx, store.CheckResult{Name: "site", At: now, Error: hostile}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveAlert(ctx, store.Alert{Key: "backup:files:s3", Firing: true, Since: now, Message: hostile}); err != nil {
+	if err := st.SaveAlert(ctx, alert.Alert{Key: "backup:files:s3", Firing: true, Since: now, Message: hostile}); err != nil {
 		t.Fatal(err)
 	}
 

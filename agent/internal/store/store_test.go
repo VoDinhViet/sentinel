@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"sentinel/pkg/alert"
 )
 
 func openTemp(t *testing.T) *Store {
@@ -147,14 +149,14 @@ func TestAlerts(t *testing.T) {
 	s := openTemp(t)
 	now := time.Unix(1_700_000_000, 0)
 
-	if err := s.SaveAlert(ctx, Alert{Key: "uptime:web", Firing: true, Since: now, LastNotified: now, Message: "down"}); err != nil {
+	if err := s.SaveAlert(ctx, alert.Alert{Key: "uptime:web", Firing: true, Since: now, LastNotified: now, Message: "down"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveAlert(ctx, Alert{Key: "cpu", Firing: false, Since: now, LastNotified: now, Message: "ok"}); err != nil {
+	if err := s.SaveAlert(ctx, alert.Alert{Key: "cpu", Firing: false, Since: now, LastNotified: now, Message: "ok"}); err != nil {
 		t.Fatal(err)
 	}
 	// Upsert flips the first alert to resolved.
-	if err := s.SaveAlert(ctx, Alert{Key: "uptime:web", Firing: false, Since: now.Add(time.Minute), LastNotified: now, Message: "up"}); err != nil {
+	if err := s.SaveAlert(ctx, alert.Alert{Key: "uptime:web", Firing: false, Since: now.Add(time.Minute), LastNotified: now, Message: "up"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,12 +177,12 @@ func TestAlertKeepsItsPendingMessage(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	since := time.Unix(100, 0)
-	waiting := Alert{Key: "disk:/", Firing: true, Since: since, LastNotified: since, Message: "disk full",
-		Pending: &PendingMessage{Level: 2, Title: "disk full", Body: "95% used"}}
+	waiting := alert.Alert{Key: "disk:/", Firing: true, Since: since, LastNotified: since, Message: "disk full",
+		Pending: &alert.Pending{Level: 2, Title: "disk full", Body: "95% used"}}
 	if err := s.SaveAlert(ctx, waiting); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveAlert(ctx, Alert{Key: "uptime:web", Since: since, LastNotified: since}); err != nil {
+	if err := s.SaveAlert(ctx, alert.Alert{Key: "uptime:web", Since: since, LastNotified: since}); err != nil {
 		t.Fatal(err)
 	}
 	alerts, err := s.Alerts(ctx, false)
@@ -342,10 +344,10 @@ func TestMigrationRenamesAlertKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, alert := range alerts {
-		got = append(got, alert.Key)
-		if !alert.Firing || alert.Since.Unix() != 100 || alert.LastNotified.Unix() != 200 || alert.Message != "m" {
-			t.Errorf("alert %q lost its state: %+v", alert.Key, alert)
+	for _, migrated := range alerts {
+		got = append(got, migrated.Key)
+		if !migrated.Firing || migrated.Since.Unix() != 100 || migrated.LastNotified.Unix() != 200 || migrated.Message != "m" {
+			t.Errorf("alert %q lost its state: %+v", migrated.Key, migrated)
 		}
 	}
 	want := []string{"backup:appdb:s3", "stale:appdb", "stale:repo-check:odd", "uptime:site", "verify:s3"}
