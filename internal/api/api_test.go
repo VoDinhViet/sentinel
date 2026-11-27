@@ -73,7 +73,7 @@ func call(t *testing.T, backend Backend, method, target, token string) *httptest
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	rec := httptest.NewRecorder()
-	New(backend, testToken).Handler().ServeHTTP(rec, req)
+	New(backend, Options{Token: testToken}).Handler().ServeHTTP(rec, req)
 	return rec
 }
 
@@ -238,7 +238,7 @@ func TestAServerWithoutATokenRefusesEverything(t *testing.T) {
 				req.Header.Set("Authorization", header)
 			}
 			rec := httptest.NewRecorder()
-			New(&fakeBackend{}, "").Handler().ServeHTTP(rec, req)
+			New(&fakeBackend{}, Options{}).Handler().ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rec.Code)
 			}

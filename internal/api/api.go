@@ -29,15 +29,21 @@ type Backend interface {
 
 var _ Backend = (*app.Service)(nil)
 
+// Options are the settings of a Server.
+type Options struct {
+	// Token is the bearer token every /api/ request must carry. Empty, the server refuses every /api/ request.
+	Token string
+}
+
 // Server answers the API requests of one backend. Every /api/ request needs the bearer token.
 type Server struct {
 	backend Backend
-	token   string
+	opts    Options
 }
 
-// New returns the server for a backend. With an empty token it refuses every /api/ request.
-func New(backend Backend, token string) *Server {
-	return &Server{backend: backend, token: token}
+// New returns the server for a backend.
+func New(backend Backend, opts Options) *Server {
+	return &Server{backend: backend, opts: opts}
 }
 
 // Handler is the routes of the API. /healthz is open so a probe needs no secret.
