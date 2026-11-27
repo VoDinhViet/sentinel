@@ -25,6 +25,7 @@ type Backend interface {
 	StartBackup(jobName, repo string) (pid int, logPath string, err error)
 	RequestStop(jobName string) error
 	Doctor(ctx context.Context) []doctor.Finding
+	Host(ctx context.Context) app.HostReport
 }
 
 var _ Backend = (*app.Service)(nil)
@@ -61,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/jobs/{job}/backups", s.authorized(s.startBackup))
 	mux.Handle("DELETE /api/v1/jobs/{job}/backups/running", s.authorized(s.stopBackup))
 	mux.Handle("GET /api/v1/doctor", s.authorized(s.doctor))
+	mux.Handle("GET /api/v1/host", s.authorized(s.host))
 	return logged(mux)
 }
 

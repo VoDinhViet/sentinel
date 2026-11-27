@@ -15,6 +15,7 @@ import (
 	"sentinel/internal/app"
 	"sentinel/internal/backup"
 	"sentinel/internal/doctor"
+	"sentinel/internal/host"
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
 )
@@ -26,10 +27,11 @@ const (
 
 // fakeBackend answers from fields, and fails with err when it is set.
 type fakeBackend struct {
-	err      error
-	started  []string
-	stopped  []string
-	findings []doctor.Finding
+	err        error
+	started    []string
+	stopped    []string
+	findings   []doctor.Finding
+	hostReport app.HostReport
 }
 
 func (f *fakeBackend) Status(context.Context, time.Time) (status.Report, error) {
@@ -68,6 +70,8 @@ func (f *fakeBackend) RequestStop(jobName string) error {
 
 func (f *fakeBackend) Doctor(context.Context) []doctor.Finding { return f.findings }
 
+func (f *fakeBackend) Host(context.Context) app.HostReport { return f.hostReport }
+
 // call sends a request with the token (unless token is "") and returns the response.
 func call(t *testing.T, backend Backend, method, target, token string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -83,7 +87,7 @@ func call(t *testing.T, backend Backend, method, target, token string) *httptest
 func TestEveryAPIRouteNeedsTheTokenButHealthz(t *testing.T) {
 	routes := []string{
 		"GET /api/v1/status", "GET /api/v1/alerts", "GET /api/v1/jobs", "GET /api/v1/jobs/shop/snapshots?repository=local",
-		"POST /api/v1/jobs/shop/backups", "DELETE /api/v1/jobs/shop/backups/running", "GET /api/v1/doctor",
+		"POST /api/v1/jobs/shop/backups", "DELETE /api/v1/jobs/shop/backups/running", "GET /api/v1/doctor", "GET /api/v1/host",
 	}
 	for _, route := range routes {
 		method, target, _ := strings.Cut(route, " ")
@@ -107,7 +111,7 @@ func TestTheReadTokenOnlyReads(t *testing.T) {
 		writes         bool
 	}{
 		{"GET", "/api/v1/status", false}, {"GET", "/api/v1/alerts", false}, {"GET", "/api/v1/jobs", false},
-		{"GET", "/api/v1/jobs/shop/snapshots?repository=local", false}, {"GET", "/api/v1/doctor", false},
+		{"GET", "/api/v1/jobs/shop/snapshots?repository=local", false}, {"GET", "/api/v1/doctor", false}, {"GET", "/api/v1/host", false},
 		{"POST", "/api/v1/jobs/shop/backups", true}, {"DELETE", "/api/v1/jobs/shop/backups/running", true},
 	}
 	for _, route := range routes {
@@ -266,6 +270,54 @@ func TestDoctorFindingsCarryALevel(t *testing.T) {
 	levels := []string{findings[0].Level, findings[1].Level, findings[2].Level}
 	if strings.Join(levels, ",") != "ok,warning,failed" {
 		t.Errorf("levels = %v", levels)
+	}
+}
+
+func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
+	backend := &fakeBackend{hostReport: app.HostReport{
+		State: host.State{
+			Hostname: "web-01", OS: "ubuntu 24.04", Kernel: "6.8.0", Uptime: 90 * time.Minute, Load: [3]float64{0.5, 0.4, 0.3}, CPUs: 4, CPUPercent: 12.5,
+			Memory:      host.Memory{TotalBytes: 8 << 30, AvailableBytes: 3 << 30, SwapTotalBytes: 2 << 30, SwapFreeBytes: 2 << 30},
+			Disks:       []host.Disk{{Mount: "/", Device: "/dev/sda1", FSType: "ext4", FreeBytes: 10 << 30, TotalBytes: 40 << 30}},
+			Systemd:     true,
+			Sentinel:    host.Unit{Name: "sentinel.service", Active: "active", Description: "Sentinel"},
+			FailedUnits: []host.Unit{{Name: "nginx.service", Active: "failed", Description: "web \x1b[31mserver"}},
+			Errs:        []error{errors.New("reading swap: unavailable")},
+		},
+		MinFreePercent: 10,
+	}}
+	rec := call(t, backend, "GET", "/api/v1/host", testToken)
+	var entry hostEntry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("code %d, err %v, body %s", rec.Code, err, rec.Body)
+	}
+	if entry.Hostname != "web-01" || entry.UptimeSeconds != 5400 || entry.CPUs != 4 || entry.CPUPercent != 12.5 || entry.Load[1] != 0.4 {
+		t.Errorf("entry = %+v", entry)
+	}
+	if entry.Memory.TotalBytes != 8<<30 || len(entry.Disks) != 1 || entry.Disks[0].FSType != "ext4" || entry.MinFreePercent != 10 {
+		t.Errorf("memory, disks or threshold wrong: %+v", entry)
+	}
+	if entry.Sentinel == nil || entry.Sentinel.Active != "active" || len(entry.FailedUnits) != 1 || entry.FailedUnits[0].Name != "nginx.service" {
+		t.Errorf("units wrong: %+v", entry)
+	}
+	if len(entry.Errors) != 1 || entry.Errors[0] != "reading swap: unavailable" {
+		t.Errorf("errors = %v", entry.Errors)
+	}
+	if strings.Contains(rec.Body.String(), "\x1b") || strings.Contains(rec.Body.String(), `\u001b`) { // the byte, or its JSON escape
+		t.Errorf("a control character of a unit description reached the response: %s", rec.Body)
+	}
+}
+
+func TestHostListsAreEmptyNotNullAndSentinelNeedsSystemd(t *testing.T) {
+	rec := call(t, &fakeBackend{}, "GET", "/api/v1/host", testToken)
+	body := rec.Body.String()
+	for _, want := range []string{`"disks":[]`, `"failed_units":[]`, `"errors":[]`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the response lacks %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `"sentinel"`) {
+		t.Errorf("a machine without systemd reports sentinel.service: %s", body)
 	}
 }
 

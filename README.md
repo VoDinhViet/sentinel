@@ -171,6 +171,9 @@ Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/ap
 | `POST /api/v1/jobs/{job}/backups[?repository=<tên>]` | chạy backup nền, trả `202` kèm pid và đường dẫn log |
 | `DELETE /api/v1/jobs/{job}/backups/running` | yêu cầu backup đang chạy dừng |
 | `GET /api/v1/doctor` | kết quả `sentinel doctor` |
+| `GET /api/v1/host` | máy đang thế nào: CPU, RAM, swap, ổ đĩa, `sentinel.service` và các systemd unit đang `failed` (cùng số liệu với tab Server) |
+
+`cpu_percent` của `/api/v1/host` là mức CPU bận kể từ lần đọc trước trong cùng tiến trình daemon, nên gọi theo chu kỳ đều (vài chục giây một lần) mới có số có nghĩa; lần đầu là mức trung bình từ lúc daemon khởi động.
 
 Lỗi trả về dạng `{"error": "..."}`: `404` khi job hoặc repository không có, `409` khi job đang chạy (hoặc không có gì để dừng). Lỗi khác chỉ ghi vào log của daemon. Restore và sửa config chưa có qua API; dùng `sentinel manage`.
 
