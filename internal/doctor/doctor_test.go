@@ -2,6 +2,13 @@ package doctor
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,5 +131,79 @@ func TestRepositoriesAreCheckedAtTheSameTimeAndReportedInOrder(t *testing.T) {
 	}
 	if want := "repository a,repository b,repository c,repository d"; strings.Join(names, ",") != want {
 		t.Errorf("order = %v", names)
+	}
+}
+
+// writeAPICertificate saves a self-signed certificate that ends at notAfter and its key, and returns
+// the settings that point at them.
+func writeAPICertificate(t *testing.T, notAfter time.Time, keyMode os.FileMode) config.API {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "sentinel-test"}, NotBefore: notAfter.Add(-90 * 24 * time.Hour), NotAfter: notAfter}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	settings := config.API{Listen: "0.0.0.0:9311", TLSCert: filepath.Join(dir, "cert.pem"), TLSKey: filepath.Join(dir, "key.pem")}
+	if err := os.WriteFile(settings.TLSCert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings.TLSKey, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), keyMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(settings.TLSKey, keyMode); err != nil { // WriteFile is bound by the umask
+		t.Fatal(err)
+	}
+	return settings
+}
+
+func TestAPIFindingChecksTheCertificateInsteadOfWarningAboutPlainHTTP(t *testing.T) {
+	now := time.Now()
+	tests := map[string]struct {
+		notAfter time.Time
+		keyMode  os.FileMode
+		want     string // "ok", "warning" or "failed"
+	}{
+		"valid for months":       {now.Add(90 * 24 * time.Hour), 0o600, "ok"},
+		"expires in a week":      {now.Add(7 * 24 * time.Hour), 0o600, "warning"},
+		"expired yesterday":      {now.Add(-24 * time.Hour), 0o600, "failed"},
+		"key others can read":    {now.Add(90 * 24 * time.Hour), 0o644, "warning"},
+		"key only the group can": {now.Add(90 * 24 * time.Hour), 0o640, "warning"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			finding := apiFinding(&config.Config{API: writeAPICertificate(t, tc.notAfter, tc.keyMode)})
+			got := "ok"
+			switch {
+			case finding.Err != nil && finding.Warn:
+				got = "warning"
+			case finding.Err != nil:
+				got = "failed"
+			}
+			if got != tc.want {
+				t.Errorf("finding = %+v, want %s", finding, tc.want)
+			}
+			if finding.Err != nil && finding.Hint == "" {
+				t.Error("a problem needs a hint")
+			}
+		})
+	}
+	if ok := apiFinding(&config.Config{API: writeAPICertificate(t, now.Add(90*24*time.Hour), 0o600)}); !strings.Contains(ok.Info, "HTTPS") {
+		t.Errorf("info = %q", ok.Info)
+	}
+}
+
+func TestAPIFindingFailsForFilesThatCannotBeLoaded(t *testing.T) {
+	missing := config.API{Listen: "0.0.0.0:9311", TLSCert: "/nowhere/cert.pem", TLSKey: "/nowhere/key.pem"}
+	if finding := apiFinding(&config.Config{API: missing}); finding.Err == nil || finding.Warn || !strings.Contains(finding.Err.Error(), "cannot be loaded") {
+		t.Errorf("finding = %+v, want a failure, as the daemon would not start", finding)
 	}
 }

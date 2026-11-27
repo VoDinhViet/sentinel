@@ -122,7 +122,15 @@ type API struct {
 	// servers needs no power to start or stop a backup. Write it as ${SENTINEL_API_READ_TOKEN}. Empty, the
 	// API has only Token.
 	ReadToken string `yaml:"read_token" validate:"omitempty,api_token,nefield=Token"`
+	// TLSCert and TLSKey are the PEM files of a certificate and its private key: with both set the API
+	// speaks HTTPS (TLS 1.2 or later) instead of plain HTTP. They are read when the daemon starts, so a
+	// renewed certificate needs a restart.
+	TLSCert string `yaml:"tls_cert" validate:"required_with=TLSKey,omitempty,abspath"`
+	TLSKey  string `yaml:"tls_key" validate:"required_with=TLSCert,omitempty,abspath"`
 }
+
+// TLS says the API is served over HTTPS.
+func (a API) TLS() bool { return a.TLSCert != "" && a.TLSKey != "" }
 
 // MinTokenLength is the shortest API token accepted.
 const MinTokenLength = 16

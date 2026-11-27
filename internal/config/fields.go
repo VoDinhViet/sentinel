@@ -133,7 +133,7 @@ func fieldMessage(failure validator.FieldError) string {
 		field, value, _ := strings.Cut(param, " ")
 		return fmt.Sprintf("is required when %s is %s", strings.ToLower(field), value)
 	case "required_with":
-		text := fmt.Sprintf("is required when %s is set", strings.ToLower(param))
+		text := fmt.Sprintf("is required when %s is set", yamlKeyOf(param))
 		if failure.Namespace() == "Config.api.token" {
 			text += envFileHint
 		}
@@ -164,6 +164,18 @@ func fieldMessage(failure validator.FieldError) string {
 		return "must differ from " + strings.ToLower(param)
 	}
 	return fmt.Sprintf("fails the %q rule", failure.Tag())
+}
+
+// yamlKeyOf is the key a validator parameter names in the file: the name of a Go field, as
+// "TLSKey", means "tls_key" there.
+func yamlKeyOf(goField string) string {
+	switch goField {
+	case "TLSCert":
+		return "tls_cert"
+	case "TLSKey":
+		return "tls_key"
+	}
+	return strings.ToLower(goField)
 }
 
 // orList joins choices as "a, b or c".

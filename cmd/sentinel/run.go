@@ -62,9 +62,9 @@ func (a *cliApp) startAPI(ctx context.Context, cfg *config.Config, st *store.Sto
 	if cfg.API.Listen == "" {
 		return func() {}, nil
 	}
-	ln, err := net.Listen("tcp", cfg.API.Listen)
+	ln, err := listenAPI(cfg.API)
 	if err != nil {
-		return nil, fmt.Errorf("api.listen: %w", err)
+		return nil, err
 	}
 	handler := api.New(app.New(cfg, st, a.configPath), api.Options{Token: cfg.API.Token, ReadToken: cfg.API.ReadToken, Version: version}).Handler()
 	apiCtx, cancel := context.WithCancel(ctx)
@@ -75,8 +75,26 @@ func (a *cliApp) startAPI(ctx context.Context, cfg *config.Config, st *store.Sto
 			slog.Error("api stopped", "err", err)
 		}
 	}()
-	slog.Info("api listening", "addr", ln.Addr().String())
+	slog.Info("api listening", "addr", ln.Addr().String(), "tls", cfg.API.TLS())
 	return func() { cancel(); <-done }, nil
+}
+
+// listenAPI takes the port of api.listen, over TLS when a certificate is configured. A certificate
+// that cannot be read is an error here, and releases the port.
+func listenAPI(settings config.API) (net.Listener, error) {
+	ln, err := net.Listen("tcp", settings.Listen)
+	if err != nil {
+		return nil, fmt.Errorf("api.listen: %w", err)
+	}
+	if !settings.TLS() {
+		return ln, nil
+	}
+	secure, err := api.TLSListener(ln, settings.TLSCert, settings.TLSKey)
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return secure, nil
 }
 
 // forceStopSignal is closed by the second stop signal (the first one already ended the daemon's

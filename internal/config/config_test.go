@@ -161,6 +161,12 @@ api: { listen: "127.0.0.1:9311", token: short }`, "api: token must be at least 1
 api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: short }`, "api: read_token must be at least 16 characters"},
 		"api read token same as token": {`
 api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: "0123456789abcdef" }`, "api: read_token must differ from token"},
+		"api tls cert without key": {`
+api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: /etc/sentinel/cert.pem }`, "api: tls_key is required when tls_cert is set"},
+		"api tls key without cert": {`
+api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_key: /etc/sentinel/key.pem }`, "api: tls_cert is required when tls_key is set"},
+		"api tls relative path": {`
+api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: cert.pem, tls_key: /etc/sentinel/key.pem }`, "api: tls_cert must be an absolute path"},
 		"api listen without a port": {`
 api: { listen: "127.0.0.1", token: "0123456789abcdef" }`, "api: listen must be host:port"},
 		"heartbeat too often": {`
@@ -526,6 +532,16 @@ func TestAPIReadTokenIsOptional(t *testing.T) {
 	_, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', read_token: '${READ_TOKEN}' }"))
 	if err == nil || !strings.Contains(err.Error(), "must differ from token") {
 		t.Errorf("a read token equal to the token after expansion must be refused: %v", err)
+	}
+}
+
+func TestAPIServesHTTPSOnlyWithBothFiles(t *testing.T) {
+	cfg, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', tls_cert: /etc/sentinel/cert.pem, tls_key: /etc/sentinel/key.pem }"))
+	if err != nil || !cfg.API.TLS() {
+		t.Fatalf("api = %+v, %v", cfg.API, err)
+	}
+	if (API{TLSCert: "/c.pem"}).TLS() || (API{}).TLS() {
+		t.Error("TLS() is true without both files")
 	}
 }
 

@@ -159,9 +159,13 @@ api:
   listen: 127.0.0.1:9311
   token: ${SENTINEL_API_TOKEN}   # giá trị (từ 16 ký tự) để trong sentinel.env
   # read_token: ${SENTINEL_API_READ_TOKEN}   # tùy chọn: token thứ hai, chỉ đọc
+  # tls_cert: /etc/sentinel/api-cert.pem      # tùy chọn: có cả hai thì API chạy HTTPS (TLS 1.2 trở lên)
+  # tls_key: /etc/sentinel/api-key.pem
 ```
 
-Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. `read_token` (cũng từ 16 ký tự, phải khác `token`) chỉ gọi được các route `GET`; route bắt đầu hoặc dừng backup trả `403`. Đưa token này cho máy chỉ để xem, giữ `token` cho người được phép chạy backup. Token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
+Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. `read_token` (cũng từ 16 ký tự, phải khác `token`) chỉ gọi được các route `GET`; route bắt đầu hoặc dừng backup trả `403`. Đưa token này cho máy chỉ để xem, giữ `token` cho người được phép chạy backup. Mặc định token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
+
+Muốn mở API cho máy khác không qua proxy, đặt `tls_cert` và `tls_key` (đường dẫn tuyệt đối tới file PEM của chứng chỉ và khóa riêng; phải có cả hai). Daemon nạp hai file khi khởi động, nên sai file hoặc cặp không khớp thì daemon không chạy, và chứng chỉ gia hạn xong cần `systemctl restart sentinel`. Khi đó `doctor` không cảnh báo về HTTP thường nữa mà kiểm tra chứng chỉ: lỗi nếu đã hết hạn hoặc không nạp được, cảnh báo nếu còn dưới 14 ngày hoặc khóa riêng người khác đọc được (`chmod 600`). Server dùng chứng chỉ tự ký hoặc CA nội bộ thì máy xem đặt file chứng chỉ (hoặc CA) đó làm `tls_ca` trong `fleet.yaml`.
 
 | Route | Việc |
 |---|---|
@@ -194,7 +198,7 @@ Trên mỗi server cần xem, bật API và tạo `read_token` (xem [HTTP API](#
 ```yaml
 servers:
   - name: web-01
-    url: https://web-01.example.com:9311   # địa chỉ gốc của API, qua reverse proxy có TLS
+    url: https://web-01.example.com:9311   # địa chỉ gốc của API, bật HTTPS bằng api.tls_cert hoặc qua reverse proxy
     token: ${WEB01_READ_TOKEN}
   - name: db-01
     url: http://127.0.0.1:19312            # qua SSH tunnel, xem bên dưới
@@ -212,7 +216,7 @@ sentinel fleet alerts           # cảnh báo đang mở của mọi server; ser
 
 Gõ `sentinel fleet` không kèm lệnh con trên terminal thì mở màn hình quản lý chỉ có tab **Fleet** (xem [Màn hình quản lý](#màn-hình-quản-lý)), không cần `config.yaml`; ngoài terminal nó in trợ giúp. Trên server đã có config, `sentinel manage` cũng có tab Fleet đó (đọc `fleet.yaml` ở chỗ mặc định).
 
-Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. API chưa có TLS riêng: giữa máy xem và server, dùng SSH tunnel hoặc reverse proxy có TLS, vì `http://` gửi token không mã hóa.
+Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. Giữa máy xem và server, dùng `https://` (API có `tls_cert`, hoặc qua reverse proxy) hoặc SSH tunnel, vì `http://` gửi token không mã hóa.
 
 Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
 

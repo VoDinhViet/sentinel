@@ -91,11 +91,13 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 
 # HTTP API of the daemon, off by default: status, jobs, snapshots, start and stop a backup (see the README).
 # The token is required, even on 127.0.0.1; keep the value in the env file next to this config.
-# Listen on 127.0.0.1 and reach it through an SSH tunnel or a TLS reverse proxy: the token is sent without TLS.
+# Without tls_cert, listen on 127.0.0.1 and reach it through an SSH tunnel or a TLS reverse proxy: the token is sent without TLS.
 # api:
 #   listen: 127.0.0.1:9311
 #   token: ${SENTINEL_API_TOKEN}
 #   read_token: ${SENTINEL_API_READ_TOKEN}   # optional: a second token that can only read (GET), for a machine that watches this server
+#   tls_cert: /etc/sentinel/api-cert.pem     # optional, both or neither: serve HTTPS (TLS 1.2+) instead of HTTP
+#   tls_key: /etc/sentinel/api-key.pem       # read at start, so renewing the certificate needs a restart
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;

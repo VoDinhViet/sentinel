@@ -5,6 +5,8 @@ package doctor
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -197,7 +199,11 @@ func repositoryFinding(ctx context.Context, runner *backup.Runner, name string) 
 }
 
 // apiFinding warns when the API can be reached from other machines: the token travels in clear text.
+// With a certificate it checks the certificate instead.
 func apiFinding(cfg *config.Config) Finding {
+	if cfg.API.TLS() {
+		return apiTLSFinding(cfg.API, time.Now())
+	}
 	if cfg.API.Loopback() {
 		return Finding{Name: "api", Info: "listens on " + cfg.API.Listen + " (this machine only)"}
 	}
@@ -206,6 +212,34 @@ func apiFinding(cfg *config.Config) Finding {
 		Err:  fmt.Errorf("listens on %s, which other machines can reach, and the token is sent without TLS", cfg.API.Listen),
 		Hint: "listen on 127.0.0.1 and put a TLS reverse proxy or an SSH tunnel in front, or firewall the port",
 	}
+}
+
+// certificateWarnDays is how long before it expires a certificate of the API is reported.
+const certificateWarnDays = 14
+
+// apiTLSFinding checks what the daemon will do at start: load the certificate and its key. It fails
+// for a pair that cannot be loaded or a certificate that has expired, and warns when the
+// certificate expires soon or its key can be read by other users.
+func apiTLSFinding(settings config.API, now time.Time) Finding {
+	pair, err := tls.LoadX509KeyPair(settings.TLSCert, settings.TLSKey)
+	if err != nil {
+		return Finding{Name: "api", Err: fmt.Errorf("tls_cert and tls_key cannot be loaded: %w", err), Hint: "give the PEM files of a certificate and its private key"}
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return Finding{Name: "api", Err: fmt.Errorf("tls_cert is not a certificate: %w", err)}
+	}
+	expiry := leaf.NotAfter.Format("2006-01-02")
+	switch left := leaf.NotAfter.Sub(now); {
+	case left <= 0:
+		return Finding{Name: "api", Err: fmt.Errorf("the certificate of the API expired on %s", expiry), Hint: "renew it and restart the daemon"}
+	case left < certificateWarnDays*24*time.Hour:
+		return Finding{Name: "api", Warn: true, Err: fmt.Errorf("the certificate of the API expires on %s", expiry), Hint: "renew it and restart the daemon: it is read at start"}
+	}
+	if info, err := os.Stat(settings.TLSKey); err == nil && info.Mode().Perm()&0o077 != 0 {
+		return Finding{Name: "api", Warn: true, Err: fmt.Errorf("%s, the private key of the API, can be read by other users", settings.TLSKey), Hint: "run chmod 600 on it"}
+	}
+	return Finding{Name: "api", Info: fmt.Sprintf("HTTPS on %s, the certificate expires on %s", settings.Listen, expiry)}
 }
 
 // heartbeatFinding warns when nothing outside the server would notice the daemon stopping: its own
