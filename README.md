@@ -256,7 +256,7 @@ Job `files` thì file nằm ngay trong `--target`.
 
 ## Màn hình quản lý
 
-`sentinel manage` mở trong terminal với sáu tab (phím `1`-`6`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**, **Server**. Màn hình chia thành các khung (panel):
+`sentinel manage` mở trong terminal với bảy tab (phím `1`-`7`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**, **Server**, **Fleet**. Màn hình chia thành các khung (panel):
 
 - **Hàng khung trên cùng** (màn hình từ 110 cột, 28 dòng): *tổng quan* (số job ổn / cảnh báo / lỗi, alert đang mở, số repository và dung lượng), *đang chạy* (thanh tiến độ của backup đang chạy, hoặc job sẽ chạy kế tiếp) và *uptime* (mỗi check một dòng, kèm biểu đồ độ trễ các lần gần nhất; lần lỗi là `✗`). Khung nào có vấn đề thì viền đỏ. Màn hình nhỏ hơn chỉ có một dòng tóm tắt.
 - **Khung bảng** với tên các tab trên viền (tab có vấn đề tô đỏ, số bên cạnh là số dòng, riêng Doctor là số lỗi và cảnh báo). Cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải), cột LẦN TỚI là lần chạy theo lịch kế tiếp. Job lỗi hoặc đang chạy có thêm một dòng mờ `└ …` ngay dưới (lỗi, hoặc dung lượng, tốc độ, thời gian còn lại).
@@ -264,6 +264,8 @@ Job `files` thì file nằm ngay trong `--target`.
 - **Tab Config** chia theo mục đích: *Repository* (nơi lưu backup), *Job*, *Uptime check*, *Notifier* (nơi gửi cảnh báo) và *Cài đặt chung*, mỗi nhóm có cột riêng. Nhóm chưa có gì hiện một dòng mờ `+ … bấm a để thêm`. Dòng phím ở dưới cùng chỉ hiện phím dùng được cho mục đang chọn (ví dụ `t gửi thử` chỉ có ở Notifier).
 
 - **Tab Server** (chỉ đọc) cho biết máy đang thế nào. Mục *Máy* ghi hostname, hệ điều hành và thời gian máy đã chạy ở dòng tiêu đề; bên dưới là CPU, RAM, swap và từng ổ đĩa thật, mỗi dòng có thanh phần trăm đã dùng (kernel và load 1/5/15 phút nằm ở khung chi tiết của dòng CPU). Chấm và thanh xanh khi ổn, vàng hoặc đỏ khi có vấn đề, và dòng đó có thêm một câu mờ giải thích vì sao. Mục *Dịch vụ* cho biết `sentinel.service` đang chạy hay đã dừng và liệt kê các systemd unit đang `failed` (không hiện trên máy không có systemd). Ổ đĩa đỏ khi còn trống dưới `disk.min_free_percent`, vàng khi dưới gấp đôi mức đó; load từ 1 CPU trở lên thì vàng, từ 2 thì đỏ; CPU bận từ 90% vàng; RAM khả dụng dưới 10% vàng, dưới 5% đỏ; swap dùng quá 50% vàng. Số liệu chỉ đọc khi tab đang mở (đọc lại mỗi 5 giây hoặc bấm `r`), không lưu lại và không gửi cảnh báo.
+
+- **Tab Fleet** (chỉ đọc) liệt kê các server trong `fleet.yaml` (xem [Nhiều server](#nhiều-server)), mỗi server một dòng: `OK`, `ALERT` hoặc `UNREACHABLE`, version, số alert, backup lỗi, uptime check down và backup đang chạy. Tab chỉ hỏi các server khi đang mở (lần đầu vào tab, rồi mỗi 5 giây hoặc bấm `r`); chưa có `fleet.yaml` thì tab nói cách tạo.
 
 Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 
@@ -275,7 +277,7 @@ Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); 
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
 | `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
 | `ctrl+t` | (trong form job database) thử kết nối: chạy đúng công cụ dump với host, cổng, user, mật khẩu của form rồi dừng ngay khi nó bắt đầu ghi (chỉ đọc), hiện `✓ kết nối được` hoặc lý do lỗi của công cụ; cũng là nút `[ Kết nối thử ]` dưới ô mật khẩu |
-| `r` | làm mới / chạy lại Doctor / đọc lại tình trạng máy (tab Server) |
+| `r` | làm mới / chạy lại Doctor / đọc lại tình trạng máy (tab Server) / hỏi lại các server (tab Fleet) |
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 

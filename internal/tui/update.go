@@ -46,6 +46,7 @@ func (m manageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next = next.refreshConfig()
 	}
 	next, cmd = next.startServerIfNeeded(cmd)
+	next, cmd = next.startFleetIfNeeded(cmd)
 	return next.startDoctorIfNeeded(cmd)
 }
 
@@ -80,9 +81,12 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostReadMsg:
 		m.server.reading, m.server.report = false, msg.report
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+	case fleetReadMsg:
+		return m.afterFleetRead(msg), nil
 	case refreshMsg:
 		next, readHost := m.refreshServer()
-		return next, tea.Batch(m.reloadPeriodic(), readHost)
+		next, readFleet := next.refreshFleet()
+		return next, tea.Batch(m.reloadPeriodic(), readHost, readFleet)
 	case spinMsg:
 		return m.onSpin()
 	case backupStartedMsg:

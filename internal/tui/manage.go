@@ -136,6 +136,8 @@ type manageModel struct {
 
 	server serverState
 
+	fleet fleetState
+
 	hits *hitMap // where a click lands, rebuilt by every render
 }
 

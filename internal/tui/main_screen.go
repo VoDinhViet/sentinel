@@ -204,6 +204,8 @@ func (m manageModel) emptyText(tab int) string {
 		return m.doctorWaitText()
 	case serverTab:
 		return m.serverWaitText()
+	case fleetTab:
+		return m.fleetWaitText()
 	}
 	return "Không đọc được config."
 }

@@ -21,9 +21,9 @@ const (
 	alertsTab
 )
 
-// tabs turns the report into the six manager tabs.
+// tabs turns the report into the seven manager tabs.
 func (m manageModel) tabs() []manageTab {
-	return []manageTab{m.backupsTab(), checksTabOf(m.report), alertsTabOf(m.report), m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab()}
+	return []manageTab{m.backupsTab(), checksTabOf(m.report), alertsTabOf(m.report), m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab(), m.buildFleetTab()}
 }
 
 // backupsTab is the Backups tab of this machine: the report, with the schedules and settings of its config.

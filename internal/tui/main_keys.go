@@ -24,7 +24,7 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tab, m.cursor = (m.tab+1)%tabCount, 0
 	case "shift+tab", "left", "h":
 		m.tab, m.cursor = (m.tab+tabCount-1)%tabCount, 0
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		m.tab, m.cursor = int(key[0]-'1'), 0
 	case "down", "j":
 		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
@@ -42,6 +42,9 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		case serverTab:
 			next, read := m.startServer()
 			return next, read
+		case fleetTab:
+			next, ask := m.startFleet()
+			return next, ask
 		}
 		return m, m.reload()
 	case "b":

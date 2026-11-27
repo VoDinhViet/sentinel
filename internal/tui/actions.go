@@ -7,6 +7,7 @@ import (
 	"sentinel/internal/app"
 	"sentinel/internal/configedit"
 	"sentinel/internal/doctor"
+	"sentinel/internal/fleet"
 	"sentinel/internal/restic"
 )
 
@@ -49,6 +50,8 @@ type manageActions struct {
 	testNotifier func(ctx context.Context, kind string) error
 	// host reads how the machine is doing (CPU, memory, disks, failed units).
 	host func(ctx context.Context) app.HostReport
+	// fleet asks the servers of the fleet file for their reports (the Fleet tab).
+	fleet func(ctx context.Context) ([]fleet.ServerStatus, error)
 	// initialize writes a first config file (`sentinel init`).
 	initialize func(initial configedit.Initial) error
 }
@@ -75,5 +78,6 @@ func newManageActions(svc *app.Service) manageActions {
 		testConnection:   svc.TestConnection,
 		testNotifier:     svc.TestNotifier,
 		host:             svc.Host,
+		fleet:            func(ctx context.Context) ([]fleet.ServerStatus, error) { return fleet.Poll(ctx, "") },
 	}
 }
