@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -12,6 +11,9 @@ import (
 	"sentinel/server/internal/ctlapi"
 	"sentinel/server/internal/format"
 )
+
+// maxBackupDays is how far back the backups are kept (the control plane says the same in report.RunKeep; a test checks).
+const maxBackupDays = 90
 
 func newReportCmd(c *cli) *cobra.Command {
 	reportCmd := &cobra.Command{
@@ -86,15 +88,15 @@ func newReportBackupsCmd(c *cli) *cobra.Command {
 	backupsCmd := &cobra.Command{
 		Use:     "backups",
 		Short:   "Các lần backup của một server hoặc của tất cả",
-		Example: "  sentinelctl report backups --days 30\n  sentinelctl report backups --server web01 -o json",
+		Example: "  sentinelctl report backups --days 90\n  sentinelctl report backups --server web01 -o json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			asJSON, err := c.wantsJSON()
 			if err != nil {
 				return err
 			}
-			if days < 1 || days > 30 {
-				return errors.New("--days là số ngày từ 1 đến 30")
+			if days < 1 || days > maxBackupDays {
+				return fmt.Errorf("--days là số ngày từ 1 đến %d", maxBackupDays)
 			}
 			api, _, err := c.connect()
 			if err != nil {
@@ -112,7 +114,7 @@ func newReportBackupsCmd(c *cli) *cobra.Command {
 		},
 	}
 	backupsCmd.Flags().StringVar(&serverName, "server", "", "chỉ server này")
-	backupsCmd.Flags().IntVar(&days, "days", 7, "số ngày gần nhất (1 đến 30)")
+	backupsCmd.Flags().IntVar(&days, "days", 7, "số ngày gần nhất (1 đến 90)")
 	return backupsCmd
 }
 

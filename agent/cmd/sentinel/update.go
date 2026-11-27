@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"sentinel/agent/internal/selfupdate"
+	"sentinel/agent/internal/store"
 	"sentinel/pkg/agentapi"
 	"sentinel/pkg/release"
 )
@@ -41,6 +43,9 @@ var runSystemTool = func(ctx context.Context, name string, args ...string) (stri
 	return "", fmt.Errorf("this machine has no %s", name)
 }
 
+// executablePath is the path of this binary; a test replaces it.
+var executablePath = os.Executable
+
 func (a *cliApp) updateInstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "update-install",
@@ -59,6 +64,9 @@ func (a *cliApp) updateInstallCmd() *cobra.Command {
 			dir, exe, err := a.updatePaths()
 			if err != nil {
 				return err
+			}
+			if err := snapshotState(cmd.Context(), cfg.StorePath, dir); err != nil {
+				return fmt.Errorf("keep a copy of the state database for a rollback: %w", err)
 			}
 			// First the guard, then the install: an install that cannot be watched is not done.
 			if err := armGuard(cmd.Context(), exe, a.configPath); err != nil {
@@ -96,6 +104,9 @@ func (a *cliApp) updateRollbackCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := a.restoreState(dir); err != nil {
+				return err
+			}
 			if err := selfupdate.Rollback(dir, exe, selfupdate.WhyGoBack(dir)); err != nil {
 				return err
 			}
@@ -123,6 +134,9 @@ func (a *cliApp) updateGuardCmd() *cobra.Command {
 				return nil
 			}
 			reason := fmt.Sprintf("the new version did not report to the control plane within %s", selfupdate.TrialWindow)
+			if err := a.restoreState(dir); err != nil {
+				return err
+			}
 			if err := selfupdate.Rollback(dir, exe, reason); err != nil {
 				return err
 			}
@@ -142,7 +156,7 @@ func (a *cliApp) updatePaths() (dir, exe string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	exe, err = os.Executable()
+	exe, err = executablePath()
 	if err != nil {
 		return "", "", fmt.Errorf("find this binary: %w", err)
 	}
@@ -151,4 +165,39 @@ func (a *cliApp) updatePaths() (dir, exe string, err error) {
 		return "", "", errors.New("cannot tell which binary to act on")
 	}
 	return selfupdate.Dir(cfg.StorePath), exe, nil
+}
+
+// snapshotState keeps a copy of the state database next to the note of the update. The database is only copied if
+// there is one: a first start has none.
+func snapshotState(ctx context.Context, storePath, dir string) error {
+	if _, err := os.Stat(storePath); err != nil {
+		return nil
+	}
+	snapshot := filepath.Join(dir, selfupdate.SnapshotName)
+	_ = os.Remove(snapshot)
+	return store.Snapshot(ctx, storePath, snapshot)
+}
+
+// restoreState puts the copy of the state database back when the new version has changed its schema: the previous
+// binary refuses a database written by a newer one, so without the copy a rollback would leave an agent that does not start.
+// What the new version recorded since the install is lost; the previous version running again is worth more.
+func (a *cliApp) restoreState(dir string) error {
+	cfg, err := a.readConfig()
+	if err != nil {
+		return err
+	}
+	snapshot := filepath.Join(dir, selfupdate.SnapshotName)
+	if _, err := os.Stat(snapshot); err != nil {
+		return nil // no copy: the install did not make one, or it was dropped
+	}
+	before, err := store.SchemaVersion(snapshot)
+	if err != nil {
+		return err
+	}
+	now, err := store.SchemaVersion(cfg.StorePath)
+	if err != nil || now <= before {
+		return err
+	}
+	slog.Warn("self-update: the new version changed the schema of the state database; the copy made before the install is put back", "schema", now, "back_to", before)
+	return store.Restore(snapshot, cfg.StorePath)
 }

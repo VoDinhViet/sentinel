@@ -227,6 +227,7 @@ Audit: mỗi dòng có `hash = sha256(prev_hash ‖ nội dung chuẩn hoá)`; `
 - Đặt binary vào chỗ cần ghi `/usr/local/bin`, mà `ProtectSystem=full` chặn daemon, nên việc này làm trong unit tạm `sentinel-self-update` (`systemd-run --wait --collect --pipe --quiet`) chạy chính binary đó với lệnh ẩn `update-install` (argv cố định, không tham số từ task). Lệnh đó chỉ làm đúng điều ghi chú nói: file staged phải có đúng sha256 trong ghi chú, giữ binary cũ thành `sentinel.prev` (hard link), chép binary mới ra `sentinel.new` rồi `rename`. Đây là lối ra khỏi sandbox có chủ ý, chỉ mở khi `self_update` được đặt (`sentinel doctor` cảnh báo nếu thiếu `systemd-run`).
 - Helper chạy bằng root không tin gì daemon ghi: manifest ký được giữ cạnh ghi chú (`update/manifest.json`) và `update-install` kiểm lại chữ ký bằng khoá công khai trong config mà chính nó đọc, so sha256 và version với ghi chú, băm các byte ngay lúc chép ra `sentinel.new` (không băm file rồi mới chép), từ chối thư mục `update/` mà người khác ghi được, xoá `sentinel.new` còn sót của lần cài bị kill, và ghi ghi chú `installed` *trước* khi `rename`. Trong lúc một bản đang thử việc, `agent.update` mới bị từ chối (không để mất `sentinel.prev` thật).
 - **Người gác:** trước khi cài, `update-install` đặt một timer `sentinel-self-update-guard` (`systemd-run --on-active=420s`) chạy `sentinel.prev update-guard`: sau 7 phút nếu ghi chú vẫn là `installed` thì đặt `sentinel.prev` về chỗ cũ và `systemctl restart sentinel.service`. Nhờ vậy bản mới hỏng ngay từ `readConfig`, `openStore` hay bị treo (không bao giờ tới được đoạn thử việc trong chính nó) vẫn bị gỡ. Không đặt được timer thì không cài. Hai lần cập nhật liên tiếp trong 7 phút: lần sau bị từ chối vì trùng tên unit.
+- **Schema của store:** binary cũ từ chối DB có `user_version` cao hơn nó biết, nên trước khi cài `update-install` chụp DB (`VACUUM INTO update/store.prev.db`, quyền 0600; không chụp được thì không cài). Khi quay về (`update-rollback` hoặc `update-guard`), nếu schema hiện tại cao hơn schema của bản chụp thì bản chụp được đặt lại thay DB (mất lịch sử ghi trong lúc thử việc, nhưng agent chạy được); schema không đổi thì không đụng vào DB. Bản chụp bị xoá khi bản mới báo cáo được.
 - Gửi kết quả xong thì daemon thoát với mã lỗi (`Restart=on-failure`, `RestartSec=10s`), systemd chạy lại bản mới.
 - **Thử việc:** bản mới có 5 phút để báo cáo thành công với control plane (`selfupdate.Confirm`), nếu không, hoặc nếu bị khởi động quá 3 lần trong lúc thử, daemon chạy `update-rollback` (đặt `sentinel.prev` về chỗ cũ) rồi tự khởi động lại; lý do ghi trong ghi chú và log. Giới hạn: control plane không liên lạc được trong 5 phút sau một lần cập nhật cũng kích hoạt quay về bản cũ. Khi daemon dừng để chạy bản mới, các backup đang chạy được đợi xong (`ShutdownWait`), nên có thể nhiều giờ server không báo cáo và bản mới chưa bắt đầu thử việc. Manifest không có version tối thiểu hay hạn dùng: control plane bị chiếm vẫn có thể đẩy một bản cũ hơn nhưng đã ký mà vẫn mới hơn bản đang chạy; chỉ có một khoá, chưa có xoay khoá.
 - Chưa từng chạy thật ở môi trường phát triển (cần root và systemd); các bước được kiểm bằng test với hàm giả và với file trong thư mục tạm.
@@ -312,3 +313,19 @@ Không thêm dependency mới cho dự án. Dùng `crypto/*`, `net/http`, `embed
 1. Có chuyển tiếp alert local của agent qua control plane không? Đề xuất: không.
 2. Một control plane không HA có đủ cho 5 đến 50 máy không? Đề xuất: có.
 3. Xoay CA ở v1 làm thế nào? Đề xuất: join lại thủ công từng agent.
+
+## 20. Kiểm tay trên máy thật
+
+Các bước sau cần root và systemd nên chưa chạy được trong môi trường phát triển (không có Docker, không root). Chạy trên hai VM Debian hoặc Ubuntu trước khi dùng cho server thật, và ghi kết quả vào đây.
+
+1. Control plane: `sentinel-server init`, `systemctl start sentinel-server`, `ss -ltnp` thấy hai cổng (agent và `127.0.0.1` cho sentinelctl).
+2. Agent: `sentinelctl server add web01`, `sentinel agent join …` trên VM thứ hai, `systemctl start sentinel`. `ss -ltnp` trên VM này **không** thấy `sentinel` nghe cổng nào.
+3. `sentinelctl server ls` thấy ONLINE. Rút mạng của VM thứ hai trên 3 phút: có alert `agent:web01`; nối lại: alert đóng.
+4. Bật `allow.services: [nginx.service]`, `allow.containers`, `allow.os_updates: check`, rồi `sentinelctl run web01 service.restart unit=nginx.service --wait`, `container.restart`, `os.check_updates`. Từ chối đúng khi allowlist tắt.
+5. **`systemd-run` từ trong unit đã hardening** (chưa kiểm): với `os_updates: apply`, `sentinelctl run web01 os.apply_updates --wait` phải tạo được unit `sentinel-os-update` và ghi `os-update.log`. Nếu `NoNewPrivileges`, `CapabilityBoundingSet` hay `RestrictAddressFamilies` chặn thì chỉnh `deploy/sentinel.service`, ghi lý do vào `.claude/rules/deploy-ops.md`.
+6. Tự cập nhật: `sentinelctl release keygen`, đặt `public_key` và `manifest_url` trong config agent, build hai bản 1.0.0 và 1.1.0, `make dist` ký, rồi:
+   - `agent.update version=1.1.0` thành công, daemon tự khởi động lại, `sentinel --version` là 1.1.0, `sentinel.prev` là 1.0.0 và timer `sentinel-self-update-guard` biến mất sau 7 phút;
+   - bản 1.2.0 cố ý hỏng (thoát ngay khi đọc config): sau 7 phút `update-guard` đặt lại 1.1.0 và agent chạy lại;
+   - bản có migration mới: sau rollback agent vẫn mở được `state.db` (nhờ `store.prev.db`);
+   - manifest ký bằng khoá khác, hoặc `version` thấp hơn bản đang chạy, bị từ chối.
+

@@ -72,6 +72,7 @@ func Confirm(dir string) {
 		slog.Info("self-update: the new version reported to the control plane; it stays", "version", marker.To, "was", marker.From)
 		_ = os.Remove(filepath.Join(dir, MarkerName))
 		_ = os.Remove(filepath.Join(dir, ManifestName))
+		_ = os.Remove(filepath.Join(dir, SnapshotName))
 	}
 }
 

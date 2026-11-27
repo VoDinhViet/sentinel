@@ -24,6 +24,8 @@ const (
 	RunKeep    = 90 * 24 * time.Hour
 	// MaxHours is the longest span a report may ask for: the longest history there is.
 	MaxHours = int(SampleKeep / time.Hour)
+	// MaxBackupHours is the same for the backup runs, which are kept longer than the samples.
+	MaxBackupHours = int(RunKeep / time.Hour)
 	// maxFuture is how far ahead of the control plane's clock the end of a backup may be and still be believed.
 	maxFuture = 5 * time.Minute
 	// MaxRunsPerAgent is the most backup runs kept for one agent: an honest agent has a few per job per day, and a

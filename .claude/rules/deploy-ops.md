@@ -19,6 +19,10 @@ paths:
 - **Control plane unit** (`deploy/server/sentinel-server.service`): same hardening, no capabilities, `StateDirectory=sentinel-server`
   (database, CA key and server key live there, directory 0700, keys 0600). Its secrets go in `/etc/sentinel/server.env`, mode 0600.
   The login password is never in a file, an env var or argv: it is typed to `sentinel-server init`/`passwd`.
+- **Transient units are the one deliberate way out of the daemon's sandbox.** `sentinel-os-update`, `sentinel-self-update` and
+  `sentinel-self-update-guard` (made with `systemd-run`, fixed argv) run outside `ProtectSystem=full` because they must write
+  `/usr`; each is opened only by an allowlist key (`allow.os_updates: apply`, `allow.self_update`). Do not "tighten" the unit
+  so that `systemd-run` stops working, and do not add another such unit without a key that is off by default.
 - **The agent daemon listens on no port.** It dials out to the control plane; do not add a listener or open a firewall port for it.
   Certificates the agent holds live under its state directory, not `/etc` (`ProtectSystem=full` makes `/etc` read-only).
 - **Docker**: the image packages the prebuilt `bin/sentinel` on Alpine with restic, rclone and the dump tools; it runs as root unless

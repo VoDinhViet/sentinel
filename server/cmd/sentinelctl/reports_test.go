@@ -9,6 +9,7 @@ import (
 
 	"sentinel/pkg/agentapi"
 	"sentinel/server/internal/ctlapi"
+	"sentinel/server/internal/report"
 )
 
 // reported has the agent say, now and a few times in the past, how its host and its backups are.
@@ -84,11 +85,26 @@ func TestReportsRefuseWhatTheyCannotAnswer(t *testing.T) {
 		"no server":                  {"report", "host"},
 		"too many hours":             {"report", "host", "web01", "--hours", "100000"},
 		"zero hours":                 {"report", "host", "web01", "--hours", "0"},
-		"too many days":              {"report", "backups", "--days", "31"},
+		"too many days":              {"report", "backups", "--days", "91"},
 		"backups of nobody":          {"report", "backups", "--server", "nobody"},
 	} {
 		if out, err := p.run("", args...); err == nil {
 			t.Errorf("%s: %s", name, out)
 		}
+	}
+}
+
+func TestTheLongestBackupReportIsAsLongAsTheRunsAreKept(t *testing.T) {
+	if maxBackupDays*24 != report.MaxBackupHours {
+		t.Errorf("sentinelctl allows %d days, the control plane keeps %d hours", maxBackupDays, report.MaxBackupHours)
+	}
+	p := newPlant(t)
+	p.login()
+	if out, err := p.run("", "report", "backups", "--days", "91"); err == nil || !strings.Contains(out+err.Error(), "1 đến 90") {
+		t.Errorf("91 days: %v %s", err, out)
+	}
+	p.activeServer("web01")
+	if out, err := p.run("", "report", "backups", "--days", "90"); err != nil {
+		t.Errorf("90 days: %v\n%s", err, out)
 	}
 }

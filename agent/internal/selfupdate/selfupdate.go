@@ -39,6 +39,9 @@ const (
 	MarkerName = "update.json"
 	// ManifestName is the signed manifest of the staged release, kept so that the helper that installs it can check it again.
 	ManifestName = "manifest.json"
+	// SnapshotName is a copy of the state database made before the install: the previous binary cannot open a database
+	// that a newer schema has changed, so a rollback puts the copy back in that case.
+	SnapshotName = "store.prev.db"
 	// TrialWindow is how long a new version has to report to the control plane before it is taken for bad.
 	TrialWindow = 5 * time.Minute
 	// MaxTrialStarts is how many times the new version may be started in its trial: a version that crashes at once
@@ -102,6 +105,7 @@ func RemoveMarker(dir string) {
 	_ = os.Remove(filepath.Join(dir, MarkerName))
 	_ = os.Remove(filepath.Join(dir, StagedName))
 	_ = os.Remove(filepath.Join(dir, ManifestName))
+	_ = os.Remove(filepath.Join(dir, SnapshotName))
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {

@@ -11,14 +11,14 @@ import (
 )
 
 // reportHours reads ?hours=, a whole number from 1 to the longest history, or def when it is not given.
-func reportHours(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
+func reportHours(w http.ResponseWriter, r *http.Request, def, most int) (int, bool) {
 	text := r.URL.Query().Get("hours")
 	if text == "" {
 		return def, true
 	}
 	hours, err := strconv.Atoi(text)
-	if err != nil || hours < 1 || hours > report.MaxHours {
-		writeError(w, http.StatusBadRequest, "hours must be a number from 1 to "+strconv.Itoa(report.MaxHours))
+	if err != nil || hours < 1 || hours > most {
+		writeError(w, http.StatusBadRequest, "hours must be a number from 1 to "+strconv.Itoa(most))
 		return 0, false
 	}
 	return hours, true
@@ -31,7 +31,7 @@ func (s *Server) hostReport(w http.ResponseWriter, r *http.Request, _ session) {
 		writeError(w, http.StatusBadRequest, "agent is the name of a server")
 		return
 	}
-	hours, ok := reportHours(w, r, 24)
+	hours, ok := reportHours(w, r, 24, report.MaxHours)
 	if !ok {
 		return
 	}
@@ -69,7 +69,7 @@ func (s *Server) agentExists(w http.ResponseWriter, r *http.Request, name string
 
 // backupReport answers the backups of one server, or of all.
 func (s *Server) backupReport(w http.ResponseWriter, r *http.Request, _ session) {
-	hours, ok := reportHours(w, r, 7*24)
+	hours, ok := reportHours(w, r, 7*24, report.MaxBackupHours)
 	if !ok {
 		return
 	}
