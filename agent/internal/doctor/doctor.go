@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"slices"
@@ -22,7 +20,6 @@ import (
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/engine"
-	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/restic"
 	"sentinel/agent/internal/store"
 	"sentinel/agent/internal/transport"
@@ -169,7 +166,7 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 		findings = append(findings, apiFinding(cfg))
 	}
 	if cfg.Fleet.Config != "" {
-		findings = append(findings, fleetFinding(cfg.Fleet))
+		findings = append(findings, fleetFinding())
 	}
 	return findings
 }
@@ -276,39 +273,14 @@ func apiFinding(cfg *config.Config) Finding {
 	}
 }
 
-// fleetFinding checks the fleet file the daemon is to watch. A file it cannot read means no server is
-// watched, which the daemon says in an alert once it runs: here it is a warning before that.
-func fleetFinding(settings config.Fleet) Finding {
-	cfg, err := fleet.Load(settings.Config)
-	if err != nil {
-		return Finding{Name: "fleet", Warn: true, Err: err, Hint: "fix the fleet file: until then the daemon watches no server"}
+// fleetFinding says the fleet: block of the config does nothing any more: the control plane watches
+// the other servers now.
+func fleetFinding() Finding {
+	return Finding{
+		Name: "fleet", Warn: true,
+		Err:  errors.New("fleet: is ignored: the daemon no longer watches other servers"),
+		Hint: "remove the fleet: block from the config; the control plane (sentinelctl) shows every server and alerts when one goes silent",
 	}
-	if open := serversOverPlainHTTP(cfg.Servers); len(open) > 0 {
-		return Finding{
-			Name: "fleet", Warn: true,
-			Err:  fmt.Errorf("%s: asked over http:// on another machine, so the token is sent without TLS", strings.Join(open, ", ")),
-			Hint: "give that server api.tls_cert and api.tls_key and use https://, or reach it through an SSH tunnel",
-		}
-	}
-	return Finding{Name: "fleet", Info: fmt.Sprintf("watching %d servers every %s, alert after %d failed rounds", len(cfg.Servers), settings.Every, settings.FailAfter)}
-}
-
-// serversOverPlainHTTP names the servers whose token travels in clear text to another machine: an
-// http:// address that is not this machine's own.
-func serversOverPlainHTTP(servers []fleet.Server) []string {
-	var open []string
-	for _, server := range servers {
-		address, err := url.Parse(server.URL)
-		if err == nil && address.Scheme == "http" && !isThisMachine(address.Hostname()) {
-			open = append(open, server.Name)
-		}
-	}
-	return open
-}
-
-func isThisMachine(host string) bool {
-	ip := net.ParseIP(host)
-	return host == "localhost" || (ip != nil && ip.IsLoopback())
 }
 
 // certificateWarnDays is how long before it expires a certificate of the API is reported.

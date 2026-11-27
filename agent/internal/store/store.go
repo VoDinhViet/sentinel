@@ -85,6 +85,9 @@ var migrations = []string{
 	// these indexes every status build scanned a table that only grows.
 	`CREATE INDEX check_results_name_id ON check_results(name, id);
 	CREATE INDEX backup_runs_job_repository_id ON backup_runs(job, repository, id);`,
+	// The daemon no longer watches other servers (the control plane does): an alert it opened for one, or for a
+	// fleet file it could not read, would stay open for ever, with nothing left to close it.
+	`DELETE FROM alerts WHERE substr(key, 1, 6) = 'fleet:' OR key = 'fleet-file';`,
 }
 
 // walSuffixes are the files SQLite keeps next to a database in WAL mode.

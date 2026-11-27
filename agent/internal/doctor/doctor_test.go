@@ -219,57 +219,10 @@ func TestAPIFindingFailsForFilesThatCannotBeLoaded(t *testing.T) {
 	}
 }
 
-func TestFleetFindingReadsTheFileTheDaemonWillWatch(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "fleet.yaml")
-	good := "servers:\n  - { name: web-01, url: 'https://web-01:9311', token: read-token-0123456789 }\n  - { name: db-01, url: 'https://db-01:9311', token: read-token-0123456789 }\n"
-	if err := os.WriteFile(file, []byte(good), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	settings := config.Fleet{Config: file, Every: time.Minute, FailAfter: 3}
-	if finding := fleetFinding(settings); finding.Err != nil || !strings.Contains(finding.Info, "2 servers every 1m0s") {
-		t.Errorf("a good file: %+v", finding)
-	}
-
-	if err := os.WriteFile(file, []byte("servers: []"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if finding := fleetFinding(settings); finding.Err == nil || !finding.Warn || finding.Hint == "" {
-		t.Errorf("a file with no server: %+v, want a warning with a hint", finding)
-	}
-	missing := config.Fleet{Config: filepath.Join(dir, "none.yaml"), Every: time.Minute, FailAfter: 3}
-	if finding := fleetFinding(missing); finding.Err == nil || !finding.Warn {
-		t.Errorf("no file: %+v", finding)
-	}
-}
-
-func TestFleetFindingWarnsOfATokenSentOverPlainHTTPToAnotherMachine(t *testing.T) {
-	tests := map[string]struct {
-		url      string
-		wantWarn bool
-	}{
-		"https":              {"https://web-01.example.com:9311", false},
-		"http to loopback":   {"http://127.0.0.1:9311", false},
-		"http to localhost":  {"http://localhost:9311", false},
-		"http to IPv6 local": {"http://[::1]:9311", false},
-		"http to a host":     {"http://web-01.example.com:9311", true},
-		"http to an address": {"http://10.0.0.5:9311", true},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			file := filepath.Join(t.TempDir(), "fleet.yaml")
-			content := "servers:\n  - { name: web-01, url: '" + tc.url + "', token: read-token-0123456789 }\n"
-			if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			finding := fleetFinding(config.Fleet{Config: file, Every: time.Minute, FailAfter: 3})
-			if warned := finding.Err != nil && finding.Warn; warned != tc.wantWarn {
-				t.Errorf("finding = %+v, want a warning: %v", finding, tc.wantWarn)
-			}
-			if finding.Err != nil && !strings.Contains(finding.Err.Error(), "web-01") {
-				t.Errorf("the warning must name the server: %v", finding.Err)
-			}
-		})
+func TestFleetFindingSaysTheBlockIsIgnored(t *testing.T) {
+	finding := fleetFinding()
+	if finding.Err == nil || !finding.Warn || !strings.Contains(finding.Hint, "sentinelctl") {
+		t.Errorf("finding = %+v, want a warning that points to the control plane", finding)
 	}
 }
 

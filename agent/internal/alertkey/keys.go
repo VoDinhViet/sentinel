@@ -26,12 +26,5 @@ func Uptime(check string) string { return "uptime:" + check }
 // Cert is the alert for a TLS certificate that expires soon.
 func Cert(check string) string { return "cert:" + check }
 
-// Fleet is the alert for a server of the fleet that cannot be reached. Server names hold no ":".
-func Fleet(server string) string { return "fleet:" + server }
-
-// FleetFile is the alert for a fleet file the daemon cannot read, so it watches nothing. It has no
-// ":" after "fleet", so it is never taken for the alert of a server called "config".
-const FleetFile = "fleet-file"
-
 // Disk is the alert for a file system that is nearly full; path is the first path watched on it.
 func Disk(path string) string { return "disk:" + path }

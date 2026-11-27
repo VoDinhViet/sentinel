@@ -463,3 +463,40 @@ func dropIndexesAfterVersion5(t *testing.T, s *Store) {
 		}
 	}
 }
+
+// The daemon stopped watching other servers: the alerts it had open for them must not stay open for ever.
+func TestMigrationDropsTheAlertsOfTheFleetWatcher(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"fleet:web-01", "fleet:config", "fleet-file", "fleetwork:x", "uptime:fleet:site", "backup:appdb:s3"} {
+		if _, err := s.db.Exec(`INSERT INTO alerts (key, firing, since, last_notified, message) VALUES (?, 1, 100, 200, 'm')`, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations)-1)); err != nil { // the version before the last migration
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	alerts, err := s.Alerts(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, left := range alerts {
+		kept = append(kept, left.Key)
+	}
+	slices.Sort(kept)
+	if want := []string{"backup:appdb:s3", "fleetwork:x", "uptime:fleet:site"}; !slices.Equal(kept, want) {
+		t.Errorf("alerts left = %v, want %v", kept, want)
+	}
+}

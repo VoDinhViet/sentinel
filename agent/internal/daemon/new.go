@@ -15,7 +15,7 @@ import (
 
 // New builds the daemon for cfg: the alert manager (restored from the store, so a restart
 // does not announce open alerts again), the backup runner, one task per uptime check, and the tasks
-// that watch the disks, the other servers of the fleet and the heartbeat.
+// that watch the disks and the heartbeat.
 func New(ctx context.Context, cfg *config.Config, st *store.Store) (*Daemon, error) {
 	alerts := &alert.Manager{
 		Notifier: notify.NewMulti(cfg.Notifiers),
@@ -36,6 +36,6 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store) (*Daemon, err
 			LockRetries: 3, LockRetryDelay: 5 * time.Minute,
 			DeferPrune: true, // the daemon prunes each repository once, on prune_schedule
 		},
-		Tasks: slices.Concat(uptimeTasks(cfg, st, alerts), diskTask(cfg, alerts), fleetTask(cfg, alerts), heartbeatTask(cfg)),
+		Tasks: slices.Concat(uptimeTasks(cfg, st, alerts), diskTask(cfg, alerts), heartbeatTask(cfg)),
 	}, nil
 }
