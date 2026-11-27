@@ -11,6 +11,7 @@ import (
 	"sentinel/internal/config"
 	"sentinel/internal/fleet"
 	"sentinel/internal/notify"
+	"sentinel/internal/termtext"
 )
 
 // fleetKeyPrefix starts the alert key of every server of the fleet (see alert.FleetKey).
@@ -28,6 +29,7 @@ type FleetWatcher struct {
 	// Poll asks the servers of the file; fleet.Poll unless a test replaces it.
 	Poll func(ctx context.Context, path string) ([]fleet.ServerStatus, error)
 
+	round        sync.Mutex // held for the whole of a Check, so two rounds never count the same failure twice
 	mu           sync.Mutex
 	failures     map[string]int // rounds in a row each server has failed
 	fileErrShown string         // the problem with the file that was last logged, so it is logged once
@@ -43,7 +45,13 @@ func fleetTask(cfg *config.Config, alerts *alert.Manager) []Task {
 }
 
 // Check is one round: read the fleet file, ask every server in it, and open or close the alert of each.
+// A round that finds the previous one still running does nothing: it would count the same failure twice.
 func (w *FleetWatcher) Check(ctx context.Context) {
+	if !w.round.TryLock() {
+		slog.Warn("fleet round skipped: the previous one is still running", "every", w.Every)
+		return
+	}
+	defer w.round.Unlock()
 	poll := w.Poll
 	if poll == nil {
 		poll = fleet.Poll
@@ -75,10 +83,19 @@ func (w *FleetWatcher) observe(ctx context.Context, answer fleet.ServerStatus) {
 		w.Alerts.Resolve(ctx, key, name+" answers again", fmt.Sprintf("%s reports version %s.", answer.Server.URL, versionOrUnknown(answer)))
 	case failures >= w.FailAfter:
 		w.Alerts.Fire(ctx, key, notify.Critical, name+" cannot be reached",
-			fmt.Sprintf("%v.\n%d rounds in a row failed (one every %s), asking %s.", answer.Err, failures, w.Every, answer.Server.URL))
+			fmt.Sprintf("%s.\n%d rounds in a row failed (one every %s), asking %s.", failureText(answer.Err), failures, w.Every, answer.Server.URL))
 	default:
 		slog.Warn("fleet server did not answer", "server", name, "failures", failures, "alert_after", w.FailAfter, "error", answer.Err)
 	}
+}
+
+// maxFailureRunes is the most of a failure that goes in an alert.
+const maxFailureRunes = 300
+
+// failureText is why a server failed, for an alert. It can quote what the server or its certificate
+// said, so it is cleaned of control characters and cut.
+func failureText(err error) string {
+	return termtext.Shorten(termtext.Clean(err.Error()), maxFailureRunes)
 }
 
 func versionOrUnknown(answer fleet.ServerStatus) string {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -64,6 +65,17 @@ type Daemon struct {
 	running sync.Map // job name -> *sync.Mutex
 	// gates keeps a prune of a repository apart from the backups into it.
 	gates sync.Map // repository name -> *repoGate
+}
+
+// runAtStart is the first run of a task. A panic in it is logged, as the scheduler does for the later
+// runs, and does not end the daemon.
+func (d *Daemon) runAtStart(ctx context.Context, task Task) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Error("task panicked", "task", task.Name, "panic", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	task.Run(ctx)
 }
 
 func (d *Daemon) gate(repoName string) *repoGate {
@@ -130,7 +142,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	var startup sync.WaitGroup
 	for _, task := range tasks {
 		if task.AtStart {
-			startup.Go(func() { task.Run(jobCtx) })
+			startup.Go(func() { d.runAtStart(jobCtx, task) })
 		}
 	}
 	cronRunner.Start()

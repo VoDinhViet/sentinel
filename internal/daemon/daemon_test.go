@@ -310,3 +310,8 @@ func TestSecondStopSignalCancelsAtOnce(t *testing.T) {
 		t.Errorf("a second stop must cancel the job without waiting (took %v, cancelled %v)", took, cancelled)
 	}
 }
+
+func TestAPanicInTheFirstRunOfATaskDoesNotEndTheDaemon(t *testing.T) {
+	d := &Daemon{}
+	d.runAtStart(context.Background(), Task{Name: "broken", Run: func(context.Context) { panic("boom") }}) // a panic here would fail the test
+}

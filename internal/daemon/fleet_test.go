@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,5 +204,46 @@ func TestFleetTaskExistsOnlyWhenTheConfigNamesAFleetFile(t *testing.T) {
 	tasks := fleetTask(cfg, alerts)
 	if len(tasks) != 1 || tasks[0].Name != "fleet" || tasks[0].Every != 2*time.Minute || !tasks[0].AtStart {
 		t.Errorf("tasks = %+v", tasks)
+	}
+}
+
+// The first round runs at start, outside the schedule, so it can still be going when the first tick comes.
+func TestFleetWatcherSkipsARoundWhileThePreviousOneRuns(t *testing.T) {
+	rec := &recorder{}
+	asked, release := make(chan struct{}), make(chan struct{})
+	var polls atomic.Int32
+	watcher := newFleetWatcher(rec, &fleetRounds{})
+	watcher.Poll = func(context.Context, string) ([]fleet.ServerStatus, error) {
+		polls.Add(1)
+		asked <- struct{}{}
+		<-release
+		return []fleet.ServerStatus{down("web-01")}, nil
+	}
+	finished := make(chan struct{})
+	go func() { watcher.Check(context.Background()); close(finished) }()
+	<-asked // the first round is inside its poll
+
+	watcher.Check(context.Background()) // returns at once, or this test hangs on <-release
+	close(release)
+	<-finished
+	if polls.Load() != 1 || watcher.failures["web-01"] != 1 {
+		t.Errorf("polls = %d, failures = %d, want one round that counted one failure", polls.Load(), watcher.failures["web-01"])
+	}
+}
+
+func TestFleetWatcherAlertTextHoldsNoControlCharactersAndIsCut(t *testing.T) {
+	rec := &recorder{}
+	answer := down("web-01")
+	answer.Err = errors.New("x509: certificate is valid for \x1b]0;pwned\x07" + strings.Repeat("a", 5000))
+	watcher := newFleetWatcher(rec, &fleetRounds{answers: [][]fleet.ServerStatus{{answer}}})
+	for range 3 {
+		watcher.Check(context.Background())
+	}
+	body := rec.msgs[0].Body
+	if strings.ContainsAny(body, "\x1b\x07") {
+		t.Errorf("the alert holds control characters: %q", body)
+	}
+	if len(body) > 1000 {
+		t.Errorf("the alert is %d bytes long: what a server says must be cut", len(body))
 	}
 }
