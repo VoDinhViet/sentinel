@@ -41,18 +41,27 @@ else
 		CGO_ENABLED=0 go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/$$cmd ./cmd/$$cmd || exit 1; done
 endif
 
-# Release files for deploy/install.sh: sentinel_linux_<arch>.tar.gz (the binary, README.md, deploy/) and
-# checksums.txt, in dist/. Always built through the golang image so the result does not depend on this machine.
+# Release files for deploy/install.sh: sentinel_linux_<arch>.tar.gz (the binary, README.md, deploy/), the bare
+# binary sentinel_linux_<arch> (what agent.update downloads) and checksums.txt, in dist/. With SENTINEL_RELEASE_KEY
+# (a file made by `sentinelctl release keygen`) and SENTINEL_RELEASE_URL (where the binaries will be published) it
+# also writes dist/manifest-<version>-linux-<arch>.json, signed; VERSION has to be x.y.z (a tag v1.2.0 will do).
+# The binaries are always built through the golang image so the result does not depend on this machine.
 dist:
 	rm -rf dist && mkdir -p dist
 	$(DOCKER_GO) sh -c 'for arch in amd64 arm64; do mkdir -p dist/$$arch && \
 		GOOS=linux GOARCH=$$arch go -C agent build -ldflags "-s -w -X main.version=$(VERSION)" -o ../dist/$$arch/sentinel ./cmd/sentinel || exit 1; done; \
 		chown -R $(shell id -u):$(shell id -g) dist'
 	for arch in amd64 arm64; do \
-		cp README.md dist/$$arch/ && cp -r deploy dist/$$arch/deploy && \
+		cp dist/$$arch/sentinel dist/sentinel_linux_$$arch && cp README.md dist/$$arch/ && cp -r deploy dist/$$arch/deploy && \
 		tar -czf dist/sentinel_linux_$$arch.tar.gz -C dist/$$arch sentinel README.md deploy && rm -rf dist/$$arch; \
 	done
 	cd dist && sha256sum sentinel_linux_*.tar.gz > checksums.txt && cat checksums.txt
+ifdef SENTINEL_RELEASE_KEY
+	@test -n "$(SENTINEL_RELEASE_URL)" || { echo "SENTINEL_RELEASE_URL is the https directory the binaries are published in"; exit 1; }
+	go -C server build -o ../bin/sentinelctl ./cmd/sentinelctl
+	for arch in amd64 arm64; do bin/sentinelctl release sign --key "$(SENTINEL_RELEASE_KEY)" --binary dist/sentinel_linux_$$arch \
+		--version "$(VERSION:v%=%)" --os linux --arch $$arch --url "$(SENTINEL_RELEASE_URL)/sentinel_linux_$$arch" --out dist/manifest-$(VERSION:v%=%)-linux-$$arch.json || exit 1; done
+endif
 
 install: build
 	install -d "$(DESTDIR)$(BINDIR)"

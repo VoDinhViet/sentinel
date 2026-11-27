@@ -110,6 +110,27 @@ type Allow struct {
 	// OSUpdates is off (the default), check (os.check_updates may list what could be upgraded) or apply (os.apply_updates
 	// may also upgrade the packages of this machine). Only apt-based systems (Debian, Ubuntu) are supported.
 	OSUpdates string `yaml:"os_updates" validate:"omitempty,oneof=off check apply"`
+	// SelfUpdate lets the control plane ask this agent to replace its own binary with a later release. It is off
+	// until both keys are set. The control plane only names the version: the manifest comes from here, and it
+	// is checked against the public key written here.
+	SelfUpdate SelfUpdate `yaml:"self_update"`
+}
+
+// SelfUpdate is where the releases are and the key that signs them.
+type SelfUpdate struct {
+	// PublicKey is the ed25519 public key of the release signature, in base64 (sentinelctl release keygen).
+	PublicKey string `yaml:"public_key"`
+	// ManifestURL is the https address of the signed manifest of one release. {version}, {os} and {arch} are
+	// replaced by the version asked for and by the OS and the architecture of this machine; {version} must be there.
+	ManifestURL string `yaml:"manifest_url"`
+}
+
+// Enabled says both keys are set.
+func (s SelfUpdate) Enabled() bool { return s.PublicKey != "" && s.ManifestURL != "" }
+
+// URL is the address of the manifest of a version for this machine.
+func (s SelfUpdate) URL(version, goos, goarch string) string {
+	return strings.NewReplacer("{version}", version, "{os}", goos, "{arch}", goarch).Replace(s.ManifestURL)
 }
 
 // The values of Allow.OSUpdates.
@@ -135,6 +156,8 @@ func (a Allow) Permits(action string, params map[string]string) bool {
 		return a.OSUpdates == OSUpdatesCheck || a.OSUpdates == OSUpdatesApply
 	case agentapi.ActionOSApplyUpdates:
 		return a.OSUpdates == OSUpdatesApply
+	case agentapi.ActionAgentUpdate:
+		return a.SelfUpdate.Enabled()
 	}
 	return false
 }
@@ -174,6 +197,8 @@ func (Allow) Hint(action string, params map[string]string) string {
 		return "control_plane.allow.os_updates: check"
 	case agentapi.ActionOSApplyUpdates:
 		return "control_plane.allow.os_updates: apply"
+	case agentapi.ActionAgentUpdate:
+		return "control_plane.allow.self_update: {public_key: …, manifest_url: …}"
 	}
 	return "control_plane.allow.backup: true"
 }

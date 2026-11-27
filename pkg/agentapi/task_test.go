@@ -162,7 +162,7 @@ func TestUnitAndContainerNamesAreHeldToTheCharactersTheyReallyUse(t *testing.T) 
 	}
 }
 
-func TestTheOSActionsTakeNoParameterAndOnlyApplyNeedsConfirmation(t *testing.T) {
+func TestTheOSActionsTakeNoParameterAndOnlyApplyAndAgentUpdateNeedConfirmation(t *testing.T) {
 	for _, action := range []string{ActionOSCheckUpdates, ActionOSApplyUpdates} {
 		if err := ValidateTask(action, nil); err != nil {
 			t.Errorf("%s: %v", action, err)
@@ -177,11 +177,28 @@ func TestTheOSActionsTakeNoParameterAndOnlyApplyNeedsConfirmation(t *testing.T) 
 		}
 	}
 	for _, action := range Actions() {
-		if want := action == ActionOSApplyUpdates; NeedsConfirmation(action) != want {
+		if want := action == ActionOSApplyUpdates || action == ActionAgentUpdate; NeedsConfirmation(action) != want {
 			t.Errorf("NeedsConfirmation(%s) = %v", action, !want)
 		}
 	}
 	if Timeout(ActionOSApplyUpdates) <= Timeout(ActionOSCheckUpdates) {
 		t.Error("an upgrade is given no more time than a check")
+	}
+}
+
+func TestAgentUpdateTakesOnlyAReleaseVersionAndNeedsConfirmation(t *testing.T) {
+	if err := ValidateTask(ActionAgentUpdate, map[string]string{"version": "1.2.0"}); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []map[string]string{
+		nil, {"version": ""}, {"version": "v1.2.0"}, {"version": "latest"}, {"version": "1.2.0/../x"}, {"version": "1.2"},
+		{"version": "1.2.0", "url": "https://evil.example/x"}, {"version": "1.2.0", "sha256": "ab"}, {"url": "https://evil.example/x"},
+	} {
+		if err := ValidateTask(ActionAgentUpdate, bad); err == nil {
+			t.Errorf("%v was accepted", bad)
+		}
+	}
+	if !NeedsConfirmation(ActionAgentUpdate) {
+		t.Error("agent.update needs no confirmation")
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"sentinel/agent/internal/schedule"
 	"sentinel/pkg/agentapi"
+	"sentinel/pkg/release"
 	"sentinel/pkg/yamlenv"
 )
 
@@ -48,6 +49,28 @@ func (c *Config) allowErrors() []error {
 			errs = append(errs, fmt.Errorf("control_plane.allow.containers: %s is listed twice", name))
 		}
 		seen[name] = true
+	}
+	return append(errs, allow.SelfUpdate.errors()...)
+}
+
+// errors checks the two keys of self_update: either both or none, a public key that is one, and an https address
+// for a manifest that is for one version.
+func (s SelfUpdate) errors() []error {
+	if s.PublicKey == "" && s.ManifestURL == "" {
+		return nil
+	}
+	var errs []error
+	if s.PublicKey == "" || s.ManifestURL == "" {
+		return []error{errors.New("control_plane.allow.self_update needs both public_key and manifest_url")}
+	}
+	if _, err := release.ParsePublicKey(s.PublicKey); err != nil {
+		errs = append(errs, fmt.Errorf("control_plane.allow.self_update.public_key: %w", err))
+	}
+	if !strings.Contains(s.ManifestURL, "{version}") {
+		errs = append(errs, errors.New("control_plane.allow.self_update.manifest_url must have {version} in it, so that a manifest is for the version asked for"))
+	}
+	if err := release.CheckURL(s.URL("1.0.0", "linux", "amd64")); err != nil {
+		errs = append(errs, fmt.Errorf("control_plane.allow.self_update.manifest_url: %w", err))
 	}
 	return errs
 }

@@ -237,3 +237,20 @@ func TestAnAnswerWithoutAPaceLeavesThePaceAlone(t *testing.T) {
 		}
 	})
 }
+
+func TestOnReportedIsCalledAfterAReportTheControlPlaneTookAndNotAfterOneItDidNot(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &fakeSender{notAfter: time.Now().Add(80 * 24 * time.Hour)}
+		reporter := newReporter(sender)
+		calls := 0
+		reporter.OnReported = func() { calls++ }
+		sender.reportErr = errors.New("connection refused")
+		if reporter.Round(t.Context()); calls != 0 {
+			t.Fatalf("called after a report that did not get through: %d", calls)
+		}
+		sender.reportErr = nil
+		if reporter.Round(t.Context()); calls != 1 {
+			t.Errorf("calls = %d", calls)
+		}
+	})
+}

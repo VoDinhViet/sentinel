@@ -50,6 +50,8 @@ type Reporter struct {
 	Build func(ctx context.Context) (agentapi.Report, error)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// OnReported is called after a report the control plane took: it was reached, and it accepted this agent.
+	OnReported func()
 
 	every        time.Duration // the pace the control plane asked for last
 	failing      bool          // the last report did not get through
@@ -138,6 +140,9 @@ func (r *Reporter) Round(ctx context.Context) (reached bool) {
 		r.every = min(max(time.Duration(answer.ReportEverySeconds)*time.Second, minEvery), maxEvery)
 	}
 	r.checkClock(answer.ServerTime, now)
+	if r.OnReported != nil {
+		r.OnReported()
+	}
 	return true
 }
 

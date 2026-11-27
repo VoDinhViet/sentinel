@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"os"
@@ -13,13 +14,18 @@ import (
 	"sentinel/agent/internal/doctor"
 )
 
+// errRestart is why the daemon stops after an update or a rollback: it exits with an error so that systemd, which
+// restarts the daemon on failure only, starts it again.
+var errRestart = errors.New("restarting to run the other binary")
+
 func (a *cliApp) runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
 		Short: "Chạy daemon: backup theo lịch và uptime check",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
+			ctx, restart := context.WithCancelCause(cmd.Context())
+			defer restart(nil)
 			cfg, err := a.readConfig()
 			if err != nil {
 				return err
@@ -41,9 +47,15 @@ func (a *cliApp) runCmd() *cobra.Command {
 			for _, block := range cfg.Deprecated() {
 				slog.Warn("config block ignored: the daemon listens on no port and does not watch other servers; remove it", "block", block+":")
 			}
-			stopReporter := a.startReporter(ctx, cfg, st)
+			stopReporter := a.startReporter(ctx, cfg, st, func() { restart(errRestart) })
 			defer stopReporter()
-			return dm.Run(ctx)
+			if err := dm.Run(ctx); err != nil {
+				return err
+			}
+			if errors.Is(context.Cause(ctx), errRestart) {
+				return errRestart // a failure to systemd: Restart=on-failure starts the daemon again, now the other binary
+			}
+			return nil
 		},
 	}
 }

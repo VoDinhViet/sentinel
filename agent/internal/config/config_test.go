@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sentinel/pkg/release"
 	"strings"
 	"testing"
 	"time"
@@ -660,5 +661,44 @@ func TestOSUpdatesIsOffCheckOrApplyAndApplyIncludesCheck(t *testing.T) {
 	if (Allow{OSUpdates: OSUpdatesCheck}).Hint("os.apply_updates", nil) != "control_plane.allow.os_updates: apply" ||
 		(Allow{}).Hint("os.check_updates", nil) != "control_plane.allow.os_updates: check" {
 		t.Error("the hints do not say what to write")
+	}
+}
+
+func TestSelfUpdateNeedsBothKeysAndAnHTTPSManifestForOneVersion(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	public, _, err := release.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := release.EncodeKey(public)
+	parse := func(selfUpdate string) (*Config, error) {
+		return Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { self_update: { " + selfUpdate + " } } }\n"))
+	}
+	cfg, err := parse(`public_key: "` + key + `", manifest_url: "https://releases.example.com/{version}/manifest-{os}-{arch}.json"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := cfg.ControlPlane.Allow
+	if !allow.Permits("agent.update", map[string]string{"version": "1.2.0"}) || !strings.Contains(strings.Join(allow.Actions(), ","), "agent.update") {
+		t.Errorf("self_update does not allow agent.update: %v", allow.Actions())
+	}
+	if got := allow.SelfUpdate.URL("1.2.0", "linux", "arm64"); got != "https://releases.example.com/1.2.0/manifest-linux-arm64.json" {
+		t.Errorf("url: %s", got)
+	}
+	if (Allow{}).Permits("agent.update", nil) {
+		t.Error("agent.update is allowed with no self_update")
+	}
+	for name, selfUpdate := range map[string]string{
+		"no manifest":           `public_key: "` + key + `"`,
+		"no key":                `manifest_url: "https://releases.example.com/{version}/m.json"`,
+		"a key that is not one": `public_key: "abc", manifest_url: "https://releases.example.com/{version}/m.json"`,
+		"no version in the url": `public_key: "` + key + `", manifest_url: "https://releases.example.com/latest.json"`,
+		"an http url":           `public_key: "` + key + `", manifest_url: "http://releases.example.com/{version}/m.json"`,
+		"a url with a password": `public_key: "` + key + `", manifest_url: "https://u:p@releases.example.com/{version}/m.json"`,
+	} {
+		if _, err := parse(selfUpdate); err == nil || !strings.Contains(err.Error(), "self_update") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

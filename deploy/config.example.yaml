@@ -110,6 +110,13 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 #     # upgrade them with `apt-get -y upgrade`, in the transient unit sentinel-os-update; no package names, no
 #     # reboot). Debian and Ubuntu only. `apply` is the one setting that lets a task change packages as root.
 #     os_updates: off
+#     # agent.update: replace this binary with a later release. Both keys are needed; the control plane only says the
+#     # version. The manifest (version, os, arch, sha256, size, url) must be signed by public_key (`sentinelctl release
+#     # keygen`); a version that is not later is refused; the previous binary is kept as sentinel.prev, and is put back
+#     # if the new one does not report to the control plane within 5 minutes. Needs systemd-run.
+#     self_update:
+#       public_key: ""
+#       manifest_url: ""                # e.g. https://releases.example.com/sentinel/{version}/manifest-{os}-{arch}.json
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;

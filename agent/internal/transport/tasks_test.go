@@ -330,3 +330,25 @@ func TestATaskThatCameAfterItsDeadlineIsNotRun(t *testing.T) {
 		}
 	})
 }
+
+func TestAfterResultIsCalledOnlyAfterTheResultWasSent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		control := newFakeTasks([]agentapi.Task{{ID: 1, Action: "agent.update"}})
+		var sentWhenCalled bool
+		var called []int64
+		worker := &Worker{Client: control, Runner: done}
+		worker.AfterResult = func(task agentapi.Task, result agentapi.TaskResult) {
+			_, sentWhenCalled = control.result(task.ID)
+			called = append(called, task.ID)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		finished := make(chan struct{})
+		go func() { worker.Loop(ctx); close(finished) }()
+		synctest.Wait()
+		cancel()
+		<-finished
+		if len(called) != 1 || called[0] != 1 || !sentWhenCalled {
+			t.Errorf("called = %v, result already sent = %v", called, sentWhenCalled)
+		}
+	})
+}

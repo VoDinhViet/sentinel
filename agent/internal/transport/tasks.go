@@ -78,6 +78,8 @@ type Worker struct {
 	Runner Runner
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// AfterResult is called once the result of a task has been sent (or given up on).
+	AfterResult func(task agentapi.Task, result agentapi.TaskResult)
 }
 
 func (w *Worker) now() time.Time {
@@ -169,6 +171,9 @@ func (w *Worker) handle(ctx context.Context, task agentapi.Task) {
 	<-flushed
 	w.sendLog(ctx, task.ID, batch.take())
 	w.sendResult(ctx, task, result)
+	if w.AfterResult != nil {
+		w.AfterResult(task, result)
+	}
 }
 
 // sendLog sends the lines in pieces the control plane accepts, and drops what it does not take.

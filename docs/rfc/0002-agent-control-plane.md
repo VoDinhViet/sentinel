@@ -180,7 +180,7 @@ Bảng action cố định trong `pkg/agentapi`; tham số được decode bằn
 | `container.restart` | `container`, `timeout_s` tuỳ chọn (1 đến 90) | `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, khớp chính xác trong `allow.containers`; `GET /containers/{tên}/json` để biết tên đó đúng là container (Docker còn hiểu tên là tiền tố của id: `Name` phải là `/tên` hoặc `Id` phải bằng tên), rồi `POST /containers/{id đầy đủ}/restart[?t=N]` qua unix socket `allow.docker_socket`, không theo redirect, không proxy; 204 là thành công, 404 là không có container đó |
 | `os.check_updates` | — | cần `allow.os_updates: check` hoặc `apply`. Chạy `apt-get -s -o Debug::NoLocking=1 upgrade` (mô phỏng, không đổi gì), báo số package có thể nâng cấp, số bản vá bảo mật (suite có `-security`), package bị giữ lại, 100 package đầu, tuổi của package lists và máy có đang chờ khởi động lại không. Chỉ Debian và Ubuntu (apt); không có `dnf` |
 | `os.apply_updates` | — | cần `allow.os_updates: apply`; `sentinelctl run` hỏi gõ lại tên server (hoặc `--yes`), không có terminal mà thiếu `--yes` thì từ chối. Không có tham số: không `security_only`, không tên package, không `dist-upgrade`, không reboot. Timeout 30 phút |
-| `agent.update` | `version` | cần `allow.self_update`; mục 12 |
+| `agent.update` | `version` (dạng `1.2.0`) | cần `allow.self_update` (khoá công khai và địa chỉ manifest); `sentinelctl run` hỏi gõ lại tên server (hoặc `--yes`); mục 12. Timeout 10 phút |
 
 Không có action nào chạy shell, nhận path, tên package hay lệnh tự do. Không có reboot.
 
@@ -196,7 +196,7 @@ control_plane:
     containers: []             # container.restart: đúng các container này
     docker_socket: /var/run/docker.sock
     os_updates: off            # off | check | apply
-    self_update: {}            # public_key để bật
+    self_update: {}            # public_key + manifest_url để bật
 ```
 
 Agent kiểm tra lại mọi task theo thứ tự: bảng action (`agentapi.ValidateTask`), allowlist này, giới hạn tần suất (burst 3, 1 lần/5 giây cho mỗi action), rồi áp timeout (2 phút cho `backup.start`, 1 phút cho `backup.stop`, 3 phút cho `backup.snapshots` và `doctor.run`). Không đạt thì trả `refused` kèm khoá cần bật (`control_plane.allow.backup`). Log gửi lên được cắt qua `restic.Redact` (tối đa 200 dòng mỗi task, gom lô mỗi giây), và mỗi task được ghi log local, thứ mà control plane không xoá được. Allowlist đọc lúc daemon khởi động: đổi thì phải khởi động lại.
@@ -221,11 +221,14 @@ Audit: mỗi dòng có `hash = sha256(prev_hash ‖ nội dung chuẩn hoá)`; `
 
 ## 12. Tự cập nhật agent
 
-- `pkg/release`: manifest `{version, os, arch, sha256, url}` ký ed25519.
-- Khoá công khai nằm trong config local của agent, nên control plane bị chiếm cũng không đẩy được binary lạ.
-- `agent.update` tải binary, kiểm tra chữ ký, sha256 và version (không cho hạ), ghi file tạm rồi `rename`, để systemd restart.
-- Giữ binary cũ thành `sentinel.prev`; nếu bản mới không report được trong 5 phút thì lần start sau tự quay về bản cũ.
-- `sentinelctl release keygen|sign`; `make dist` ký manifest khi có `SENTINEL_RELEASE_KEY`.
+- `pkg/release`: manifest `{version, os, arch, sha256, size, url}` ký ed25519 (chữ ký phủ cả một tiền tố riêng của bản phát hành, nên chữ ký làm cho việc khác bằng cùng khoá không bị nhận nhầm).
+- **Task chỉ mang `version`** (`agent.update version=1.2.0`, cần xác nhận như `os.apply_updates`). Địa chỉ manifest và khoá công khai nằm trong config local của agent (`allow.self_update.manifest_url`, có `{version}`, `{os}`, `{arch}`; `allow.self_update.public_key`), nên control plane bị chiếm cũng không đưa được binary lạ hay trỏ agent sang chỗ khác. Chưa đặt đủ cả hai thì action bị từ chối.
+- Trong daemon (có sandbox), `selfupdate.Stager`: tải manifest (https, không theo redirect, không qua proxy, giới hạn kích thước), kiểm tra chữ ký, khớp version, OS và arch của chính máy này, **không bao giờ cho hạ version** (`Newer`; agent đang chạy bản `dev` thì từ chối vì không so được), tải binary và kiểm tra kích thước và sha256, chạy thử `--version`, rồi ghi file `update/sentinel.new` và ghi chú `update/update.json` (cạnh file store).
+- Đặt binary vào chỗ cần ghi `/usr/local/bin`, mà `ProtectSystem=full` chặn daemon, nên việc này làm trong unit tạm `sentinel-self-update` (`systemd-run --wait --collect --pipe --quiet`) chạy chính binary đó với lệnh ẩn `update-install` (argv cố định, không tham số từ task). Lệnh đó chỉ làm đúng điều ghi chú nói: file staged phải có đúng sha256 trong ghi chú, giữ binary cũ thành `sentinel.prev` (hard link), chép binary mới ra `sentinel.new` rồi `rename`. Đây là lối ra khỏi sandbox có chủ ý, chỉ mở khi `self_update` được đặt (`sentinel doctor` cảnh báo nếu thiếu `systemd-run`).
+- Gửi kết quả xong thì daemon thoát với mã lỗi (`Restart=on-failure`, `RestartSec=10s`), systemd chạy lại bản mới.
+- **Thử việc:** bản mới có 5 phút để báo cáo thành công với control plane (`selfupdate.Confirm`), nếu không, hoặc nếu bị khởi động quá 3 lần trong lúc thử, daemon chạy `update-rollback` (đặt `sentinel.prev` về chỗ cũ) rồi tự khởi động lại; lý do ghi trong ghi chú và log. Giới hạn: control plane không liên lạc được trong 5 phút sau một lần cập nhật cũng kích hoạt quay về bản cũ.
+- Chưa từng chạy thật ở môi trường phát triển (cần root và systemd); các bước được kiểm bằng test với hàm giả và với file trong thư mục tạm.
+- `sentinelctl release keygen --out release.key` tạo cặp khoá (file khoá 0600, không ghi đè) và in khoá công khai để đưa vào config; `sentinelctl release sign --key … --binary … --version … --url …` ký manifest. `make dist` ký manifest cho từng kiến trúc khi có `SENTINEL_RELEASE_KEY` và `SENTINEL_RELEASE_URL` (thư mục có file binary), đồng thời xuất binary trần `sentinel_linux_<arch>`.
 
 ## 13. Cảnh báo
 
@@ -296,11 +299,11 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 12 | Action cập nhật OS (`os.check_updates`, `os.apply_updates`; `allow.os_updates: off\|check\|apply`), chỉ apt |
 | 13 | Lịch cron và cửa sổ bảo trì (`server/internal/scheduler`, migration 5 `schedules` và `maintenance`, `sentinelctl schedule add\|ls\|rm` và `maintenance add\|ls\|rm`; trạng thái MAINTENANCE; watchdog không báo offline trong cửa sổ). Parser cron viết bằng stdlib vì thêm `robfig/cron` vào module server cần bạn xác nhận |
 | 14 | Lịch sử và báo cáo (`server/internal/report`, migration 6 `host_samples` và `backup_runs`; `sentinelctl report host\|backups`; biểu đồ CPU, RAM, ổ đĩa trong phần Máy của TUI; digest hằng ngày `digest_at`) |
-| 15 | Tự cập nhật agent |
+| 15 | Tự cập nhật agent ký ed25519 (`pkg/release`, `agent.update`, `allow.self_update`, thử việc 5 phút và quay về `sentinel.prev`, `sentinelctl release keygen\|sign`, `make dist` ký manifest) |
 
 ## 18. Thư viện
 
-Không thêm dependency mới cho dự án. Dùng `crypto/*`, `net/http`, `embed`, `testing/synctest` (stdlib), cùng `robfig/cron/v3`, `cenkalti/backoff/v5`, `gopsutil/v4` và (cho TUI) `bubbletea/v2`, `lipgloss/v2` đã có trong `go.mod`. Module `server` khai báo bubbletea và lipgloss cùng phiên bản với `agent`, nên cả repo vẫn chỉ dùng một bộ thư viện. Docker qua Engine API bằng `net/http` trên unix socket, không dùng Docker SDK; systemd qua `systemctl`, không dùng go-systemd.
+Không thêm dependency mới cho dự án. Dùng `crypto/*`, `net/http`, `embed`, `testing/synctest` (stdlib), cùng `cenkalti/backoff/v5`, `gopsutil/v4` và (cho TUI) `bubbletea/v2`, `lipgloss/v2` đã có trong `go.mod`. Module `server` khai báo bubbletea và lipgloss cùng phiên bản với `agent`, nên cả repo vẫn chỉ dùng một bộ thư viện. Docker qua Engine API bằng `net/http` trên unix socket, không dùng Docker SDK; systemd qua `systemctl`, không dùng go-systemd.
 
 ## 19. Câu hỏi mở
 

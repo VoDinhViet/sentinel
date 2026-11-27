@@ -222,3 +222,23 @@ func TestOSUpdateFindingsNeedAptAndForApplySystemdRun(t *testing.T) {
 		t.Errorf("both present: %+v", got)
 	}
 }
+
+func TestSelfUpdateFindingNeedsSystemdRunOnlyWhenItIsOn(t *testing.T) {
+	dir := t.TempDir()
+	old := osToolDirs
+	t.Cleanup(func() { osToolDirs = old })
+	osToolDirs = []string{dir}
+	on := config.SelfUpdate{PublicKey: "k", ManifestURL: "https://releases.example.com/{version}.json"}
+	if got := selfUpdateFindings(config.SelfUpdate{}); len(got) != 0 {
+		t.Errorf("off: %+v", got)
+	}
+	if got := selfUpdateFindings(on); len(got) != 1 || !got[0].Warn || !strings.Contains(got[0].Err.Error(), "systemd-run") {
+		t.Errorf("on without systemd-run: %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "systemd-run"), nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := selfUpdateFindings(on); len(got) != 0 {
+		t.Errorf("on with systemd-run: %+v", got)
+	}
+}

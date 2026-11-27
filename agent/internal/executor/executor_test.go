@@ -90,6 +90,8 @@ func TestNothingRunsWhileTheAllowlistIsOff(t *testing.T) {
 			params = map[string]string{"unit": "nginx.service"}
 		case action == agentapi.ActionContainerRestart:
 			params = map[string]string{"container": "web"}
+		case action == agentapi.ActionAgentUpdate:
+			params = map[string]string{"version": "1.2.0"}
 		}
 		result, _ := run(New(backend, config.Allow{}), task(action, params))
 		if result.State != agentapi.TaskRefused || !strings.Contains(result.Error, "not allowed") || !strings.Contains(result.Error, "control_plane.allow.") {

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"sentinel/pkg/redact"
+	"sentinel/pkg/release"
 	"sentinel/pkg/termtext"
 )
 
@@ -33,6 +34,7 @@ const (
 	ActionContainerRestart = "container.restart"
 	ActionOSCheckUpdates   = "os.check_updates"
 	ActionOSApplyUpdates   = "os.apply_updates"
+	ActionAgentUpdate      = "agent.update"
 )
 
 // OwnUnit is the unit of the agent itself. No task starts, stops or restarts it: the task would end the
@@ -90,6 +92,9 @@ var actionTable = map[string]actionSpec{
 	// No parameters at all: which packages are upgraded is the package manager's own business, never a task's.
 	ActionOSCheckUpdates: {timeout: 5 * time.Minute},
 	ActionOSApplyUpdates: {timeout: 30 * time.Minute, confirm: true},
+	// Only the version: where the binary is and who signed it are in the agent's own config and in the signed
+	// manifest, never in a task.
+	ActionAgentUpdate: {required: []string{"version"}, timeout: 10 * time.Minute, confirm: true},
 }
 
 // Actions are the names of the actions, in order.
@@ -187,6 +192,10 @@ func validValue(name, value string) error {
 		return ValidContainer(value)
 	case "timeout_s":
 		return validTimeout(value)
+	case "version":
+		if !release.ValidVersion(value) {
+			return fmt.Errorf("%q is not a version like 1.2.0", termtext.Shorten(termtext.Line(value), 64))
+		}
 	}
 	return nil
 }

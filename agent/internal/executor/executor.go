@@ -49,7 +49,12 @@ type Executor struct {
 	LookTool func(name string) (string, error)
 	// UpdateLog is the file the unit of an upgrade writes its output to, in the directory of the store.
 	UpdateLog string
-	RunTool   func(ctx context.Context, path string, args []string, line func(string)) error
+	// Updater, Executable and ConfigPath are for agent.update: the stager (nil without allow.self_update), the path
+	// of the running binary, and the config the helper in the transient unit reads.
+	Updater    Updater
+	Executable string
+	ConfigPath string
+	RunTool    func(ctx context.Context, path string, args []string, line func(string)) error
 
 	limit *ratelimit.Limiter
 }
@@ -124,6 +129,8 @@ func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line st
 		return e.checkUpdates(ctx, log)
 	case agentapi.ActionOSApplyUpdates:
 		return e.applyUpdates(ctx, log)
+	case agentapi.ActionAgentUpdate:
+		return e.updateAgent(ctx, task.Params, log)
 	default: // agentapi.ActionDoctorRun: ValidateTask let nothing else through
 		return e.doctor(ctx, log)
 	}

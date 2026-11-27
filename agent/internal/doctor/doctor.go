@@ -253,6 +253,7 @@ func allowToolFindings(allow config.Allow) []Finding {
 		}
 	}
 	findings = append(findings, osUpdateFindings(allow.OSUpdates)...)
+	findings = append(findings, selfUpdateFindings(allow.SelfUpdate)...)
 	return findings
 }
 
@@ -273,6 +274,19 @@ func osUpdateFindings(mode string) []Finding {
 		}
 	}
 	return findings
+}
+
+// selfUpdateFindings warns when agent.update is on and systemd-run, which puts the new binary in place outside the
+// sandbox of the daemon, is not where the executor looks.
+func selfUpdateFindings(self config.SelfUpdate) []Finding {
+	if !self.Enabled() || slices.ContainsFunc(osToolDirs, func(dir string) bool {
+		info, err := os.Stat(filepath.Join(dir, "systemd-run"))
+		return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
+	}) {
+		return nil
+	}
+	return []Finding{{Name: "allow.self_update", Warn: true, Err: errors.New("systemd-run was not found, so agent.update tasks will fail"),
+		Hint: "the new binary is put in place by a transient unit: remove control_plane.allow.self_update on a machine without systemd"}}
 }
 
 // allowedText is the actions the allowlist lets the control plane ask for, "none" when it is off.
