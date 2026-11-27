@@ -41,7 +41,7 @@ func appendAll(t *testing.T, st *store.Store, ctx context.Context, entries ...En
 
 func TestAppendChainsAndVerifyAcceptsTheChain(t *testing.T) {
 	st := openStore(t)
-	ctx := WithActor(context.Background(), Actor{Name: "admin", Session: "ab12cd34", IP: "10.0.0.5"})
+	ctx := WithActor(context.Background(), Actor{Name: "ctl", Session: "ab12cd34", IP: "10.0.0.5"})
 	appendAll(t, st, ctx,
 		Entry{Action: "login.ok"},
 		Entry{Action: "agent.enroll", Target: "web-01"},
@@ -54,7 +54,7 @@ func TestAppendChainsAndVerifyAcceptsTheChain(t *testing.T) {
 	if records[0].Entry.Action != "agent.revoke" || records[2].PrevHash != "" || records[0].PrevHash != records[1].Hash || records[1].PrevHash != records[2].Hash {
 		t.Errorf("the rows are not chained, newest first: %+v", records)
 	}
-	if got := records[1].Actor; got != (Actor{Name: "admin", Session: "ab12cd34", IP: "10.0.0.5"}) {
+	if got := records[1].Actor; got != (Actor{Name: "ctl", Session: "ab12cd34", IP: "10.0.0.5"}) {
 		t.Errorf("actor = %+v", got)
 	}
 	if checked, err := Verify(ctx, st.DB); err != nil || checked != 3 {
@@ -83,11 +83,11 @@ func TestVerifyFindsTampering(t *testing.T) {
 		wantErr string
 	}{
 		{"a field is edited", `UPDATE audit_log SET target = 'db-01' WHERE id = 2`, "row 2 was changed"},
-		{"the actor is edited", `UPDATE audit_log SET actor = 'admin' WHERE id = 1`, "row 1 was changed"},
+		{"the actor is edited", `UPDATE audit_log SET actor = 'ctl' WHERE id = 1`, "row 1 was changed"},
 		{"a row is removed", `DELETE FROM audit_log WHERE id = 2`, "row 3 does not follow"},
 		{"the first row is removed", `DELETE FROM audit_log WHERE id = 1`, "row 2 does not follow"},
 		{"the last row is edited", `UPDATE audit_log SET detail = 'x' WHERE id = 3`, "row 3 was changed"},
-		{"a row is added with a wrong hash", `INSERT INTO audit_log (at, actor, session, ip, action, target, detail, prev_hash, hash) VALUES (9, 'admin', '', '', 'x', '', '', 'nope', 'nope')`, "does not follow"},
+		{"a row is added with a wrong hash", `INSERT INTO audit_log (at, actor, session, ip, action, target, detail, prev_hash, hash) VALUES (9, 'ctl', '', '', 'x', '', '', 'nope', 'nope')`, "does not follow"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

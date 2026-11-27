@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/audit"
@@ -134,5 +135,76 @@ func TestEnrollThroughTheAppUsesTheCAFromInit(t *testing.T) {
 	}
 	if app.CA.Fingerprint() != result.Fingerprint {
 		t.Error("the CA changed")
+	}
+}
+
+func TestServerCertIsKeptWhileItFitsAndReissuedWhenItDoesNot(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	if _, err := Init(ctx, cfg, "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	first, err := a.ServerCert(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := a.ServerCert(ctx, time.Now())
+	if err != nil || again.Leaf.SerialNumber.Cmp(first.Leaf.SerialNumber) != 0 {
+		t.Errorf("a certificate that fits was replaced (err %v)", err)
+	}
+	for _, loopback := range []string{"localhost", "127.0.0.1", "::1"} {
+		if err := first.Leaf.VerifyHostname(loopback); err != nil {
+			t.Errorf("the certificate does not cover %s: %v", loopback, err)
+		}
+	}
+
+	nearEnd := first.Leaf.NotAfter.Add(-pki.RenewBefore + time.Hour)
+	renewed, err := a.ServerCert(ctx, nearEnd)
+	if err != nil || renewed.Leaf.SerialNumber.Cmp(first.Leaf.SerialNumber) == 0 {
+		t.Fatalf("a certificate near its end was kept (err %v)", err)
+	}
+	if err := renewed.Leaf.CheckSignatureFrom(a.CA.Cert); err != nil {
+		t.Errorf("the new certificate is not signed by the same CA: %v", err)
+	}
+
+	a.Config.Hosts = append(a.Config.Hosts, "new.example.com")
+	withNewHost, err := a.ServerCert(ctx, time.Now())
+	if err != nil || withNewHost.Leaf.VerifyHostname("new.example.com") != nil {
+		t.Errorf("a host added to the config is not in the certificate (err %v)", err)
+	}
+}
+
+func TestTheCertificateOfARunningServerIsRenewedWithoutARestart(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	if _, err := Init(ctx, cfg, "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	source, err := a.NewServerCertSource(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := source.Get(nil)
+	if err := source.Refresh(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if same, _ := source.Get(nil); same.Leaf.SerialNumber.Cmp(before.Leaf.SerialNumber) != 0 {
+		t.Error("a certificate that is not near its end was replaced")
+	}
+	if err := source.Refresh(ctx, before.Leaf.NotAfter.Add(-pki.RenewBefore+time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := source.Get(nil); after.Leaf.SerialNumber.Cmp(before.Leaf.SerialNumber) == 0 {
+		t.Error("the certificate near its end was not replaced for new connections")
 	}
 }

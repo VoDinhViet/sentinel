@@ -27,7 +27,8 @@ func openTemp(t *testing.T) (*Store, string) {
 // knownChecksums are the SHA-256 of every migration that has been released. The migrations are
 // append-only: when you add one, add its line here, and never change a line that is already here.
 var knownChecksums = map[string]string{
-	"0001_init.sql": "b57dd67ded93ba14e84f938e378e4695097e20377bc1434d3bec10064b0c28a5",
+	"0001_init.sql":        "b57dd67ded93ba14e84f938e378e4695097e20377bc1434d3bec10064b0c28a5",
+	"0002_login_table.sql": "54333b73932c2e0816e3ac8d8f6f8e4ccb4f845bb1d8921e3a34a01d2e866d99",
 }
 
 func TestMigrationsAreAppendOnly(t *testing.T) {
@@ -61,7 +62,7 @@ func TestOpenCreatesAPrivateDatabaseAndIsIdempotent(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("database mode = %v, %v; want 0600", info.Mode().Perm(), err)
 	}
-	for _, table := range []string{"agents", "join_tokens", "certs", "admin", "sessions", "login_failures", "audit_log", "alerts"} {
+	for _, table := range []string{"agents", "join_tokens", "certs", "login", "sessions", "login_failures", "audit_log", "alerts"} {
 		var name string
 		if err := st.DB.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name); err != nil {
 			t.Errorf("no table %s: %v", table, err)
@@ -76,8 +77,8 @@ func TestOpenCreatesAPrivateDatabaseAndIsIdempotent(t *testing.T) {
 	}
 	defer again.Close()
 	var applied int
-	if err := again.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil || applied != 1 {
-		t.Errorf("migrations applied = %d, %v; want 1, once", applied, err)
+	if err := again.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil || applied != len(knownChecksums) {
+		t.Errorf("migrations applied = %d, %v; want %d, each once", applied, err, len(knownChecksums))
 	}
 }
 
@@ -122,7 +123,7 @@ func TestInTxRollsBackOnError(t *testing.T) {
 
 func TestAuditLogCannotBeChangedOrDeleted(t *testing.T) {
 	st, _ := openTemp(t)
-	if _, err := st.DB.Exec(`INSERT INTO audit_log (at, actor, session, ip, action, target, detail, prev_hash, hash) VALUES (1, 'admin', '', '', 'x', '', '', '', 'h')`); err != nil {
+	if _, err := st.DB.Exec(`INSERT INTO audit_log (at, actor, session, ip, action, target, detail, prev_hash, hash) VALUES (1, 'ctl', '', '', 'x', '', '', '', 'h')`); err != nil {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{`UPDATE audit_log SET actor = 'someone'`, `DELETE FROM audit_log`} {
@@ -132,12 +133,12 @@ func TestAuditLogCannotBeChangedOrDeleted(t *testing.T) {
 	}
 }
 
-func TestOnlyOneAdminRow(t *testing.T) {
+func TestOnlyOneLoginRow(t *testing.T) {
 	st, _ := openTemp(t)
-	if _, err := st.DB.Exec(`INSERT INTO admin (id, password_hash, changed_at) VALUES (1, 'h', 1)`); err != nil {
+	if _, err := st.DB.Exec(`INSERT INTO login (id, password_hash, changed_at) VALUES (1, 'h', 1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.DB.Exec(`INSERT INTO admin (id, password_hash, changed_at) VALUES (2, 'h', 1)`); err == nil {
-		t.Error("a second administrator was stored")
+	if _, err := st.DB.Exec(`INSERT INTO login (id, password_hash, changed_at) VALUES (2, 'h', 1)`); err == nil {
+		t.Error("a second login row was stored")
 	}
 }

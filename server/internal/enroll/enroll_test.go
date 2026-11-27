@@ -56,7 +56,7 @@ func parse(t *testing.T, certPEM []byte) *x509.Certificate {
 
 func TestEnrollThenJoinGivesTheAgentACertificateWithItsName(t *testing.T) {
 	service, st, ca := newService(t)
-	ctx := audit.WithActor(context.Background(), audit.Actor{Name: "admin", IP: "10.0.0.5"})
+	ctx := audit.WithActor(context.Background(), audit.Actor{Name: "ctl", IP: "10.0.0.5"})
 
 	token, expires, err := service.Create(ctx, "web-01")
 	if err != nil {
@@ -94,7 +94,7 @@ func TestEnrollThenJoinGivesTheAgentACertificateWithItsName(t *testing.T) {
 		t.Fatalf("audit = %d rows, %v", len(records), err)
 	}
 	if records[0].Entry.Action != "agent.join" || records[0].Actor.Name != "agent:web-01" || records[0].Actor.IP != "10.0.0.5" ||
-		records[1].Entry.Action != "agent.enroll" || records[1].Actor.Name != "admin" {
+		records[1].Entry.Action != "agent.enroll" || records[1].Actor.Name != "ctl" {
 		t.Errorf("audit = %+v", records)
 	}
 	for _, record := range records {

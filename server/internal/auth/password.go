@@ -1,4 +1,4 @@
-// Package auth is how the administrator signs in to the control plane: one password, no user name, and
+// Package auth is how you sign in to the control plane: one password, no user name, and
 // a session after it. The password is stored as a PBKDF2 hash; a session token and the password never
 // are. An address that guesses wrong too often is blocked for a while.
 package auth
@@ -33,13 +33,16 @@ const (
 // rounds is what a new hash uses; tests lower it so they do not spend seconds in PBKDF2.
 var rounds = Rounds
 
+// ErrPasswordRefused means a new password does not meet the rules; the message says which.
+var ErrPasswordRefused = errors.New("password refused")
+
 // ValidatePassword says whether a password may be chosen.
 func ValidatePassword(password string) error {
 	switch length := utf8.RuneCountInString(password); {
 	case length < MinPasswordLength:
-		return fmt.Errorf("the password must have at least %d characters", MinPasswordLength)
+		return fmt.Errorf("%w: it must have at least %d characters", ErrPasswordRefused, MinPasswordLength)
 	case len(password) > maxPasswordLength:
-		return fmt.Errorf("the password must have at most %d bytes", maxPasswordLength)
+		return fmt.Errorf("%w: it must have at most %d bytes", ErrPasswordRefused, maxPasswordLength)
 	}
 	return nil
 }

@@ -1,0 +1,22 @@
+# Sentinel control plane: /etc/sentinel/server.yaml. `sentinel-server init` writes this file for you;
+# this one shows every key. There is no secret in it. Docs: docs/rfc/0002-agent-control-plane.md
+
+# Where agents connect (mutual TLS, TLS 1.3). Open this port to your servers and to nobody else.
+listen: ":9320"
+
+# Where sentinelctl connects (TLS 1.3, signed in with the password). On this machine only
+# by default: reach it with `ssh -L 9321:127.0.0.1:9321 <this machine>`, or bind it to a private address
+# (WireGuard, Tailscale) and add that address to `hosts`. Never put it on the internet.
+ctl_listen: "127.0.0.1:9321"
+
+# The database, the CA and the keys. Only the user of the service may read it. Back it up: it holds the CA key.
+state_dir: "/var/lib/sentinel-server"
+
+# The names and addresses the agents use to reach this server (what is in their URL). The server's
+# certificate is made for them, with localhost and 127.0.0.1 added for sentinelctl. The first one goes in
+# the join command. When you add one, restart the service: it makes the certificate again, with the same CA.
+hosts:
+  - "ctl.example.com"
+
+# An agent that has not reported for this long is offline.
+offline_after: 2m

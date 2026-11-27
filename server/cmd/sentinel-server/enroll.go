@@ -22,14 +22,14 @@ Chạy lại cho cùng một tên (khi server chưa join) thì cấp token mới
 				return err
 			}
 			defer a.Close()
-			token, expires, err := a.Enroll.Create(cmd.Context(), args[0])
+			added, err := a.AddAgent(cmd.Context(), args[0])
 			if err != nil {
 				return explainEnroll(args[0], err)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Join token của %s (dùng một lần, hết hạn %s):\n\n", args[0], expires.Local().Format("2006-01-02 15:04"))
+			fmt.Fprintf(out, "Join token của %s (dùng một lần, hết hạn %s):\n\n", added.Name, added.Expires.Local().Format("2006-01-02 15:04"))
 			fmt.Fprintf(out, "Trên server đó, chạy:\n\n  sentinel agent join --url %s --token %s --ca-fingerprint %s\n\n",
-				a.Config.JoinURL(), token, a.CA.Fingerprint())
+				added.JoinURL, added.Token, added.Fingerprint)
 			fmt.Fprintln(out, "Token chỉ hiện một lần và không lưu lại: mất thì chạy lại lệnh này.")
 			return nil
 		},

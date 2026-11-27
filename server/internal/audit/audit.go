@@ -20,10 +20,10 @@ import (
 	"sentinel/server/internal/store"
 )
 
-// Actor is who does something: the administrator (with the address and the first characters of the
+// Actor is who does something: whoever is signed in (with the address and the first characters of the
 // hash of the session), an agent, or the control plane itself.
 type Actor struct {
-	Name    string // "admin", "agent:<name>" or "system"
+	Name    string // "ctl", "agent:<name>" or "system"
 	Session string // the first 8 characters of the hash of the session; empty if none
 	IP      string
 }

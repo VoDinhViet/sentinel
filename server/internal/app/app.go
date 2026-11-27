@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"sentinel/pkg/pki"
@@ -52,17 +53,20 @@ func Open(ctx context.Context, cfg *config.Config) (*App, error) {
 
 func (a *App) Close() error { return a.Store.Close() }
 
-// InitResult is what an administrator needs after init.
+// InitResult is what you need after init.
 type InitResult struct {
 	Fingerprint string // of the CA: what `sentinel agent join` is given to trust this server
 }
 
 // Init makes a new control plane in the state directory: the CA, the server's certificate, the database
-// and the administrator's password. It refuses when any of those files exists, and removes what it
+// and the password. It refuses when any of those files exists, and removes what it
 // made if it fails half way, so it can be run again.
 func Init(ctx context.Context, cfg *config.Config, password string) (result InitResult, err error) {
 	if err := auth.ValidatePassword(password); err != nil {
 		return InitResult{}, err
+	}
+	if len(cfg.Hosts) == 0 {
+		return InitResult{}, errors.New("no host name or address for the server certificate")
 	}
 	files := cfg.Files()
 	for _, path := range files.All() {
@@ -92,7 +96,7 @@ func Init(ctx context.Context, cfg *config.Config, password string) (result Init
 	if err != nil {
 		return InitResult{}, err
 	}
-	chain, serverKey, err := ca.IssueServer(cfg.Hosts, now)
+	chain, serverKey, err := ca.IssueServer(certHosts(cfg.Hosts), now)
 	if err != nil {
 		return InitResult{}, err
 	}
@@ -123,4 +127,16 @@ func Init(ctx context.Context, cfg *config.Config, password string) (result Init
 		}
 	}
 	return InitResult{Fingerprint: ca.Fingerprint()}, nil
+}
+
+// certHosts are the names the server's certificate is made for: the hosts agents use, and the loopback
+// names, because ctl_listen is on this machine by default and sentinelctl reaches it through an SSH tunnel.
+func certHosts(hosts []string) []string {
+	all := slices.Clone(hosts)
+	for _, loopback := range []string{"localhost", "127.0.0.1", "::1"} {
+		if !slices.Contains(all, loopback) {
+			all = append(all, loopback)
+		}
+	}
+	return all
 }

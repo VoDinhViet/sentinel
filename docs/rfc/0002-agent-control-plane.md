@@ -9,7 +9,7 @@
 
 ## 1. Tóm tắt
 
-Mỗi server chạy một **agent** (daemon `sentinel run` hiện có) và nối **ra** một **control plane** (`sentinel-server`) qua mTLS. Agent báo trạng thái, nhận task từ hàng đợi, chạy task nằm trong allowlist local của nó rồi trả kết quả. Admin điều khiển control plane bằng `sentinelctl` (CLI và TUI). Không có web UI. Agent không mở cổng nào.
+Mỗi server chạy một **agent** (daemon `sentinel run` hiện có) và nối **ra** một **control plane** (`sentinel-server`) qua mTLS. Agent báo trạng thái, nhận task từ hàng đợi, chạy task nằm trong allowlist local của nó rồi trả kết quả. Bạn điều khiển control plane bằng `sentinelctl` (CLI và TUI). Không có web UI. Agent không mở cổng nào.
 
 RFC này thay mô hình pull của RFC 0001 (máy xem gọi API của từng daemon). Khi control plane chạy được, `internal/fleet`, `sentinel fleet`, FleetWatcher và API HTTP của daemon bị xoá (mục 15).
 
@@ -30,7 +30,7 @@ Thiết kế push cũ bị xoá có chủ ý (commit `dda2b02`; bản lưu ở `
 | --- | --- | --- |
 | Giao diện | Web UI React | Chỉ CLI + TUI |
 | Agent xác thực | Bearer token | mTLS, cert ngắn hạn, thu hồi được |
-| Người dùng | users, roles, mật khẩu, session | **Một mật khẩu quản trị**, không username, không role |
+| Người dùng | users, roles, mật khẩu, session | **Một mật khẩu đăng nhập**, không username, không role |
 | Việc server giao cho agent | Lệnh, đẩy config, restore | Bảng action cố định; agent kiểm tra lại bằng allowlist local |
 | Đẩy config, restore từ xa | Có | Không |
 | Thư viện | huma, sqlc, goose | Chỉ stdlib và các module đã có |
@@ -54,10 +54,10 @@ Ngoài phạm vi: shell tùy ý, đẩy config, restore từ xa, reboot, control
 ## 4. Kiến trúc
 
 ```text
- máy admin                    máy control plane                       mỗi server
+ máy của bạn                    máy control plane                       mỗi server
 ┌────────────┐  HTTPS  ┌───────────────────────────┐   mTLS   ┌──────────────────┐
 │ sentinelctl├────────►│ sentinel-server           │◄─────────┤ sentinel run     │
-│ (CLI, TUI) │ mật khẩu│  admin_listen 127.0.0.1   │ agent gọi│  transport       │
+│ (CLI, TUI) │ mật khẩu│  ctl_listen 127.0.0.1   │ agent gọi│  transport       │
 └────────────┘ +session│  listen :9320             │   ra     │  executor+policy │
                        │  SQLite, CA, audit        │          │  backup, host    │
                        └───────────────────────────┘          └──────────────────┘
@@ -91,7 +91,7 @@ project-backup/
 └── server/
     ├── cmd/sentinel-server/   serve, init, enroll, passwd, audit verify
     ├── cmd/sentinelctl/       login, logout, passwd, server, alert, task, run, audit, schedule, report; không lệnh con thì mở TUI
-    └── internal/   app config store auth audit enroll inventory task watchdog scheduler report httpapi adminapi client tui
+    └── internal/   app config store auth audit enroll inventory task watchdog scheduler report httpapi ctlapi client tui
 ```
 
 Hướng phụ thuộc, không vòng: `agent → pkg`, `server → pkg`, `pkg` không import ai. Trong server: `httpapi` và `cmd` → `app` → các package nghiệp vụ → `store`, `pkg/*`. `server` không import `agent` (trừ test end-to-end).
@@ -106,7 +106,7 @@ Hướng phụ thuộc, không vòng: `agent → pkg`, `server → pkg`, `pkg` k
 | task | Một action từ xa nằm trong hàng đợi |
 | action | Loại task, ví dụ `backup.start` |
 | join token | Mã dùng một lần để agent đổi lấy cert |
-| session | Phiên đăng nhập của admin |
+| session | Phiên đăng nhập bằng mật khẩu |
 
 `task` ở đây không trùng `daemon.Task` (việc định kỳ trong daemon): hai thứ nằm ở hai module khác nhau.
 
@@ -121,8 +121,8 @@ Hướng phụ thuộc, không vòng: `agent → pkg`, `server → pkg`, `pkg` k
 
 Luồng enroll:
 
-1. `sentinel-server enroll web01` tạo agent `pending` và một join token (24 giờ, dùng một lần, lưu SHA-256), in ra lệnh join.
-2. Trên server: `sentinel agent join --url … --token … --ca-fingerprint sha256:…`. Agent sinh khoá và CSR, gọi `POST /v1/enroll/join` qua kết nối **ghim fingerprint của CA** (`pki.PinnedTLSConfig(fingerprint, host)`: CA trong chuỗi cert server phải có đúng fingerprint, cert server phải do CA đó ký, đúng host trong URL, còn hạn, dùng cho server), nhận cert và CA, ghi file.
+1. `sentinelctl server add web01` (hoặc `sentinel-server enroll web01` trên máy control plane) tạo agent `pending` và một join token (24 giờ, dùng một lần, lưu SHA-256), in ra lệnh join.
+2. Trên server: `sentinel agent join --url … --token … --ca-fingerprint sha256:…`. Agent sinh khoá và CSR, gọi `POST /v1/enroll/join` qua kết nối **ghim fingerprint của CA** (`pki.PinnedTLSConfig(fingerprint, host)`: CA trong chuỗi cert server phải có đúng fingerprint, cert server phải do CA đó ký, đúng host trong URL, còn hạn, dùng cho server), nhận cert và CA, kiểm tra lại câu trả lời (CA đúng fingerprint, cert do CA đó ký, đúng tên, đúng khoá vừa tạo) rồi mới ghi file, cert ghi sau cùng. Token có thể đưa qua `--token`, `--token-stdin` hoặc nhập trên terminal; `--token` hiện trong `ps` trong lúc lệnh chạy (token dùng một lần và sống 24 giờ, nên chấp nhận được, nhưng help nói rõ). Sau khi join, agent gọi `GET /v1/agent/whoami` bằng cert mới để chắc rằng nó dùng được.
 3. Agent chuyển `active`. Từ đó mọi request dùng mTLS.
 
 `pki.PinnedTLSConfig` là nơi duy nhất được dùng `InsecureSkipVerify`, kèm `VerifyConnection` tự kiểm tra chuỗi cert. Host được truyền vào vì client dial bằng IP không ghi tên vào `ConnectionState`, và kiểm tra với tên rỗng sẽ bỏ qua bước so host. `make layers` chặn mọi `InsecureSkipVerify` ngoài `pkg/pki`.
@@ -133,7 +133,8 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 
 | Route | Nội dung |
 | --- | --- |
-| `POST /v1/enroll/join` | `{token, csr_pem}` → `{name, cert_pem, ca_pem, not_after, report_every_s}`; không cần client cert |
+| `POST /v1/enroll/join` | `{token, csr}` → `{name, cert, ca, not_after}`; không cần client cert; giới hạn tần suất theo IP, body tối đa 16 KiB |
+| `GET /v1/agent/whoami` | → `{name, cert_not_after}`: control plane đọc tên từ cert; dùng để kiểm tra cert hoạt động |
 | `POST /v1/agent/report` | `{version, sent_at, status, host, backup_runs, allow}` → `{server_time, report_every_s, backup_run_cursor, renew}` |
 | `POST /v1/agent/renew` | `{csr_pem}` → `{cert_pem, not_after}` |
 | `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]` |
@@ -145,19 +146,20 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 - Một lần poll mới của cùng agent huỷ lần poll trước.
 - Agent report mỗi 60 giây (lệch ±10%), poll liên tục. Gặp 401 thì dừng và ghi log, không lặp nóng.
 
-## 9. Đăng nhập admin
+## 9. Đăng nhập
 
-Chỉ **một mật khẩu quản trị**. Không username, role, API token, cert hay MFA. Ai đăng nhập được thì có toàn quyền; giới hạn quyền nằm ở allowlist local của từng agent (mục 10).
+Chỉ **một mật khẩu đăng nhập**. Không username, role, API token, cert hay MFA. Ai đăng nhập được thì có toàn quyền; giới hạn quyền nằm ở allowlist local của từng agent (mục 10).
 
 - Băm bằng PBKDF2-HMAC-SHA256 (`crypto/pbkdf2`), 600.000 vòng, salt 16 byte, lưu `pbkdf2-sha256$<vòng>$<salt>$<hash>`. So sánh bằng `subtle.ConstantTimeCompare`. Tối thiểu 12 ký tự.
-- `sentinelctl login` hỏi mật khẩu (hoặc `--password-stdin`), gọi `POST /v1/admin/login`, nhận session token 256-bit. Session hết hạn sau 12 giờ, hoặc 1 giờ không dùng. Server chỉ lưu SHA-256 của token.
-- Client giữ session ở `~/.config/sentinel/session` (0600); từ chối file có quyền rộng hơn.
-- Chống dò mật khẩu: một IP sai 5 lần liên tiếp bị chặn 15 phút (kể cả khi sau đó nhập đúng). Khi cả server đã thấy 30 lần sai trong một giờ, mỗi IP chỉ được sai 1 lần trước khi bị chặn. Không có khoá toàn cục: một IP chưa sai lần nào vẫn đăng nhập được, nên kẻ tấn công không khoá được admin thật. Lần sai bị quên sau một giờ; đăng nhập đúng xoá bộ đếm của IP đó. Đổi mật khẩu cũng đi qua cùng bộ đếm, nên không dùng nó để dò mật khẩu cũ được. Mỗi lượt thử được đếm **trước** khi băm, trong cùng transaction với việc kiểm tra bị chặn, nên gửi 1000 request cùng lúc từ một IP cũng chỉ được 5 lượt. Tối đa 2 lần băm chạy song song. Còn lại: nhiều IP khác nhau (IPv6 /64) vẫn tốn CPU băm và thêm dòng audit `login.fail`; nhật ký không bao giờ xoá, nên đây là giới hạn đã biết.
+- `sentinelctl login` hỏi mật khẩu (hoặc `--password-stdin`), gọi `POST /v1/ctl/login`, nhận session token 256-bit. Session hết hạn sau 12 giờ, hoặc 1 giờ không dùng. Server chỉ lưu SHA-256 của token.
+- Client giữ session ở `~/.config/sentinel/session` (0600); từ chối file có quyền rộng hơn. `ctl.yaml` cạnh nó chỉ có `url` và `ca_fingerprint`: `sentinelctl` ghim fingerprint của CA (cùng `pki.PinnedTLSConfig` như lúc join) ở mọi kết nối thay vì giữ file CA, và không theo redirect.
+- Chống dò mật khẩu: một IP sai 5 lần liên tiếp bị chặn 15 phút (kể cả khi sau đó nhập đúng). Khi cả server đã thấy 30 lần sai trong một giờ, mỗi IP chỉ được sai 1 lần trước khi bị chặn. Không có khoá toàn cục: một IP chưa sai lần nào vẫn đăng nhập được, nên kẻ tấn công không khoá được chủ mật khẩu thật. Lần sai bị quên sau một giờ; đăng nhập đúng xoá bộ đếm của IP đó. Đổi mật khẩu cũng đi qua cùng bộ đếm, nên không dùng nó để dò mật khẩu cũ được. Mỗi lượt thử được đếm **trước** khi băm, trong cùng transaction với việc kiểm tra bị chặn, nên gửi 1000 request cùng lúc từ một IP cũng chỉ được 5 lượt. Tối đa 2 lần băm chạy song song. Còn lại: nhiều IP khác nhau (IPv6 /64) vẫn tốn CPU băm và thêm dòng audit `login.fail`; nhật ký không bao giờ xoá, nên đây là giới hạn đã biết.
 - Audit ghi mọi lần đăng nhập đúng, sai và lần bị chặn đầu tiên; không ghi các request bị chặn tiếp theo và các lần join sai token (chỉ `slog`), vì nhật ký không bao giờ xoá và ai cũng gửi được request sai.
-- `sentinelctl passwd` đổi mật khẩu và thu hồi mọi session. Quên mật khẩu thì chạy `sentinel-server passwd` bằng root trên máy server.
-- Audit ghi người thao tác là `admin` cùng IP và 8 ký tự đầu của hash session.
+- `sentinelctl passwd` đổi mật khẩu và thu hồi mọi session. Quên mật khẩu thì chạy `sentinel-server passwd` bằng root trên máy server. Qua SSH tunnel mọi client cùng địa chỉ 127.0.0.1, nên ai trên máy đó cũng dùng hết được lượt thử của chủ mật khẩu; `sentinel-server unblock` (và `passwd`) xoá bộ đếm và gỡ chặn ngay.
+- Audit ghi người thao tác là `ctl` cùng IP và 8 ký tự đầu của hash session. Request tới `ctl_listen` có token không phải session thì trả 401 mà không ghi audit (ai tới được cổng cũng gửi được, mà nhật ký không bao giờ xoá). Đổi mật khẩu với mật khẩu cũ sai trả 403, không phải 401, để client phân biệt với "phiên đã hết". IP của client được chuẩn hoá: bỏ cổng, IPv6 gộp theo /64, không tin header proxy. Mọi route của `sentinelctl` có giới hạn tần suất theo IP (token bucket, `pkg/ratelimit`) và body tối đa 4 KiB.
+- Chứng chỉ của server (hạn 1 năm) do chính control plane cấp lại nếu còn dưới 30 ngày hoặc `hosts` có tên mới, kiểm tra khi `serve` khởi động và cứ 10 phút một lần khi đang chạy (kết nối mới dùng cert mới, không cần restart); CA không đổi nên agent không phải làm gì. Cert luôn có thêm `localhost`, `127.0.0.1`, `::1` cho `sentinelctl` qua SSH tunnel.
 
-`admin_listen` mặc định `127.0.0.1:9321`: dùng trên máy control plane hoặc qua SSH tunnel; có thể gắn vào địa chỉ WireGuard/Tailscale.
+`ctl_listen` mặc định `127.0.0.1:9321`: dùng trên máy control plane hoặc qua SSH tunnel; có thể gắn vào địa chỉ WireGuard/Tailscale.
 
 ## 10. Action và allowlist
 
@@ -200,7 +202,7 @@ SQLite (`modernc.org/sqlite`), migration nhúng bằng `embed` ở `server/inter
 
 | Migration | Bảng |
 | --- | --- |
-| 1 | `agents`, `join_tokens`, `certs`, `admin` (một dòng: `password_hash`, `changed_at`), `sessions`, `login_failures`, `audit_log` (trigger chặn UPDATE/DELETE, chuỗi hash), `alerts` |
+| 1, 2 | `agents`, `join_tokens`, `certs`, `login` (một dòng; migration 2 đổi tên từ `admin`: `password_hash`, `changed_at`), `sessions`, `login_failures`, `audit_log` (trigger chặn UPDATE/DELETE, chuỗi hash), `alerts` |
 | 2 | `agent_reports`, `host_samples`, `backup_runs` |
 | 3 | `tasks` (queued/sent/succeeded/failed/refused/canceled/expired), `task_logs` |
 | 4 | `schedules`, `maintenance` |
@@ -230,7 +232,7 @@ Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `al
 - `sentinel-server`: `init`, `serve`, `enroll`, `passwd`, `audit verify` (chạy bằng root trên máy control plane).
 - `sentinel agent join|status` trên server.
 - `sentinelctl`: `login`, `logout`, `passwd`, `server ls|add|revoke|show`, `alert`, `task`, `run <server> <action> k=v [--wait|--follow]`, `audit`, `schedule`, `maintenance`, `report`, `release`; có `-o json`. Không lệnh con thì mở TUI.
-- `--follow` và màn hình task dùng SSE (`GET /v1/admin/tasks/{id}/events`).
+- `--follow` và màn hình task dùng SSE (`GET /v1/ctl/tasks/{id}/events`).
 - Mô tả lệnh và màn hình bằng tiếng Việt.
 
 ## 15. Xoá mô hình pull
@@ -251,7 +253,7 @@ Làm sau khi control plane thay được `fleet status`, `fleet alerts` và Flee
 | Lộ cert và khoá của một agent | Chỉ giả được agent đó. Khoá 0600, hạn 90 ngày, thu hồi có hiệu lực ngay |
 | Lộ join token | Dùng một lần, 24 giờ, gắn một tên, lưu hash |
 | Control plane hoặc CA bị chiếm | Chỉ xếp hàng được action trong bảng cố định; agent kiểm tra lại với allowlist local (mặc định tắt); không shell, path, restore, config push; rate limit; log local; khoá cập nhật nằm trên agent |
-| Dò mật khẩu admin | Loopback mặc định, TLS 1.3, PBKDF2, chặn theo IP, trần toàn server, session ngắn hạn lưu hash, audit mọi lần đăng nhập |
+| Dò mật khẩu đăng nhập | Loopback mặc định, TLS 1.3, PBKDF2, chặn theo IP, trần toàn server, session ngắn hạn lưu hash, audit mọi lần đăng nhập |
 | Sửa audit | Trigger append-only, chuỗi hash, bản sao journald. Root trên máy control plane vẫn sửa được DB: rủi ro còn lại, ghi rõ |
 | Text độc trong report hoặc log | `termtext.Clean`, `restic.Redact`, `MaxBytesReader`, giới hạn độ dài |
 | Tiêm tham số | Regex, khớp chính xác allowlist, argv slice kèm `--`, `url.PathEscape` cho Docker |
@@ -270,7 +272,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 3 | Collector (mạng, tiến trình) và `pkg/agentapi` |
 | 4 | `pkg/pki` |
 | 5 | Lõi server: config, store, auth, audit, enroll, `sentinel-server init\|enroll\|passwd` |
-| 6 | `httpapi`, join, `sentinelctl login\|server\|audit` |
+| 6 | `httpapi`, `serve`, join, `sentinelctl login\|logout\|passwd\|server\|audit`, `deploy/server/` (`deploy/` chưa đổi thành `deploy/agent/`: đường dẫn trong release và `install.sh` mà vận hành đang dùng, làm riêng khi kiểm tra được `make dist`) |
 | 7 | Report, cảnh báo offline, gia hạn cert |
 | 8 | TUI của `sentinelctl` |
 | 9 | Task engine và action backup, log qua SSE |

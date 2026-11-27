@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-server install uninstall dist lint vuln layers test e2e e2e-engines docker clean
+.PHONY: build build-server install uninstall dist lint vuln layers test e2e e2e-engines e2e-control docker clean
 
 # Go toolchain: the one on this machine, or the golang image through docker when Go is not installed.
 HAVE_GO := $(shell command -v go 2>/dev/null)
@@ -29,14 +29,16 @@ else
 	CGO_ENABLED=0 go -C agent build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel ./cmd/sentinel
 endif
 
-# The control plane, bin/sentinel-server. sentinelctl joins it when it exists.
+# The control plane: bin/sentinel-server and bin/sentinelctl.
 build-server:
 ifeq ($(HAVE_GO),)
 	mkdir -p bin
-	$(DOCKER_GO) sh -c 'go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel-server ./cmd/sentinel-server \
-		&& chown $(shell id -u):$(shell id -g) bin bin/sentinel-server'
+	$(DOCKER_GO) sh -c 'for cmd in sentinel-server sentinelctl; do \
+		go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/$$cmd ./cmd/$$cmd || exit 1; done \
+		&& chown -R $(shell id -u):$(shell id -g) bin'
 else
-	CGO_ENABLED=0 go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/sentinel-server ./cmd/sentinel-server
+	for cmd in sentinel-server sentinelctl; do \
+		CGO_ENABLED=0 go -C server build -ldflags "-s -w -X main.version=$(VERSION)" -o ../bin/$$cmd ./cmd/$$cmd || exit 1; done
 endif
 
 # Release files for deploy/install.sh: sentinel_linux_<arch>.tar.gz (the binary, README.md, deploy/) and
@@ -80,6 +82,7 @@ vuln:
 layers:
 	GOWORK=off $(GO) -C agent build -o /dev/null ./cmd/sentinel
 	GOWORK=off $(GO) -C server build -o /dev/null ./cmd/sentinel-server
+	GOWORK=off $(GO) -C server build -o /dev/null ./cmd/sentinelctl
 	! $(GO) -C server list -deps ./... | grep '^sentinel/agent'
 	! $(GO) -C agent list -deps ./... | grep '^sentinel/server'
 	! $(GO) -C pkg list -deps ./... | grep -E '^sentinel/(agent|server)'
@@ -90,6 +93,10 @@ test: layers lint vuln
 
 e2e: build
 	./test/e2e.sh
+
+# The control plane with the real binaries, on localhost; needs no docker.
+e2e-control: build build-server
+	./test/control-plane.sh
 
 # MySQL/MariaDB and MongoDB engines; needs only docker.
 e2e-engines:

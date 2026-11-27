@@ -10,7 +10,7 @@ func newPasswdCmd(c *cli) *cobra.Command {
 	var passwordStdin bool
 	cmd := &cobra.Command{
 		Use:   "passwd",
-		Short: "Đặt lại mật khẩu quản trị và kết thúc mọi phiên đăng nhập",
+		Short: "Đặt lại mật khẩu đăng nhập và kết thúc mọi phiên đăng nhập",
 		Long: `Dành cho người có quyền root trên máy control plane, khi quên mật khẩu: không hỏi mật khẩu cũ,
 vì ai đọc được database thì đã có toàn quyền. Mọi phiên đăng nhập của sentinelctl bị kết thúc.`,
 		Args: cobra.NoArgs,
@@ -20,14 +20,14 @@ vì ai đọc được database thì đã có toàn quyền. Mọi phiên đăng
 				return err
 			}
 			defer a.Close()
-			password, err := c.term.password("Mật khẩu quản trị mới: ", true, passwordStdin)
+			password, err := c.term.Password("Mật khẩu đăng nhập mới: ", true, passwordStdin)
 			if err != nil {
 				return err
 			}
 			if err := a.Auth.SetPassword(cmd.Context(), password); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Đã đổi mật khẩu quản trị. Mọi phiên đăng nhập đã kết thúc.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Đã đổi mật khẩu đăng nhập. Mọi phiên đăng nhập đã kết thúc.")
 			return nil
 		},
 	}

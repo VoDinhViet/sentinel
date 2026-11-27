@@ -1,4 +1,4 @@
-// Package enroll is how a server becomes an agent of the control plane: the administrator names it and
+// Package enroll is how a server becomes an agent of the control plane: whoever is signed in names it and
 // gets a join token, the agent shows the token with a request for a certificate, and the CA signs it.
 // It also revokes an agent and says whether the certificate on a request is still good.
 package enroll
@@ -141,6 +141,44 @@ func (s *Service) Join(ctx context.Context, token string, csrPEM []byte) (Joined
 		return Joined{}, ErrInvalidToken
 	}
 	return joined, nil
+}
+
+// Agent is an agent as sentinelctl shows it.
+type Agent struct {
+	Name         string
+	State        string // pending, active or revoked
+	CreatedAt    time.Time
+	EnrolledAt   time.Time // zero until it joins
+	CertNotAfter time.Time // of its newest certificate; zero if it has none
+}
+
+// List returns every agent, by name.
+func (s *Service) List(ctx context.Context) ([]Agent, error) {
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT a.name, a.state, a.created_at, a.enrolled_at,
+		(SELECT MAX(c.not_after) FROM certs c WHERE c.agent = a.name AND c.revoked_at IS NULL)
+		FROM agents a ORDER BY a.name`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close()
+	var agents []Agent
+	for rows.Next() {
+		var agent Agent
+		var createdAt int64
+		var enrolledAt, notAfter sql.NullInt64
+		if err := rows.Scan(&agent.Name, &agent.State, &createdAt, &enrolledAt, &notAfter); err != nil {
+			return nil, fmt.Errorf("read agent: %w", err)
+		}
+		agent.CreatedAt = time.Unix(createdAt, 0)
+		if enrolledAt.Valid {
+			agent.EnrolledAt = time.Unix(enrolledAt.Int64, 0)
+		}
+		if notAfter.Valid {
+			agent.CertNotAfter = time.Unix(notAfter.Int64, 0)
+		}
+		agents = append(agents, agent)
+	}
+	return agents, rows.Err()
 }
 
 // Revoke ends an agent: its certificates are refused from now on and its unused join tokens are void.

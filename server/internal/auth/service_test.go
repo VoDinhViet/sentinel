@@ -69,7 +69,7 @@ func TestLoginWithTheRightPasswordStartsASession(t *testing.T) {
 			t.Errorf("the token itself is stored (%d rows, %v)", rows, err)
 		}
 		var hashed string
-		if err := st.DB.QueryRow(`SELECT password_hash FROM admin`).Scan(&hashed); err != nil || strings.Contains(hashed, password) {
+		if err := st.DB.QueryRow(`SELECT password_hash FROM login`).Scan(&hashed); err != nil || strings.Contains(hashed, password) {
 			t.Errorf("stored password hash = %q, %v", hashed, err)
 		}
 	})
@@ -162,7 +162,7 @@ func TestASuccessAndTheWindowForgetOldFailures(t *testing.T) {
 }
 
 // When the whole server has seen many wrong passwords, each address gets one try; an address that has not
-// failed can still sign in, so an attacker cannot lock the administrator out.
+// failed can still sign in, so an attacker cannot lock the owner of the password out.
 func TestManyFailuresAcrossAddressesTightenEachAddressButDoNotLockAnyoneOut(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		service, _ := newService(t)
@@ -177,7 +177,7 @@ func TestManyFailuresAcrossAddressesTightenEachAddressButDoNotLockAnyoneOut(t *t
 			t.Errorf("a new address's first wrong password under attack: err = %v, want the block", err)
 		}
 		if _, _, err := service.Login(ctx, "203.0.113.7", password); err != nil {
-			t.Errorf("the administrator from an address that has not failed: %v", err)
+			t.Errorf("the password holder from an address that has not failed: %v", err)
 		}
 		time.Sleep(FailureWindow + time.Minute)
 		if err := wrong(t, service, "198.51.100.2"); !errors.Is(err, ErrBadPassword) {
@@ -320,14 +320,14 @@ func TestAnOlderHashIsReplacedAtSignIn(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		service, st := newService(t)
 		old, _ := hashWith(password, 500, []byte("0123456789abcdef"))
-		if _, err := st.DB.Exec(`UPDATE admin SET password_hash = ?`, old); err != nil {
+		if _, err := st.DB.Exec(`UPDATE login SET password_hash = ?`, old); err != nil {
 			t.Fatal(err)
 		}
 		if _, _, err := service.Login(context.Background(), "10.0.0.1", password); err != nil {
 			t.Fatal(err)
 		}
 		var now string
-		_ = st.DB.QueryRow(`SELECT password_hash FROM admin`).Scan(&now)
+		_ = st.DB.QueryRow(`SELECT password_hash FROM login`).Scan(&now)
 		if now == old || !strings.HasPrefix(now, "pbkdf2-sha256$1000$") {
 			t.Errorf("the hash was not renewed: %q", now)
 		}
@@ -370,7 +370,7 @@ func TestEverySignInAttemptIsAuditedAndTheChainHolds(t *testing.T) {
 			actions = append(actions, record.Entry.Action)
 			switch record.Entry.Action {
 			case "login.ok":
-				if record.Actor.Name != "admin" || record.Actor.Session != session.ID || record.Actor.IP != "10.0.0.1" {
+				if record.Actor.Name != "ctl" || record.Actor.Session != session.ID || record.Actor.IP != "10.0.0.1" {
 					t.Errorf("login.ok actor = %+v", record.Actor)
 				}
 			case "login.fail":
@@ -437,12 +437,49 @@ func TestRehashDoesNotUndoAPasswordChangedMeanwhile(t *testing.T) {
 			t.Fatal(err)
 		}
 		var changed string
-		_ = st.DB.QueryRow(`SELECT password_hash FROM admin`).Scan(&changed)
+		_ = st.DB.QueryRow(`SELECT password_hash FROM login`).Scan(&changed)
 		service.rehash(ctx, old, password)
 		var after string
-		_ = st.DB.QueryRow(`SELECT password_hash FROM admin`).Scan(&after)
+		_ = st.DB.QueryRow(`SELECT password_hash FROM login`).Scan(&after)
 		if after != changed {
 			t.Error("rehash replaced a password that was changed after the one it checked")
+		}
+	})
+}
+
+// Behind an SSH tunnel every client has one address, so anybody can use up its tries. The person at the
+// machine must be able to lift the block, with the password reset or without it.
+func TestAResetOfThePasswordAndUnblockLiftTheBlock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		service, st := newService(t)
+		ctx := context.Background()
+		block := func() {
+			for range MaxFailures {
+				_ = wrong(t, service, "127.0.0.1")
+			}
+			var blocked *BlockedError
+			if _, _, err := service.Login(ctx, "127.0.0.1", password); !errors.As(err, &blocked) {
+				t.Fatalf("not blocked: %v", err)
+			}
+		}
+		block()
+		if err := service.Unblock(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.Login(ctx, "127.0.0.1", password); err != nil {
+			t.Errorf("after unblock: %v", err)
+		}
+		block()
+		if err := service.SetPassword(ctx, "a new long password"); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.Login(ctx, "127.0.0.1", "a new long password"); err != nil {
+			t.Errorf("after a reset of the password: %v", err)
+		}
+		var unblocks int
+		_ = st.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'login.unblock'`).Scan(&unblocks)
+		if unblocks != 1 {
+			t.Errorf("%d login.unblock entries, want 1", unblocks)
 		}
 	})
 }

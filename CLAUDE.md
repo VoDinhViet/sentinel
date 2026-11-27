@@ -4,15 +4,11 @@ The agent is one Go binary (`agent/cmd/sentinel`) that runs on each Linux server
 checks, alerts). It is a CLI plus a daemon (`sentinel run`) driven by a YAML config. There is no web UI.
 
 **Direction (RFC 0002, in progress):** an optional control plane, `sentinel-server`, that agents dial out to over mTLS. The
-repo is three Go modules joined by `go.work`: `pkg/` (shared: `agentapi`, `alert`, `notify`, `termtext`, `yamlenv`; `pki`
-comes later), `agent/` (this code, binary `sentinel`) and `server/` (`sentinel-server`: init, enroll, passwd, audit verify so far;
-`serve` and `sentinelctl` come next). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
+repo is three Go modules joined by `go.work`: `pkg/` (shared: `agentapi`, `alert`, `notify`, `termtext`, `yamlenv`, `pki`, `ratelimit`), `agent/` (this code, binary `sentinel`) and `server/` (`sentinel-server`: init, serve, enroll, passwd, unblock, audit verify; `sentinelctl`: login, logout, passwd, server ls|add|revoke, audit; its TUI comes later). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
 `agent/` and `pkg/`, and works with no control plane at all, so it can be rolled out to many servers by itself. The daemon can
 still serve a small JSON HTTP API (`internal/api`, `net/http`, bearer token, off unless `api.listen` is set) and watch other
-servers (`internal/fleet`); both go away when the control plane replaces them. The admin of the control plane signs in with one
-password: no usernames, no roles. Once they are gone the daemon listens on no port. `deploy/` stays where it is until
-`deploy/server/` is added (then it becomes `deploy/agent/`), because the release tarball and `./deploy/install.sh` are paths
-operators use.
+servers (`internal/fleet`); both go away when the control plane replaces them. You sign in to the control plane with one
+password: no usernames, no roles. Once they are gone the daemon listens on no port. `deploy/` (the agent's files) stays where it is and the control plane's are in `deploy/server/`: it becomes `deploy/agent/` later, on its own, because the release tarball and `./deploy/install.sh` are paths operators use and `make dist` cannot be checked without docker.
 
 - **Done means `make test` is green** (it runs the `layers` check, then vet, test, lint and govulncheck in every module listed in
   `MODULES` in the Makefile). `make e2e` and `make e2e-engines` need docker.

@@ -39,8 +39,8 @@ const (
 )
 
 var (
-	// ErrNotInitialized means no administrator password was ever set (run `sentinel-server init`).
-	ErrNotInitialized = errors.New("no administrator password is set: run sentinel-server init")
+	// ErrNotInitialized means no login password was ever set (run `sentinel-server init`).
+	ErrNotInitialized = errors.New("no login password is set: run sentinel-server init")
 	// ErrBadPassword is the answer to a wrong password, whatever the reason; it says no more than that.
 	ErrBadPassword = errors.New("wrong password")
 	// ErrUnauthorized means the session token is unknown, ended or expired.
@@ -62,7 +62,7 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
-// Service holds the administrator's password and sessions.
+// Service holds the password and sessions.
 type Service struct {
 	store *store.Store
 	slots chan struct{}
@@ -72,7 +72,7 @@ func New(st *store.Store) *Service {
 	return &Service{store: st, slots: make(chan struct{}, hashSlots)}
 }
 
-// SetPassword stores a new administrator password (the first one, or a replacement) and ends every
+// SetPassword stores a new login password (the first one, or a replacement) and ends every
 // session. It is for the person at the machine (`sentinel-server init` and `passwd`), who needs no old
 // password: they can already read the database.
 func (s *Service) SetPassword(ctx context.Context, password string) error {
@@ -87,21 +87,37 @@ func (s *Service) SetPassword(ctx context.Context, password string) error {
 }
 
 func (s *Service) replacePassword(ctx context.Context, tx *sql.Tx, hash string, now time.Time, action string) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO admin (id, password_hash, changed_at) VALUES (1, ?, ?)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO login (id, password_hash, changed_at) VALUES (1, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, changed_at = excluded.changed_at`, hash, now.Unix()); err != nil {
 		return fmt.Errorf("store password: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
 		return fmt.Errorf("end sessions: %w", err)
 	}
+	// Whoever is at the machine with the password reset must be let in at once, not after the block.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM login_failures`); err != nil {
+		return fmt.Errorf("clear failures: %w", err)
+	}
 	return audit.Append(ctx, tx, now, audit.Entry{Action: action})
+}
+
+// Unblock lifts every block and forgets every count of wrong passwords. It is for the person at the
+// machine: behind an SSH tunnel every client has the same address, so anybody who can reach the port can
+// use up its tries, and the owner of the password needs a way back in that does not change the password.
+func (s *Service) Unblock(ctx context.Context) error {
+	return s.store.InTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM login_failures`); err != nil {
+			return fmt.Errorf("clear failures: %w", err)
+		}
+		return audit.Append(ctx, tx, time.Now(), audit.Entry{Action: "login.unblock"})
+	})
 }
 
 // Initialized says a password was set.
 func (s *Service) Initialized(ctx context.Context) (bool, error) {
 	var count int
-	if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin`).Scan(&count); err != nil {
-		return false, fmt.Errorf("read admin: %w", err)
+	if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM login`).Scan(&count); err != nil {
+		return false, fmt.Errorf("read login: %w", err)
 	}
 	return count > 0, nil
 }
@@ -123,14 +139,14 @@ func (s *Service) Login(ctx context.Context, ip, password string) (token string,
 	err = s.store.InTx(ctx, func(tx *sql.Tx) error {
 		// The password may have been replaced while it was being hashed: that session would outlive it.
 		var current int64
-		if err := tx.QueryRowContext(ctx, `SELECT changed_at FROM admin WHERE id = 1`).Scan(&current); err != nil || current != changedAt {
+		if err := tx.QueryRowContext(ctx, `SELECT changed_at FROM login WHERE id = 1`).Scan(&current); err != nil || current != changedAt {
 			return ErrBadPassword
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (token_hash, ip, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
 			tokenHash, ip, now.Unix(), now.Unix(), session.ExpiresAt.Unix()); err != nil {
 			return fmt.Errorf("start session: %w", err)
 		}
-		return audit.Append(audit.WithActor(ctx, audit.Actor{Name: "admin", Session: session.ID, IP: ip}), tx, now, audit.Entry{Action: "login.ok"})
+		return audit.Append(audit.WithActor(ctx, audit.Actor{Name: "ctl", Session: session.ID, IP: ip}), tx, now, audit.Entry{Action: "login.ok"})
 	})
 	if err != nil {
 		return "", Session{}, err
@@ -146,11 +162,11 @@ func (s *Service) Login(ctx context.Context, ip, password string) (token string,
 // attempts that arrive together would otherwise all be let in before the first failure is written.
 func (s *Service) verify(ctx context.Context, ip, password string) (changedAt int64, err error) {
 	var stored string
-	switch err := s.store.DB.QueryRowContext(ctx, `SELECT password_hash, changed_at FROM admin WHERE id = 1`).Scan(&stored, &changedAt); {
+	switch err := s.store.DB.QueryRowContext(ctx, `SELECT password_hash, changed_at FROM login WHERE id = 1`).Scan(&stored, &changedAt); {
 	case errors.Is(err, sql.ErrNoRows):
 		return 0, ErrNotInitialized
 	case err != nil:
-		return 0, fmt.Errorf("read admin: %w", err)
+		return 0, fmt.Errorf("read login: %w", err)
 	}
 	attempt, err := s.reserve(ctx, ip)
 	if err != nil {
@@ -200,7 +216,7 @@ func (s *Service) rehash(ctx context.Context, stored, password string) {
 	if err != nil {
 		return
 	}
-	_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE admin SET password_hash = ? WHERE id = 1 AND password_hash = ?`, hash, stored)
+	_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE login SET password_hash = ? WHERE id = 1 AND password_hash = ?`, hash, stored)
 }
 
 // attempt is one try at a password that was let in by reserve.
@@ -322,7 +338,7 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 		if ended, _ := result.RowsAffected(); ended == 0 {
 			return nil
 		}
-		return audit.Append(audit.WithActor(ctx, audit.Actor{Name: "admin", Session: tokenHash[:8]}), tx, time.Now(), audit.Entry{Action: "logout"})
+		return audit.Append(audit.WithActor(ctx, audit.Actor{Name: "ctl", Session: tokenHash[:8]}), tx, time.Now(), audit.Entry{Action: "logout"})
 	})
 }
 
@@ -339,7 +355,7 @@ func (s *Service) ChangePassword(ctx context.Context, ip, oldPassword, newPasswo
 	if err != nil {
 		return err
 	}
-	actor := audit.WithActor(ctx, audit.Actor{Name: "admin", IP: ip})
+	actor := audit.WithActor(ctx, audit.Actor{Name: "ctl", IP: ip})
 	return s.store.InTx(ctx, func(tx *sql.Tx) error { return s.replacePassword(actor, tx, hash, time.Now(), "password.change") })
 }
 

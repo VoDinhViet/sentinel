@@ -14,6 +14,7 @@ import (
 	"sentinel/server/internal/app"
 	"sentinel/server/internal/auth"
 	"sentinel/server/internal/config"
+	"sentinel/server/internal/terminal"
 )
 
 func TestMain(m *testing.M) {
@@ -24,7 +25,7 @@ func TestMain(m *testing.M) {
 // run executes a command line against a config in dir, with stdin as the typed or piped input.
 func run(t *testing.T, dir, stdin string, args ...string) (string, error) {
 	t.Helper()
-	c := &cli{term: terminal{in: strings.NewReader(stdin), out: io.Discard}}
+	c := &cli{term: terminal.Terminal{In: strings.NewReader(stdin), Out: io.Discard}}
 	root := newRootCmd(c)
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -127,31 +128,5 @@ func TestInitNeedsAHostAndAGoodPassword(t *testing.T) {
 	}
 	if _, err := os.Stat(state); err == nil {
 		t.Error("a refused init made the state directory")
-	}
-}
-
-func TestPasswordPromptAsksTwiceAndSpecifiesStdinWithoutATerminal(t *testing.T) {
-	answers := []string{"first password!", "first password!"}
-	typed := terminal{isTTY: true, out: io.Discard, readPass: func(int) ([]byte, error) {
-		answer := answers[0]
-		answers = answers[1:]
-		return []byte(answer), nil
-	}}
-	if got, err := typed.password("p: ", true, false); err != nil || got != "first password!" {
-		t.Errorf("typed twice: %q, %v", got, err)
-	}
-	answers = []string{"one thing here", "another thing"}
-	if _, err := typed.password("p: ", true, false); err == nil {
-		t.Error("two different entries were accepted")
-	}
-	piped := terminal{in: strings.NewReader("from a pipe\n"), out: io.Discard}
-	if _, err := piped.password("p: ", true, false); err == nil || !strings.Contains(err.Error(), "--password-stdin") {
-		t.Errorf("no terminal and no flag: err = %v, want a hint about --password-stdin", err)
-	}
-	if got, err := piped.password("p: ", true, true); err != nil || got != "from a pipe" {
-		t.Errorf("stdin: %q, %v", got, err)
-	}
-	if _, err := (terminal{in: strings.NewReader(""), out: io.Discard}).password("p", false, true); err == nil {
-		t.Error("an empty stdin gave a password")
 	}
 }

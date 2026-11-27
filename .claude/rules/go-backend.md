@@ -14,8 +14,8 @@ paths:
 - **Secrets** never go in argv, logs, alert text, API responses or error messages. Pass passwords as env vars or via
   `writeSecretFile` in `agent/internal/engine/engine.go` (0600 temp file, removed by the caller). Config values use `${VAR}`.
 - **TLS between our own ends** (agent ↔ control plane, `sentinelctl` ↔ control plane) is TLS 1.3. `InsecureSkipVerify` appears only
-  inside `pki.PinnedTLSConfig`, together with its own `VerifyConnection`. Clients never follow redirects.
-- **Credentials of the control plane**: the admin password is hashed with PBKDF2-HMAC-SHA256 (`crypto/pbkdf2`, 600 000 rounds,
+  inside `pki.PinnedTLSConfig`, together with its own `VerifyConnection`; `sentinel agent join` and `sentinelctl` both use it, with the CA fingerprint the operator gave. Clients never follow redirects and never use a proxy.
+- **Credentials of the control plane**: the login password is hashed with PBKDF2-HMAC-SHA256 (`crypto/pbkdf2`, 600 000 rounds,
   stored with its parameters) and compared with `subtle.ConstantTimeCompare`; sessions and join tokens are stored as SHA-256 and
   shown once. Agent identity comes from the verified client certificate, never from a request field.
 - **Text from another machine** (reports, task output, names) goes through `termtext.Clean` before it is shown or put in an alert,

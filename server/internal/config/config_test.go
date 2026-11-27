@@ -13,7 +13,7 @@ func TestParseAppliesDefaultsAndAcceptsAGoodFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != ":9320" || cfg.AdminListen != "127.0.0.1:9321" || cfg.StateDir != DefaultStateDir || cfg.OfflineAfter != 2*time.Minute {
+	if cfg.Listen != ":9320" || cfg.CtlListen != "127.0.0.1:9321" || cfg.StateDir != DefaultStateDir || cfg.OfflineAfter != 2*time.Minute {
 		t.Errorf("defaults = %+v", cfg)
 	}
 	if cfg.JoinURL() != "https://backup.example.com:9320" || cfg.Port() != "9320" {
@@ -26,11 +26,11 @@ func TestParseAppliesDefaultsAndAcceptsAGoodFile(t *testing.T) {
 }
 
 func TestParseReportsEveryProblem(t *testing.T) {
-	_, err := Parse([]byte("listen: 9320\nadmin_listen: \"host:0\"\nstate_dir: relative/dir\nhosts: [\"bad host\", \"-x.com\"]\noffline_after: 5s\n"))
+	_, err := Parse([]byte("listen: 9320\nctl_listen: \"host:0\"\nstate_dir: relative/dir\nhosts: [\"bad host\", \"-x.com\"]\noffline_after: 5s\n"))
 	if err == nil {
 		t.Fatal("a bad file was accepted")
 	}
-	for _, want := range []string{"listen:", "admin_listen:", "state_dir:", `"bad host"`, `"-x.com"`, "offline_after:"} {
+	for _, want := range []string{"listen:", "ctl_listen:", "state_dir:", `"bad host"`, `"-x.com"`, "offline_after:"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not mention %s: %v", want, err)
 		}
@@ -44,7 +44,7 @@ func TestParseRefusesAKeyItDoesNotKnownAndMissingHosts(t *testing.T) {
 	if _, err := Parse([]byte("listen: \":9320\"\n")); err == nil || !strings.Contains(err.Error(), "hosts:") {
 		t.Errorf("no hosts: err = %v", err)
 	}
-	if _, err := Parse([]byte("hosts: [a.example.com]\nlisten: \":9000\"\nadmin_listen: \":9000\"\n")); err == nil || !strings.Contains(err.Error(), "must differ") {
+	if _, err := Parse([]byte("hosts: [a.example.com]\nlisten: \":9000\"\nctl_listen: \":9000\"\n")); err == nil || !strings.Contains(err.Error(), "must differ") {
 		t.Errorf("same port twice: err = %v", err)
 	}
 }
@@ -94,5 +94,19 @@ func TestFilesAreInTheStateDirAndTheCACertificateIsLast(t *testing.T) {
 		if filepath.Dir(path) != "/var/lib/x" {
 			t.Errorf("%s is outside the state directory", path)
 		}
+	}
+}
+
+func TestTheExampleInDeployParses(t *testing.T) {
+	raw, err := os.ReadFile("../../../deploy/server/server.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("deploy/server/server.example.yaml: %v", err)
+	}
+	if cfg.JoinURL() != "https://ctl.example.com:9320" {
+		t.Errorf("JoinURL = %s", cfg.JoinURL())
 	}
 }

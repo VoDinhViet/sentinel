@@ -178,7 +178,7 @@ func TestSignAgentIgnoresWhatTheRequestAsksFor(t *testing.T) {
 	}
 	// A request that asks to be "admin", for a DNS name and an IP, as a CA.
 	template := &x509.CertificateRequest{
-		Subject:        pkix.Name{CommonName: "admin", Organization: []string{"root"}},
+		Subject:        pkix.Name{CommonName: "ctl", Organization: []string{"root"}},
 		DNSNames:       []string{"sentinel.example.com"},
 		IPAddresses:    []net.IP{net.ParseIP("10.0.0.1")},
 		EmailAddresses: []string{"root@example.com"},

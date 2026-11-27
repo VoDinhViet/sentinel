@@ -189,7 +189,7 @@ curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:9311/api/v1
 
 ## Nhiều server
 
-Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Để xem tất cả cùng lúc, một máy bất kỳ (laptop cũng được, không cần `config.yaml`) gọi HTTP API của từng daemon; không có server trung tâm. Thiết kế nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md).
+Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Để xem tất cả cùng lúc, một máy bất kỳ (laptop cũng được, không cần `config.yaml`) gọi HTTP API của từng daemon; không có server trung tâm. (Cách này sẽ được [control plane](#control-plane) thay thế.) Thiết kế nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md).
 
 ### Xem nhiều server: `sentinel fleet`
 
@@ -251,6 +251,57 @@ Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
    ```
 
    Mỗi server dùng một cổng cục bộ khác nhau (19311, 19312...) và một token riêng.
+
+## Control plane
+
+Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl`, chỉ có dòng lệnh, không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit. Báo cáo tình trạng, tác vụ từ xa và TUI sẽ đến ở các bước sau. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
+
+### Cài control plane
+
+Trên một máy riêng (không cần nhiều tài nguyên; một máy cho 5–50 server là đủ):
+
+```sh
+make build-server      # tạo bin/sentinel-server và bin/sentinelctl
+sudo install -m 0755 bin/sentinel-server bin/sentinelctl /usr/local/bin/
+sudo install -d /etc/sentinel
+sudo sentinel-server init --host ctl.example.com     # hỏi mật khẩu đăng nhập hai lần, in fingerprint của CA
+sudo install -m 0644 deploy/server/sentinel-server.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sentinel-server
+```
+
+- `--host` là tên hoặc IP mà các server dùng để tới control plane (lặp được). Chứng chỉ của control plane được cấp cho các tên này; thêm tên vào `hosts` trong `/etc/sentinel/server.yaml` rồi khởi động lại service thì chứng chỉ được cấp lại, CA giữ nguyên nên không server nào phải làm gì.
+- Mở cổng `9320` cho các server của bạn và không ai khác. Cổng sentinelctl `9321` mặc định chỉ nghe trên `127.0.0.1`: từ máy của bạn dùng `ssh -L 9321:127.0.0.1:9321 <máy control plane>`, hoặc đặt `ctl_listen` vào địa chỉ riêng (WireGuard, Tailscale). Đừng đưa nó ra internet.
+- **Sao lưu `/var/lib/sentinel-server`** (bằng chính Sentinel): thư mục này có khoá của CA. Mất nó thì mọi server phải join lại.
+- Mật khẩu đăng nhập không nằm trong file, biến môi trường hay đối số dòng lệnh. Quên mật khẩu: chạy `sudo sentinel-server passwd` trên máy control plane. Bị chặn 15 phút vì có người (hoặc chính bạn) gõ sai: chạy `sudo sentinel-server unblock`, vì qua SSH tunnel mọi client đều có địa chỉ 127.0.0.1 và dùng chung lượt thử.
+- File mẫu: [deploy/server/server.example.yaml](deploy/server/server.example.yaml).
+
+### Thêm một server
+
+```sh
+sentinelctl login --url https://127.0.0.1:9321 --ca-fingerprint sha256:…   # lần đầu; fingerprint do init in ra
+sentinelctl server add web-01       # in lệnh để chạy trên web-01
+```
+
+Trên `web-01` chạy lệnh vừa in:
+
+```sh
+sudo sentinel agent join --url https://ctl.example.com:9320 --token <join token> --ca-fingerprint sha256:…
+```
+
+Join token dùng một lần và hết hạn sau 24 giờ. Khoá riêng được tạo trên máy này và không rời khỏi nó; control plane đặt tên theo token chứ không theo lời khai của máy. Máy chỉ tin control plane có CA khớp fingerprint nên không phải chép file CA. Khoá, chứng chỉ (hạn 90 ngày) và CA nằm trong thư mục `agent/` cạnh file store (mặc định `/var/lib/sentinel/agent`). Muốn tránh token hiện trong `ps`, dùng `--token-stdin`.
+
+### Dùng hằng ngày
+
+| Lệnh | Việc |
+|---|---|
+| `sentinelctl login` / `logout` | Đăng nhập (phiên 12 giờ, hoặc 1 giờ không dùng) / kết thúc phiên |
+| `sentinelctl passwd` | Đổi mật khẩu đăng nhập; mọi phiên kết thúc |
+| `sentinelctl server ls [-o json]` | Các server và trạng thái: chờ join, hoạt động, đã thu hồi |
+| `sentinelctl server add <tên>` | Tạo join token |
+| `sentinelctl server revoke <tên> [--yes]` | Thu hồi: chứng chỉ bị từ chối từ request kế tiếp. Hỏi gõ lại tên |
+| `sentinelctl audit [-n 50] [-o json]` / `audit verify` | Ai đã làm gì từ đâu / kiểm tra chuỗi hash |
+
+Chỉ có một mật khẩu đăng nhập, không có người dùng hay vai trò: đã đăng nhập là có toàn quyền trên control plane; quyền thật sự trên mỗi server nằm ở allowlist local của agent. Sai mật khẩu 5 lần liên tiếp thì địa chỉ đó bị chặn 15 phút; toàn server quá 30 lần sai trong một giờ thì mỗi địa chỉ chỉ được thử một lần. Phiên lưu trong `~/.config/sentinel/session` (mode 0600; file mà người khác đọc được bị từ chối). Nhật ký audit chỉ ghi thêm và nối hash, nên sửa hay xoá một dòng đều bị `audit verify` báo; mỗi dòng cũng được ghi ra journal của service.
 
 ## Khôi phục dữ liệu
 

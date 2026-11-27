@@ -19,6 +19,12 @@ func ServerTLSConfig(cert tls.Certificate, ca *x509.CertPool) *tls.Config {
 	}
 }
 
+// CtlTLSConfig is the TLS of the listener for sentinelctl: TLS 1.3 and the server's own
+// certificate. No client certificate is asked for; you sign in with a password.
+func CtlTLSConfig(cert tls.Certificate) *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}}
+}
+
 // ClientTLSConfig is the TLS an agent (or sentinelctl) uses once it has the CA: TLS 1.3, the server
 // checked against ca, and cert shown to the server when it is not nil.
 func ClientTLSConfig(ca *x509.CertPool, cert *tls.Certificate) *tls.Config {

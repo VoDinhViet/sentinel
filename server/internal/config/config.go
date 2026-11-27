@@ -1,5 +1,5 @@
 // Package config is server.yaml, the settings of the control plane. It holds no secret: the passwords
-// and keys live in the state directory, and the administrator's password only as a hash in the database.
+// and keys live in the state directory, and the password only as a hash in the database.
 package config
 
 import (
@@ -20,7 +20,7 @@ const (
 	DefaultPath         = "/etc/sentinel/server.yaml"
 	DefaultStateDir     = "/var/lib/sentinel-server"
 	DefaultListen       = ":9320"
-	DefaultAdminListen  = "127.0.0.1:9321"
+	DefaultCtlListen    = "127.0.0.1:9321"
 	DefaultOfflineAfter = 2 * time.Minute
 	minOfflineAfter     = 30 * time.Second
 )
@@ -28,9 +28,9 @@ const (
 type Config struct {
 	// Listen is where agents connect (mutual TLS). Open this port to the servers, and no other.
 	Listen string `yaml:"listen"`
-	// AdminListen is where sentinelctl connects. It is on this machine only by default: reach it over
+	// CtlListen is where sentinelctl connects. It is on this machine only by default: reach it over
 	// an SSH tunnel, or bind it to a private address (WireGuard, Tailscale).
-	AdminListen string `yaml:"admin_listen"`
+	CtlListen string `yaml:"ctl_listen"`
 	// StateDir holds the database, the CA and the keys. Only the server's user may read it.
 	StateDir string `yaml:"state_dir"`
 	// Hosts are the names and addresses agents use to reach this server, as they appear in the URL:
@@ -42,7 +42,7 @@ type Config struct {
 
 // Default is the configuration with nothing set but the defaults.
 func Default() Config {
-	return Config{Listen: DefaultListen, AdminListen: DefaultAdminListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter}
+	return Config{Listen: DefaultListen, CtlListen: DefaultCtlListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter}
 }
 
 // Load reads a config file. A key that is not known is an error, so a typo does not go unnoticed.
@@ -69,13 +69,13 @@ func Parse(raw []byte) (*Config, error) {
 // Validate reports every problem at once.
 func (c Config) Validate() error {
 	var errs []error
-	for key, address := range map[string]string{"listen": c.Listen, "admin_listen": c.AdminListen} {
+	for key, address := range map[string]string{"listen": c.Listen, "ctl_listen": c.CtlListen} {
 		if err := checkAddress(address); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", key, err))
 		}
 	}
-	if c.Listen == c.AdminListen {
-		errs = append(errs, errors.New("listen and admin_listen must differ"))
+	if c.Listen == c.CtlListen {
+		errs = append(errs, errors.New("listen and ctl_listen must differ"))
 	}
 	if !filepath.IsAbs(c.StateDir) {
 		errs = append(errs, fmt.Errorf("state_dir: must be an absolute path, got %q", c.StateDir))
@@ -169,12 +169,12 @@ func Write(path string, cfg Config) error {
 # Agents connect here over mutual TLS; open this port to your servers and to nobody else.
 listen: %q
 # sentinelctl connects here. Keep it on this machine and use an SSH tunnel, or bind it to a private address.
-admin_listen: %q
+ctl_listen: %q
 # The database, the CA and the keys. Back it up: it holds the CA key.
 state_dir: %q
 # The names and addresses agents use to reach this server (the first one goes in the join command).
 hosts:
-`, cfg.Listen, cfg.AdminListen, cfg.StateDir)
+`, cfg.Listen, cfg.CtlListen, cfg.StateDir)
 	for _, host := range cfg.Hosts {
 		text += "  - " + strconv.Quote(host) + "\n"
 	}

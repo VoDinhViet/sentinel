@@ -1,5 +1,5 @@
 // Command sentinel-server is the control plane of Sentinel: the agents of many servers connect to it,
-// and the administrator uses sentinelctl to see them and give them work. This command sets it up and
+// and you use sentinelctl to see them and give them work. This command sets it up and
 // looks after it from the machine it runs on.
 package main
 
@@ -15,6 +15,7 @@ import (
 
 	"sentinel/server/internal/app"
 	"sentinel/server/internal/config"
+	"sentinel/server/internal/terminal"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -22,13 +23,13 @@ var version = "dev"
 
 type cli struct {
 	configPath string
-	term       terminal
+	term       terminal.Terminal
 }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	root := newRootCmd(&cli{term: stdTerminal()})
+	root := newRootCmd(&cli{term: terminal.Std()})
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "Lỗi:", err)
 		os.Exit(1)
@@ -49,7 +50,7 @@ func newRootCmd(c *cli) *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&c.configPath, "config", "c", config.DefaultPath, "đường dẫn file server.yaml")
-	root.AddCommand(newInitCmd(c), newEnrollCmd(c), newPasswdCmd(c), newAuditCmd(c))
+	root.AddCommand(newInitCmd(c), newEnrollCmd(c), newPasswdCmd(c), newAuditCmd(c), newServeCmd(c), newUnblockCmd(c))
 	return root
 }
 

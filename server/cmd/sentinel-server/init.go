@@ -11,13 +11,13 @@ import (
 
 func newInitCmd(c *cli) *cobra.Command {
 	var hosts []string
-	var listen, adminListen, stateDir string
+	var listen, ctlListen, stateDir string
 	var passwordStdin bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Tạo CA, chứng chỉ của server, database và mật khẩu quản trị",
+		Short: "Tạo CA, chứng chỉ của server, database và mật khẩu đăng nhập",
 		Long: `Chạy một lần trên máy control plane. Tạo CA riêng, chứng chỉ của server cho các host trong --host,
-database và mật khẩu quản trị (hỏi hai lần), rồi in fingerprint của CA để đưa cho "sentinel agent join".
+database và mật khẩu đăng nhập (hỏi hai lần), rồi in fingerprint của CA để đưa cho "sentinel agent join".
 Từ chối chạy nếu thư mục state đã có CA, khoá hoặc database.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -26,8 +26,8 @@ Từ chối chạy nếu thư mục state đã có CA, khoá hoặc database.`,
 			if listen != "" {
 				cfg.Listen = listen
 			}
-			if adminListen != "" {
-				cfg.AdminListen = adminListen
+			if ctlListen != "" {
+				cfg.CtlListen = ctlListen
 			}
 			if stateDir != "" {
 				cfg.StateDir = stateDir
@@ -35,7 +35,7 @@ Từ chối chạy nếu thư mục state đã có CA, khoá hoặc database.`,
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
-			password, err := c.term.password("Mật khẩu quản trị: ", true, passwordStdin)
+			password, err := c.term.Password("Mật khẩu đăng nhập: ", true, passwordStdin)
 			if err != nil {
 				return err
 			}
@@ -56,7 +56,7 @@ Từ chối chạy nếu thư mục state đã có CA, khoá hoặc database.`,
 	}
 	cmd.Flags().StringSliceVar(&hosts, "host", nil, "tên host hoặc IP mà agent dùng để kết nối (bắt buộc, lặp được)")
 	cmd.Flags().StringVar(&listen, "listen", "", "địa chỉ cho agent kết nối (mặc định "+config.DefaultListen+")")
-	cmd.Flags().StringVar(&adminListen, "admin-listen", "", "địa chỉ cho sentinelctl (mặc định "+config.DefaultAdminListen+")")
+	cmd.Flags().StringVar(&ctlListen, "ctl-listen", "", "địa chỉ cho sentinelctl (mặc định "+config.DefaultCtlListen+")")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "", "thư mục lưu database và khoá (mặc định "+config.DefaultStateDir+")")
 	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "đọc mật khẩu từ stdin thay vì hỏi")
 	_ = cmd.MarkFlagRequired("host")

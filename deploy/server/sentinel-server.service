@@ -1,0 +1,47 @@
+[Unit]
+Description=Sentinel control plane (agents connect here)
+Documentation=https://github.com/Cong-ty-ThoMi-Group/gm-backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sentinel-server serve --config /etc/sentinel/server.yaml
+# Settings that are secrets (none yet) go in this file, mode 0600. The password is
+# never in a file, an environment variable or an argument: it is typed to `sentinel-server init` and `passwd`.
+EnvironmentFile=-/etc/sentinel/server.env
+Restart=on-failure
+RestartSec=5s
+
+# The database, the CA key and the server key live here (/var/lib/sentinel-server): only its owner may read it.
+# `sentinel-server init` is run as root and the unit runs as root, so the files it made are readable here.
+StateDirectory=sentinel-server
+StateDirectoryMode=0700
+UMask=0077
+
+# Root, but with nothing of root's powers: the ports are above 1024, the state files belong to this
+# user, and nothing here needs to read other people's files, mount, trace or reboot.
+CapabilityBoundingSet=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# IPv4/IPv6 for the listeners and a Unix socket for the journal. No raw sockets.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
