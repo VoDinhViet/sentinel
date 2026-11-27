@@ -32,6 +32,12 @@ shapes (`r`, `x`, `v`, `row`, `data`, `result`, `list`, `items`) stay banned.
 | `sentinel doctor` output | `finding` | `check` |
 | Keeping snapshots | `retention` (only this meaning) | for check history |
 | The `sentinel run` process | `daemon` (`internal/daemon`) | `scheduler` |
+| A server enrolled in the control plane (Go, DB) | `agent` (CLI and TUI text say "server") | `node`, `client`, `host` |
+| One queued remote action | `task` (`server/internal/task`, table `tasks`) | `command`, `job` |
+| The kind of a task, e.g. `backup.start` | `action` (table in `pkg/agentapi`) | `command`, `type` |
+| The control plane process / its binaries | `server` (`sentinel-server`); the admin CLI is `sentinelctl` | `central`, `master` |
+| One-time code to enroll an agent | `join token` | `enroll key`, `invite` |
+| The admin's login on the control plane | `session` (one admin password, no users) | `user`, `account` |
 
 One entity, one name per layer: config `config.Job` / `config.UptimeCheck`; run-time `uptime.Result`, `restic.Snapshot`;
 stored `store.BackupRun` / `store.CheckResult` / `store.Alert`; report `status.Report`; TUI form `configedit.Job`.

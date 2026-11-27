@@ -2,10 +2,12 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | Superseded by [RFC 0002](0002-agent-control-plane.md) |
 | Author | VoDinhViet |
 | Created | 2026-11-27 |
 | Related | [danh-gia-nang-cap.md](../danh-gia-nang-cap.md) |
+
+> Ngày 2026-11-27 hướng đi đổi sang agent nối ra control plane (RFC 0002). Mô hình pull dưới đây vẫn chạy cho tới khi control plane thay được nó, rồi bị xoá theo mục 15 của RFC 0002.
 
 ## 1. Tóm tắt
 
@@ -28,7 +30,7 @@ Ngoài phạm vi: xem mục 11.
 
 ### 2.1. Vì sao không làm lại central server
 
-Thiết kế đẩy (agent đẩy dữ liệu về server trung tâm có web UI) từng tồn tại và đã bị xoá có chủ ý ngày 2026-11-23 (commit `dda2b02`). Bản lưu đầy đủ trước khi xoá nằm ở `/home/workspace/project-backup-pre-web-removal-2026-11-23.tar.gz`; spec gốc là `docs/superpowers/specs/2026-10-06-sentinel-design.md`, mục "Giai đoạn 2". RFC này không đề xuất khôi phục thiết kế đó.
+Thiết kế đẩy (agent đẩy dữ liệu về server trung tâm có web UI) từng tồn tại và đã bị xoá có chủ ý ngày 2026-11-23 (commit `dda2b02`). Bản lưu đầy đủ trước khi xoá nằm ở `/home/workspace/project-backup-pre-web-removal-2026-11-23.tar.gz`; spec gốc là `docs/superpowers/specs/2026-10-06-sentinel-design.md`, mục "Giai đoạn 2". RFC này không đề xuất khôi phục thiết kế đó. (RFC 0002 sau đó đã chọn lại hướng agent nối ra control plane, với khác biệt nêu ở mục 2.1 của nó.)
 
 ## 3. Vì sao kéo (pull) chứ không đẩy (push)
 

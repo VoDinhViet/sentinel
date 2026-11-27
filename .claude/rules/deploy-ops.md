@@ -1,6 +1,7 @@
 ---
 paths:
   - "deploy/**"
+  - "agent/deploy/**"
   - "Dockerfile"
   - ".goreleaser.yaml"
   - "test/*.sh"
@@ -16,6 +17,11 @@ paths:
   a unit file, compose file, example config, Dockerfile or test fixture; examples use `${VAR}` placeholders.
 - **systemd units** keep their hardening (`ProtectSystem`, `PrivateTmp`, `NoNewPrivileges`, `StateDirectory`); the daemon
   needs `CAP_NET_RAW` for ping. Do not loosen these without saying why.
+- **Control plane unit** (`deploy/server/sentinel-server.service`): same hardening, no capabilities, `StateDirectory=sentinel-server`
+  (database, CA key and server key live there, directory 0700, keys 0600). Its secrets go in `/etc/sentinel/server.env`, mode 0600.
+  The admin password is never in a file, an env var or argv: it is typed to `sentinel-server init`/`passwd`.
+- **The agent daemon listens on no port.** It dials out to the control plane; do not add a listener or open a firewall port for it.
+  Certificates the agent holds live under its state directory, not `/etc` (`ProtectSystem=full` makes `/etc` read-only).
 - **Docker**: the image packages the prebuilt `bin/sentinel` on Alpine with restic, rclone and the dump tools; it runs as root unless
   compose sets uid 10001. Keep dump tool versions compatible with the engines the e2e tests cover.
 - **e2e scripts** (`test/*.sh`) clean up their containers on exit and must keep passing: `make e2e`, `make e2e-engines`.
