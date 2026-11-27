@@ -7,7 +7,7 @@
 | Created | 2026-11-27 |
 | Related | [danh-gia-nang-cap.md](../danh-gia-nang-cap.md) |
 
-> Ngày 2026-11-27 hướng đi đổi sang agent nối ra control plane (RFC 0002). Mô hình pull dưới đây vẫn chạy cho tới khi control plane thay được nó, rồi bị xoá theo mục 15 của RFC 0002.
+> Ngày 2026-11-27 hướng đi đổi sang agent nối ra control plane (RFC 0002). Mô hình pull dưới đây đã bị xoá khỏi code (giai đoạn 10 của RFC 0002, mục 15); văn bản này chỉ còn là lịch sử. Các khối `api:` và `fleet:` của config cũ vẫn đọc được nhưng bị bỏ qua.
 
 ## 1. Tóm tắt
 

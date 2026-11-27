@@ -9,9 +9,9 @@ Một binary Go cài trên mỗi server Linux: **backup** file và database bằ
 - **Cảnh báo** qua Telegram, Email (SMTP), Discord, Slack: báo khi lỗi, nhắc lại theo `cooldown`, báo khi đã khắc phục, báo khi một job quá lâu chưa backup thành công, và báo khi ổ đĩa đang chứa state, cache restic hoặc repository local còn trống dưới 10% (đổi bằng `disk.min_free_percent`, `0` để tắt). Tin không gửi được tới kênh nào được lưu lại và gửi lại sau tối đa 5 phút.
 - **Heartbeat**: lỗi duy nhất Sentinel không tự báo được là chính daemon dừng. Đặt `heartbeat.url` (healthchecks.io, push monitor của Uptime Kuma; chỉ https): daemon gọi URL đó lúc khởi động rồi mỗi `heartbeat.every` (mặc định 5m), dịch vụ bên ngoài báo cho bạn khi các lần gọi ngừng. `sentinel doctor` nhắc nếu chưa đặt.
 
-- **HTTP API** (tùy chọn, mặc định tắt): đặt `api.listen` và `api.token`, daemon mở API JSON để xem trạng thái, liệt kê snapshot, bắt đầu hoặc dừng backup từ máy khác hoặc từ script. Xem mục [HTTP API](#http-api).
+- **Không mở cổng nào**: daemon chỉ kết nối ra ngoài (tới control plane nếu bạn dùng, tới Telegram, Slack...). Xem nhiều server cùng lúc bằng [control plane](#control-plane). Khối `api:` và `fleet:` của các bản cũ vẫn đọc được nhưng bị bỏ qua (`sentinel doctor` nhắc xoá).
 
-Sentinel không có web UI, không có server trung tâm và không lưu lịch sử CPU/RAM và không cảnh báo về chúng (tab **Server** chỉ cho xem tình trạng máy lúc này; cần theo dõi dài hạn thì dùng công cụ giám sát riêng; Sentinel chỉ cảnh báo khi ổ đĩa sắp đầy). Phiên bản hiện tại: v0.1.0.
+Sentinel không có web UI, server trung tâm là tuỳ chọn (xem [Control plane](#control-plane)), và Sentinel không lưu lịch sử CPU/RAM và không cảnh báo về chúng (tab **Server** chỉ cho xem tình trạng máy lúc này; cần theo dõi dài hạn thì dùng công cụ giám sát riêng; Sentinel chỉ cảnh báo khi ổ đĩa sắp đầy). Phiên bản hiện tại: v0.1.0.
 
 ## Cài đặt
 
@@ -126,13 +126,11 @@ sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                       # chạy mọi uptime check một lần
 sentinel status                      # daemon có đang chạy không, backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json              # như trên, cho script
-sentinel fleet status                # tình trạng của nhiều server cùng lúc (xem "Nhiều server")
-sentinel fleet alerts                # cảnh báo đang mở của mọi server
 sentinel notify test                 # gửi tin thử tới mọi kênh cảnh báo
 journalctl -u sentinel -f            # log của daemon
 ```
 
-Backup chạy tay (`backup run`, `sentinel manage`, API) cũng đi qua cảnh báo: khi daemon đang chạy, trong khoảng một phút nó gửi cảnh báo nếu lần chạy đó lỗi, và đóng cảnh báo `backup:` đang mở nếu lần chạy đó thành công. Không có daemon thì không ai gửi cảnh báo; kết quả vẫn hiện ở terminal và trong `sentinel status`.
+Backup chạy tay (`backup run`, `sentinel manage`) cũng đi qua cảnh báo: khi daemon đang chạy, trong khoảng một phút nó gửi cảnh báo nếu lần chạy đó lỗi, và đóng cảnh báo `backup:` đang mở nếu lần chạy đó thành công. Không có daemon thì không ai gửi cảnh báo; kết quả vẫn hiện ở terminal và trong `sentinel status`.
 
 ### Dùng trong script hoặc với AI agent
 
@@ -150,111 +148,11 @@ sentinel backup run appdb --detach -o json   # {job, pid, log}
 
 Chạy tay ngoài systemd thì nạp biến trước: `set -a; . /etc/sentinel/sentinel.env; set +a`.
 
-## HTTP API
-
-Tắt theo mặc định. Bật bằng khối `api:` trong config, rồi chạy lại daemon (`sentinel run`):
-
-```yaml
-api:
-  listen: 127.0.0.1:9311
-  token: ${SENTINEL_API_TOKEN}   # giá trị (từ 16 ký tự) để trong sentinel.env
-  # read_token: ${SENTINEL_API_READ_TOKEN}   # tùy chọn: token thứ hai, chỉ đọc
-  # tls_cert: /etc/sentinel/api-cert.pem      # tùy chọn: có cả hai thì API chạy HTTPS (TLS 1.2 trở lên)
-  # tls_key: /etc/sentinel/api-key.pem
-```
-
-Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. `read_token` (cũng từ 16 ký tự, phải khác `token`) chỉ gọi được các route `GET`; route bắt đầu hoặc dừng backup trả `403`. Đưa token này cho máy chỉ để xem, giữ `token` cho người được phép chạy backup. Mặc định token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
-
-Muốn mở API cho máy khác không qua proxy, đặt `tls_cert` và `tls_key` (đường dẫn tuyệt đối tới file PEM của chứng chỉ và khóa riêng; phải có cả hai). Daemon nạp hai file khi khởi động, nên sai file hoặc cặp không khớp thì daemon không chạy, và chứng chỉ gia hạn xong cần `systemctl restart sentinel`. Khi đó `doctor` không cảnh báo về HTTP thường nữa mà kiểm tra chứng chỉ: lỗi nếu đã hết hạn hoặc không nạp được, cảnh báo nếu còn dưới 14 ngày hoặc khóa riêng người khác đọc được (`chmod 600`). Server dùng chứng chỉ tự ký hoặc CA nội bộ thì máy xem đặt file chứng chỉ (hoặc CA) đó làm `tls_ca` trong `fleet.yaml`.
-
-| Route | Việc |
-|---|---|
-| `GET /healthz` | daemon còn sống |
-| `GET /api/v1/status` | cùng JSON với `sentinel status --output json`; trường `version` cho biết bản Sentinel đang chạy (`dev` nếu build không đặt version) |
-| `GET /api/v1/alerts` | các cảnh báo đang mở |
-| `GET /api/v1/jobs` | các cặp job và repository trong config |
-| `GET /api/v1/jobs/{job}/snapshots?repository=<tên>` | snapshot của job, mới nhất trước |
-| `POST /api/v1/jobs/{job}/backups[?repository=<tên>]` | chạy backup nền, trả `202` kèm pid và đường dẫn log |
-| `DELETE /api/v1/jobs/{job}/backups/running` | yêu cầu backup đang chạy dừng |
-| `GET /api/v1/doctor` | kết quả `sentinel doctor` |
-| `GET /api/v1/host` | máy đang thế nào: CPU, RAM, swap, ổ đĩa, card mạng (`interfaces`: bộ đếm byte, lỗi, rớt gói từ lúc máy khởi động, bỏ `lo` và `veth*`), 5 tiến trình dùng nhiều CPU và 5 dùng nhiều RAM nhất (`top_processes`: chỉ tên, không đọc dòng lệnh hay biến môi trường), `sentinel.service` và các systemd unit đang `failed` (cùng số liệu với tab Server) |
-
-`cpu_percent` của `/api/v1/host` là mức CPU bận kể từ lần đọc trước trong cùng tiến trình daemon, nên gọi theo chu kỳ đều (vài chục giây một lần) mới có số có nghĩa; lần đầu là mức trung bình từ lúc daemon khởi động.
-
-Lỗi trả về dạng `{"error": "..."}`: `404` khi job hoặc repository không có, `409` khi job đang chạy (hoặc không có gì để dừng). Lỗi khác chỉ ghi vào log của daemon. Restore và sửa config chưa có qua API; dùng `sentinel manage`.
-
-```sh
-curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:9311/api/v1/status
-```
-
-## Nhiều server
-
-Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Để xem tất cả cùng lúc, một máy bất kỳ (laptop cũng được, không cần `config.yaml`) gọi HTTP API của từng daemon; không có server trung tâm. (Cách này sẽ được [control plane](#control-plane) thay thế.) Thiết kế nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md).
-
-### Xem nhiều server: `sentinel fleet`
-
-Trên mỗi server cần xem, bật API và tạo `read_token` (xem [HTTP API](#http-api)). Trên máy xem, liệt kê các server trong `~/.config/sentinel/fleet.yaml` (hoặc file khác qua `--fleet-config` / `$SENTINEL_FLEET_CONFIG`):
-
-```yaml
-servers:
-  - name: web-01
-    url: https://web-01.example.com:9311   # địa chỉ gốc của API, bật HTTPS bằng api.tls_cert hoặc qua reverse proxy
-    token: ${WEB01_READ_TOKEN}
-  - name: db-01
-    url: http://127.0.0.1:19312            # qua SSH tunnel, xem bên dưới
-    token: ${DB01_READ_TOKEN}
-    # tls_ca: /etc/sentinel/db01-ca.pem    # nếu https dùng CA riêng: file PEM, đường dẫn tuyệt đối
-```
-
-Token viết `${VAR}`; giá trị đặt trong môi trường hoặc trong `fleet.env` nằm cạnh file (cùng cách `sentinel.env`: chỉ chủ file ghi được, chỉ đọc những biến file fleet nhắc tới). Nếu viết thẳng token vào file thì file phải là `chmod 600`, nếu không `sentinel fleet` từ chối chạy. Dùng `read_token` của từng server, không dùng `token` đầy đủ. Tên server chỉ gồm chữ, số, `.`, `_`, `-`.
-
-```sh
-sentinel fleet status           # mỗi server một dòng: OK / ALERT / UNREACHABLE, số cảnh báo, backup lỗi, check down, backup đang chạy
-sentinel fleet status -o json   # cùng dữ liệu, kèm report đầy đủ của từng server (như `sentinel status -o json`)
-sentinel fleet alerts           # cảnh báo đang mở của mọi server; server không gọi được hiện với key "unreachable"
-```
-
-Gõ `sentinel fleet` không kèm lệnh con trên terminal thì mở màn hình quản lý chỉ có tab **Fleet** (xem [Màn hình quản lý](#màn-hình-quản-lý)), không cần `config.yaml`; ngoài terminal nó in trợ giúp. Trên server đã có config, `sentinel manage` cũng có tab Fleet đó (đọc `fleet.yaml` ở chỗ mặc định).
-
-Muốn **được báo khi một server không còn trả lời**, không chỉ xem lúc mở màn hình, cho daemon của một server (hoặc một máy chuyên canh) đọc cùng file đó trong `config.yaml`:
-
-```yaml
-fleet:
-  config: /etc/sentinel/fleet.yaml   # đường dẫn tuyệt đối tới file fleet
-  every: 1m                          # mặc định 1m, tối thiểu 30s
-  fail_after: 3                      # số vòng liên tiếp lỗi trước khi báo, mặc định 3
-```
-
-Mỗi `every` daemon hỏi từng server trong file và gửi cảnh báo qua `notifiers:` của chính nó khi một server không gọi được `fail_after` vòng liên tiếp (kết nối hỏng, sai token, chứng chỉ không tin được...); cảnh báo `fleet:<tên server>` đóng khi server trả lời lại. Daemon đọc lại file mỗi vòng nên thêm hoặc bớt server không cần restart; server bị bớt khỏi file thì cảnh báo của nó được đóng. Nó **không** nhắc lại cảnh báo mà server kia đã tự gửi (backup lỗi, đĩa đầy): mỗi server vẫn báo qua kênh của nó, máy canh chỉ báo điều server đó không tự báo được là nó đã không còn trả lời. Nếu không đọc được file fleet (sai cú pháp, thiếu token...) daemon báo một cảnh báo riêng thay vì im lặng không canh ai, và không đóng cảnh báo của các server trong lúc đó. `sentinel doctor` kiểm tra file này. Daemon của chính máy canh vẫn cần `heartbeat.url` để biết khi nó chết.
-
-Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. Giữa máy xem và server, dùng `https://` (API có `tls_cert`, hoặc qua reverse proxy) hoặc SSH tunnel, vì `http://` gửi token không mã hóa.
-
-Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
-
-1. **Heartbeat trên mọi server.** Đặt `heartbeat.url` (xem phần đầu); dịch vụ bên ngoài báo khi daemon của bất kỳ server nào ngừng gọi.
-2. **Server này gọi `/healthz` của server kia** bằng uptime check có sẵn, để biết daemon bên kia còn trả lời không:
-
-   ```yaml
-   uptime:
-     - name: sentinel-web01
-       type: http
-       url: http://10.8.0.11:9311/healthz
-       fail_after: 3
-   ```
-
-   Cách này chỉ cho biết daemon có trả lời, không cho biết job nào lỗi. `/healthz` không cần token.
-3. **Xem trạng thái từ máy khác qua SSH tunnel**, không mở API ra mạng (API vẫn nghe trên `127.0.0.1`):
-
-   ```sh
-   ssh -N -L 19311:127.0.0.1:9311 web01 &
-   curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:19311/api/v1/status
-   ```
-
-   Mỗi server dùng một cổng cục bộ khác nhau (19311, 19312...) và một token riêng.
-
 ## Control plane
 
-Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl` (dòng lệnh và màn hình terminal), không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit, báo cáo tình trạng từng server, cảnh báo khi server mất liên lạc, tự gia hạn chứng chỉ, màn hình terminal, và giao việc từ xa (chạy hoặc dừng backup, chạy doctor) cho server nào cho phép. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
+Control plane thay cho HTTP API của daemon và `sentinel fleet` của các bản trước: daemon không còn mở cổng nào và không còn tự hỏi các server khác. Ai đang dùng `api:` hoặc `fleet:` thì xoá hai khối đó khỏi `config.yaml` rồi dùng `sentinelctl` (xem một server, cảnh báo khi nó mất liên lạc, chạy backup từ xa).
+
+Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl` (dòng lệnh và màn hình terminal), không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit, báo cáo tình trạng từng server, cảnh báo khi server mất liên lạc, tự gia hạn chứng chỉ, màn hình terminal, và giao việc từ xa (chạy hoặc dừng backup, chạy doctor) cho server nào cho phép.
 
 ### Cài control plane
 
@@ -345,7 +243,7 @@ Job `files` thì file nằm ngay trong `--target`.
 
 ## Màn hình quản lý
 
-`sentinel manage` mở trong terminal với bảy tab (phím `1`-`7`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**, **Server**, **Fleet**. Màn hình chia thành các khung (panel):
+`sentinel manage` mở trong terminal với sáu tab (phím `1`-`6`): **Backups**, **Uptime**, **Alerts**, **Doctor**, **Config**, **Server**. Màn hình chia thành các khung (panel):
 
 - **Hàng khung trên cùng** (màn hình từ 110 cột, 28 dòng): *tổng quan* (số job ổn / cảnh báo / lỗi, alert đang mở, số repository và dung lượng), *đang chạy* (thanh tiến độ của backup đang chạy, hoặc job sẽ chạy kế tiếp) và *uptime* (mỗi check một dòng, kèm biểu đồ độ trễ các lần gần nhất; lần lỗi là `✗`). Khung nào có vấn đề thì viền đỏ. Màn hình nhỏ hơn chỉ có một dòng tóm tắt.
 - **Khung bảng** với tên các tab trên viền (tab có vấn đề tô đỏ, số bên cạnh là số dòng, riêng Doctor là số lỗi và cảnh báo). Cột LỊCH SỬ là các lần chạy gần nhất của job (`✓✓✗✓`, mới nhất ở bên phải), cột LẦN TỚI là lần chạy theo lịch kế tiếp. Job lỗi hoặc đang chạy có thêm một dòng mờ `└ …` ngay dưới (lỗi, hoặc dung lượng, tốc độ, thời gian còn lại).
@@ -354,7 +252,6 @@ Job `files` thì file nằm ngay trong `--target`.
 
 - **Tab Server** (chỉ đọc) cho biết máy đang thế nào. Mục *Máy* ghi hostname, hệ điều hành và thời gian máy đã chạy ở dòng tiêu đề; bên dưới là CPU, RAM, swap và từng ổ đĩa thật, mỗi dòng có thanh phần trăm đã dùng (kernel và load 1/5/15 phút nằm ở khung chi tiết của dòng CPU). Chấm và thanh xanh khi ổn, vàng hoặc đỏ khi có vấn đề, và dòng đó có thêm một câu mờ giải thích vì sao. Mục *Mạng* cho biết số byte nhận/gửi, lỗi và rớt gói của từng card từ lúc máy khởi động (bỏ `lo` và `veth*`), mục *Tiến trình* liệt kê 5 tiến trình dùng nhiều CPU và 5 dùng nhiều RAM nhất; cả hai chỉ để xem, không đổi màu tab, và Sentinel chỉ đọc tên tiến trình, không đọc dòng lệnh hay biến môi trường. Mục *Dịch vụ* cho biết `sentinel.service` đang chạy hay đã dừng và liệt kê các systemd unit đang `failed` (không hiện trên máy không có systemd). Ổ đĩa đỏ khi còn trống dưới `disk.min_free_percent`, vàng khi dưới gấp đôi mức đó; load từ 1 CPU trở lên thì vàng, từ 2 thì đỏ; CPU bận từ 90% vàng; RAM khả dụng dưới 10% vàng, dưới 5% đỏ; swap dùng quá 50% vàng. Số liệu chỉ đọc khi tab đang mở (đọc lại mỗi 5 giây hoặc bấm `r`), không lưu lại và không gửi cảnh báo.
 
-- **Tab Fleet** (chỉ đọc) liệt kê các server trong `fleet.yaml` (xem [Nhiều server](#nhiều-server)), mỗi server một dòng: `OK`, `ALERT` hoặc `UNREACHABLE`, version, số alert, backup lỗi, uptime check down và backup đang chạy. Tab chỉ hỏi các server khi đang mở (lần đầu vào tab, rồi mỗi 5 giây hoặc bấm `r`); chưa có `fleet.yaml` thì tab nói cách tạo. Máy chỉ để xem (không có `config.yaml`) dùng `sentinel fleet` để mở riêng tab này. `enter` (hoặc bấm hai lần) mở một server, chỉ đọc: bốn mục **Alerts**, **Backups** (lần chạy gần nhất của từng job, có tiến độ nếu đang chạy), **Uptime** và **Máy** của riêng server đó, chuyển bằng `tab` hoặc phím `1`-`4`, và tự hỏi lại mỗi 5 giây khi đang mở. Mục **Máy** cho biết CPU, RAM, swap, ổ đĩa, card mạng, các tiến trình dùng nhiều nhất, `sentinel.service` và các systemd unit lỗi của server đó, giống tab Server (đọc qua `GET /api/v1/host`, và chỉ đọc cho server đang mở, không đọc cho cả danh sách). Từ đây không chạy hay dừng backup được: muốn thao tác thì dùng `sentinel manage` trên chính server đó.
 
 Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 
@@ -366,7 +263,7 @@ Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); 
 | `a` `e` `d` | thêm, sửa, xóa job, kho, uptime check, kênh cảnh báo trong `config.yaml` |
 | `t` | (tab Config, dòng Notifier) gửi tin thử qua kênh đó; đọc kênh từ file config nên không cần khởi động lại, và chỉ cần các biến của chính kênh đó |
 | `ctrl+t` | (trong form job database) thử kết nối: chạy đúng công cụ dump với host, cổng, user, mật khẩu của form rồi dừng ngay khi nó bắt đầu ghi (chỉ đọc), hiện `✓ kết nối được` hoặc lý do lỗi của công cụ; cũng là nút `[ Kết nối thử ]` dưới ô mật khẩu |
-| `r` | làm mới / chạy lại Doctor / đọc lại tình trạng máy (tab Server) / hỏi lại các server (tab Fleet) |
+| `r` | làm mới / chạy lại Doctor / đọc lại tình trạng máy (tab Server) |
 
 ![Form sửa job: lịch chạy được giải thích bằng chữ kèm ba lần chạy kế tiếp](docs/images/manage-job-form.png)
 
