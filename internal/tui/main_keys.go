@@ -100,6 +100,9 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		if m.tab == configTab {
 			return m.configEdit(), nil
 		}
+		if m.tab == fleetTab {
+			return m.openFleetServer()
+		}
 		if line, ok := m.selectedBackup(); ok {
 			ctx := m.startBusy(fmt.Sprintf("Đang liệt kê snapshot của %s trong %s", line.job, line.repository))
 			job, repository, actions := line.job, line.repository, m.actions

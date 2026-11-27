@@ -54,7 +54,10 @@ func (m manageModel) tabHelp() helpScreen {
 	case serverTab:
 		ownKeys = []keyHelp{{"r", "đọc lại tình trạng máy ngay (tab này tự đọc lại mỗi 5 giây khi đang mở)"}}
 	case fleetTab:
-		ownKeys = []keyHelp{{"r", "hỏi lại các server ngay (tab này tự hỏi lại mỗi 5 giây khi đang mở)"}}
+		ownKeys = []keyHelp{
+			{"enter  s", "mở server đang chọn: alerts, backups và uptime check của nó"},
+			{"r", "hỏi lại các server ngay (tab này tự hỏi lại mỗi 5 giây khi đang mở)"},
+		}
 	case configTab:
 		ownKeys = []keyHelp{
 			{"a", "thêm một mục vào nhóm của dòng đang chọn"},

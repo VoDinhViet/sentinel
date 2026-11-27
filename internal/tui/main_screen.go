@@ -105,6 +105,8 @@ func (m manageModel) footerKeys(tab manageTab) []string {
 			keys = append(keys, "t", "gửi thử")
 		}
 		keys = append(keys, "tab", "chuyển")
+	case fleetTab:
+		keys = []string{"enter", "chi tiết", "tab", "chuyển", "↑↓", "chọn", "r", "hỏi lại"}
 	default:
 		keys = []string{"tab", "chuyển", "↑↓", "chọn", "r", "làm mới"}
 	}

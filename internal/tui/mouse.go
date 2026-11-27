@@ -116,6 +116,12 @@ func (m manageModel) onClick(col, row int, left bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if index, ok := actionIndex(action, "row:"); ok {
+		if shown, ok := m.top().(fleetServerScreen); ok {
+			return shown.click(m, index)
+		}
+		if index == m.cursor && m.tab == fleetTab {
+			return m.openFleetServer() // a second click opens the server
+		}
 		if index == m.cursor && (m.tab == backupsTab || m.tab == configTab) {
 			return m.onTableKey("s") // a second click opens the job, or the entry to edit
 		}
@@ -169,6 +175,9 @@ func (m manageModel) onWheel(up, down bool) manageModel {
 	}
 	if list, ok := m.top().(snapshotsScreen); ok {
 		return list.scroll(m, step)
+	}
+	if shown, ok := m.top().(fleetServerScreen); ok {
+		return shown.scroll(m, step)
 	}
 	if !m.onTabs() {
 		return m

@@ -60,12 +60,19 @@ func (m manageModel) startFleet() (manageModel, tea.Cmd) {
 	}
 }
 
-// refreshFleet is what the timed refresh does for this tab: ask again, but only while it is on screen.
+// refreshFleet is what the timed refresh does for the servers: ask again, but only while the tab or
+// the screen of a server is on show.
 func (m manageModel) refreshFleet() (manageModel, tea.Cmd) {
-	if !m.onTabs() || m.tab != fleetTab {
+	if !m.fleetOnShow() {
 		return m, nil
 	}
 	return m.startFleet()
+}
+
+// fleetOnShow says the Fleet tab or the screen of one server is what the person is looking at.
+func (m manageModel) fleetOnShow() bool {
+	onTab := m.onTabs() && m.tab == fleetTab
+	return onTab || m.fleetServerScreenOnShow()
 }
 
 // afterFleetRead keeps the answers of a round, and the cursor on a line that still exists.
