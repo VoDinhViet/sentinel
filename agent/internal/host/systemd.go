@@ -35,7 +35,8 @@ func readUnits(ctx context.Context) (systemd bool, sentinel Unit, failed []Unit,
 	}
 	callCtx, cancel := context.WithTimeout(ctx, systemctlTimeout)
 	defer cancel()
-	output, runErr := exec.CommandContext(callCtx, systemctl, "list-units", "--failed", "--plain", "--no-legend", "--no-pager").Output()
+	output, runErr := exec.CommandContext( //nolint:gosec // systemctl is the path LookPath found; the arguments are fixed
+		callCtx, systemctl, "list-units", "--failed", "--plain", "--no-legend", "--no-pager").Output()
 	if runErr != nil {
 		return true, sentinel, nil, fmt.Errorf("listing failed units: %w", runErr)
 	}
@@ -47,7 +48,7 @@ func readUnits(ctx context.Context) (systemd bool, sentinel Unit, failed []Unit,
 func unitActive(ctx context.Context, systemctl, name string) string {
 	callCtx, cancel := context.WithTimeout(ctx, systemctlTimeout)
 	defer cancel()
-	output, err := exec.CommandContext(callCtx, systemctl, "is-active", name).Output()
+	output, err := exec.CommandContext(callCtx, systemctl, "is-active", name).Output() //nolint:gosec // systemctl is the path LookPath found; name is one of our own units
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
 		return ""

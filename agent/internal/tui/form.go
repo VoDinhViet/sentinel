@@ -458,10 +458,10 @@ func (f form) job() (configedit.Job, error) {
 // stands for: the default rule, or the job's own rule when it is more than a count of backups
 // (own is true then, and the placeholder is a value of the job, not a default).
 func keepInput(own, defaults config.Retention) (value, placeholder string, ownRule bool) {
-	switch {
-	case own == config.Retention{}:
+	switch own {
+	case config.Retention{}:
 		return "", retentionText(defaults), false
-	case own == config.Retention{Last: own.Last}:
+	case config.Retention{Last: own.Last}:
 		return strconv.Itoa(own.Last), "", false
 	}
 	return "", retentionText(own), true

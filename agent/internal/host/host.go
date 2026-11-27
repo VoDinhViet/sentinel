@@ -61,7 +61,7 @@ func Read(ctx context.Context) State {
 	if info != nil {
 		state.Hostname, state.Kernel = info.Hostname, info.KernelVersion
 		state.OS = strings.TrimSpace(info.Platform + " " + info.PlatformVersion)
-		state.Uptime = time.Duration(info.Uptime) * time.Second
+		state.Uptime = time.Duration(info.Uptime) * time.Second //nolint:gosec // seconds since boot: far below the int64 limit
 	}
 	average, err := load.AvgWithContext(ctx)
 	note("load", err)

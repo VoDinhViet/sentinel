@@ -197,9 +197,9 @@ func addResourceLines(report app.HostReport, add func(manageLine)) {
 	used := memory.TotalBytes - min(memory.AvailableBytes, memory.TotalBytes)
 	availablePercent := percentOf(memory.AvailableBytes, memory.TotalBytes)
 	ram := gaugeLine(memorySeverity(availablePercent), "RAM", percentOf(used, memory.TotalBytes),
-		fmt.Sprintf("%s / %s · còn %s", backup.HumanBytes(int64(used)), backup.HumanBytes(int64(memory.TotalBytes)), backup.HumanBytes(int64(memory.AvailableBytes))))
+		fmt.Sprintf("%s / %s · còn %s", bytesText(used), bytesText(memory.TotalBytes), bytesText(memory.AvailableBytes)))
 	ram.detail = "RAM: " + ram.cells[2] + "."
-	ram.fields = [][2]string{{"Đã dùng", backup.HumanBytes(int64(used))}, {"Tổng", backup.HumanBytes(int64(memory.TotalBytes))}, {"Khả dụng", backup.HumanBytes(int64(memory.AvailableBytes))}}
+	ram.fields = [][2]string{{"Đã dùng", bytesText(used)}, {"Tổng", bytesText(memory.TotalBytes)}, {"Khả dụng", bytesText(memory.AvailableBytes)}}
 	if ram.severity != sevOK {
 		ram.sub = fmt.Sprintf("RAM khả dụng còn %.0f%%: vàng dưới %d%%, đỏ dưới %d%%", availablePercent, memoryWarnAvailablePercent, memoryBadAvailablePercent)
 	}
@@ -216,9 +216,9 @@ func swapLine(memory host.Memory) manageLine {
 	used := memory.SwapTotalBytes - min(memory.SwapFreeBytes, memory.SwapTotalBytes)
 	usedPercent := percentOf(used, memory.SwapTotalBytes)
 	swap := gaugeLine(levelByThreshold(usedPercent, swapWarnUsedPercent, math.Inf(1)), "Swap", usedPercent,
-		fmt.Sprintf("%s / %s", backup.HumanBytes(int64(used)), backup.HumanBytes(int64(memory.SwapTotalBytes))))
+		fmt.Sprintf("%s / %s", bytesText(used), bytesText(memory.SwapTotalBytes)))
 	swap.detail = "Swap: " + swap.cells[2] + "."
-	swap.fields = [][2]string{{"Đã dùng", backup.HumanBytes(int64(used))}, {"Tổng", backup.HumanBytes(int64(memory.SwapTotalBytes))}}
+	swap.fields = [][2]string{{"Đã dùng", bytesText(used)}, {"Tổng", bytesText(memory.SwapTotalBytes)}}
 	if swap.severity != sevOK {
 		swap.sub = fmt.Sprintf("swap đã dùng %.0f%%: vàng khi quá %d%%", usedPercent, swapWarnUsedPercent)
 	}
@@ -239,7 +239,7 @@ func cpuReason(report app.HostReport, loadLevel, cpuLevel severity) string {
 // addDiskLines is one line per disk, in the same table as the CPU and RAM so the bars line up.
 func addDiskLines(report app.HostReport, add func(manageLine)) {
 	for _, found := range report.Disks {
-		freeText, totalText := backup.HumanBytes(int64(found.FreeBytes)), backup.HumanBytes(int64(found.TotalBytes))
+		freeText, totalText := bytesText(found.FreeBytes), bytesText(found.TotalBytes)
 		disk := gaugeLine(diskSeverity(found.FreePercent(), report.MinFreePercent), "Đĩa "+found.Mount, 100-found.FreePercent(),
 			fmt.Sprintf("còn %s / %s · %s", freeText, totalText, found.FSType))
 		disk.detail = fmt.Sprintf("%s: còn trống %s trên %s (%.0f%%).", found.Mount, freeText, totalText, found.FreePercent())
@@ -309,4 +309,9 @@ func (m manageModel) serverWaitText() string {
 		return "Không đọc được tình trạng máy."
 	}
 	return "Đang đọc tình trạng máy…"
+}
+
+// bytesText is a size in bytes as people read it; a count past the int64 range (never a real memory) is cut to it.
+func bytesText(size uint64) string {
+	return backup.HumanBytes(int64(min(size, math.MaxInt64))) //nolint:gosec // cut to the int64 range on the line above
 }
