@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"sentinel/pkg/agentapi"
+	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/app"
 	"sentinel/server/internal/config"
@@ -34,6 +36,7 @@ type plant struct {
 	url         string
 	fingerprint string
 	dir         string
+	app         *app.App
 }
 
 func newPlant(t *testing.T) *plant {
@@ -57,7 +60,7 @@ func newPlant(t *testing.T) *plant {
 	server.TLS = pki.CtlTLSConfig(cert)
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	return &plant{t: t, url: server.URL, fingerprint: a.CA.Fingerprint(), dir: t.TempDir()}
+	return &plant{t: t, url: server.URL, fingerprint: a.CA.Fingerprint(), dir: t.TempDir(), app: a}
 }
 
 // run executes a sentinelctl command line with stdin as the typed or piped input.
@@ -223,5 +226,51 @@ func TestASessionFileOthersCanReadIsRefused(t *testing.T) {
 	}
 	if _, err := p.run("", "server", "ls"); err == nil || !strings.Contains(err.Error(), "chmod 600") {
 		t.Errorf("err = %v, want the file to be refused with a hint", err)
+	}
+}
+
+func TestShowAndAlertTellWhatTheServerReportedAndWhatIsOpen(t *testing.T) {
+	p := newPlant(t)
+	p.login()
+	if _, err := p.run("", "server", "add", "web01"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := p.run("", "server", "show", "web01"); err != nil || !strings.Contains(out, "PENDING") || !strings.Contains(out, "Chưa nhận báo cáo") {
+		t.Fatalf("show before any report: %v\n%s", err, out)
+	}
+	report := agentapi.Report{
+		Version: "1.2.3",
+		Host:    agentapi.HostStatus{Hostname: "web01.example.com", CPUs: 4, Memory: agentapi.MemoryStatus{TotalBytes: 8 << 30, AvailableBytes: 3 << 30}, Disks: []agentapi.DiskStatus{{Mount: "/", FreeBytes: 20 << 30, TotalBytes: 100 << 30}}},
+		Backups: []agentapi.BackupStatus{{Job: "db", Repository: "s3", FinishedAt: time.Now(), Success: false, Result: "FAILED: disk full"}},
+		Checks:  []agentapi.CheckStatus{{Name: "site", OK: false, Error: "timeout", At: time.Now()}},
+		Alerts:  []agentapi.AlertStatus{{Key: "backup:db:s3", Message: "backup db failed", Since: time.Now()}},
+	}
+	if err := p.app.Inventory.SaveReport(context.Background(), "web01", report, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.run("", "server", "show", "web01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"web01.example.com", "1.2.3", "3.0 GiB trống / 8.0 GiB", "FAILED: disk full", "DOWN: timeout", "backup:db:s3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show lacks %q:\n%s", want, out)
+		}
+	}
+	if _, err := p.run("", "server", "show", "nobody"); err == nil {
+		t.Error("showing a server that does not exist worked")
+	}
+
+	if out, _ := p.run("", "alert"); !strings.Contains(out, "Không có cảnh báo") {
+		t.Errorf("alert with none open:\n%s", out)
+	}
+	p.app.Alerts.Fire(context.Background(), "agent:web01", notify.Critical, "web01 is offline", "")
+	if out, _ := p.run("", "alert"); !strings.Contains(out, "agent:web01") || !strings.Contains(out, "web01 is offline") {
+		t.Errorf("alert with one open:\n%s", out)
+	}
+	var detail ctlapi.AgentDetail
+	out, _ = p.run("", "server", "show", "web01", "-o", "json")
+	if err := json.Unmarshal([]byte(out), &detail); err != nil || detail.Report == nil || detail.Report.Version != "1.2.3" {
+		t.Errorf("show -o json: %v\n%s", err, out)
 	}
 }

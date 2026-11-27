@@ -37,8 +37,21 @@ func internalError(w http.ResponseWriter, r *http.Request, err error) {
 // readJSON reads a request body of at most limit bytes into target and says whether it could. A body that
 // is too large, is not JSON, has a field that is not known or has anything after the JSON is refused.
 func readJSON(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {
+	return decodeBody(w, r, limit, target, true)
+}
+
+// readJSONLoose is readJSON for a body that may have fields this version does not know: a report from an
+// agent newer than the control plane. The agents are upgraded in no set order, so the report must not fail
+// because a newer agent says more.
+func readJSONLoose(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {
+	return decodeBody(w, r, limit, target, false)
+}
+
+func decodeBody(w http.ResponseWriter, r *http.Request, limit int64, target any, strict bool) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
-	decoder.DisallowUnknownFields()
+	if strict {
+		decoder.DisallowUnknownFields()
+	}
 	err := decoder.Decode(target)
 	if err == nil && decoder.More() {
 		err = errors.New("unexpected data after the JSON")

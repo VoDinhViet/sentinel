@@ -27,8 +27,9 @@ func openTemp(t *testing.T) (*Store, string) {
 // knownChecksums are the SHA-256 of every migration that has been released. The migrations are
 // append-only: when you add one, add its line here, and never change a line that is already here.
 var knownChecksums = map[string]string{
-	"0001_init.sql":        "b57dd67ded93ba14e84f938e378e4695097e20377bc1434d3bec10064b0c28a5",
-	"0002_login_table.sql": "54333b73932c2e0816e3ac8d8f6f8e4ccb4f845bb1d8921e3a34a01d2e866d99",
+	"0001_init.sql":          "b57dd67ded93ba14e84f938e378e4695097e20377bc1434d3bec10064b0c28a5",
+	"0002_login_table.sql":   "54333b73932c2e0816e3ac8d8f6f8e4ccb4f845bb1d8921e3a34a01d2e866d99",
+	"0003_agent_reports.sql": "6bff60fddf6336b83f13f4eff33d3496e5c974b0680507a05c32596fe0ec5391",
 }
 
 func TestMigrationsAreAppendOnly(t *testing.T) {

@@ -21,6 +21,9 @@ import (
 const (
 	maxJoinBody = 16 << 10 // a token and a certificate request
 	maxCtlBody  = 4 << 10  // a password, a name
+	// maxReportBody is the most a report may be: 200 of each of its lists, with the text of each cut short.
+	maxReportBody = 512 << 10
+	maxRenewBody  = 4 << 10 // a certificate request
 )
 
 // Server answers the requests of agents and of sentinelctl.
@@ -44,6 +47,8 @@ func (s *Server) AgentHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+agentapi.RouteJoin, s.join)
 	mux.Handle("GET "+agentapi.RouteWhoAmI, s.agentOnly(s.whoAmI))
+	mux.Handle("POST "+agentapi.RouteReport, s.agentOnly(s.report))
+	mux.Handle("POST "+agentapi.RouteRenew, s.agentOnly(s.renew))
 	return recovered(logged(mux))
 }
 
@@ -55,7 +60,9 @@ func (s *Server) CtlHandler() http.Handler {
 	mux.Handle("POST "+ctlapi.RoutePasswd, s.signedIn(s.passwd))
 	mux.Handle("GET "+ctlapi.RouteAgents, s.signedIn(s.listAgents))
 	mux.Handle("POST "+ctlapi.RouteAgents, s.signedIn(s.addAgent))
+	mux.Handle("GET "+ctlapi.RouteAgent, s.signedIn(s.showAgent))
 	mux.Handle("DELETE "+ctlapi.RouteAgent, s.signedIn(s.revokeAgent))
+	mux.Handle("GET "+ctlapi.RouteAlerts, s.signedIn(s.listAlerts))
 	mux.Handle("GET "+ctlapi.RouteAudit, s.signedIn(s.listAudit))
 	mux.Handle("GET "+ctlapi.RouteAuditVerify, s.signedIn(s.verifyAudit))
 	return recovered(logged(mux))

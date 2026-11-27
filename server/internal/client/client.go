@@ -159,6 +159,29 @@ func (c *Client) Agents(ctx context.Context) ([]ctlapi.Agent, error) {
 	return agents, err
 }
 
+// Agent is one agent with its latest report. What the report says came from another machine, so it is
+// cleaned here again, whatever the control plane did.
+func (c *Client) Agent(ctx context.Context, name string) (ctlapi.AgentDetail, error) {
+	var detail ctlapi.AgentDetail
+	err := c.do(ctx, http.MethodGet, ctlapi.RouteAgents+"/"+url.PathEscape(name), nil, &detail)
+	detail.Name, detail.Version = termtext.Clean(detail.Name), termtext.Clean(detail.Version)
+	if detail.Report != nil {
+		cleaned := detail.Report.Clean()
+		detail.Report = &cleaned
+	}
+	return detail, err
+}
+
+// Alerts are the alerts the control plane has open.
+func (c *Client) Alerts(ctx context.Context) ([]ctlapi.Alert, error) {
+	var alerts []ctlapi.Alert
+	err := c.do(ctx, http.MethodGet, ctlapi.RouteAlerts, nil, &alerts)
+	for i := range alerts {
+		alerts[i].Key, alerts[i].Message = termtext.Clean(alerts[i].Key), termtext.Clean(alerts[i].Message)
+	}
+	return alerts, err
+}
+
 func (c *Client) AddAgent(ctx context.Context, name string) (ctlapi.AddAgentResponse, error) {
 	var added ctlapi.AddAgentResponse
 	err := c.do(ctx, http.MethodPost, ctlapi.RouteAgents, ctlapi.AddAgentRequest{Name: name}, &added)

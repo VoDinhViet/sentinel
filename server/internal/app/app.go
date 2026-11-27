@@ -11,12 +11,16 @@ import (
 	"slices"
 	"time"
 
+	"sentinel/pkg/alert"
+	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/audit"
 	"sentinel/server/internal/auth"
 	"sentinel/server/internal/config"
 	"sentinel/server/internal/enroll"
+	"sentinel/server/internal/inventory"
 	"sentinel/server/internal/store"
+	"sentinel/server/internal/watchdog"
 )
 
 // ErrNotInitialized means the state directory has no CA yet.
@@ -32,6 +36,12 @@ type App struct {
 	CA     *pki.CA
 	Auth   *auth.Service
 	Enroll *enroll.Service
+	// Inventory holds what the agents say about themselves.
+	Inventory *inventory.Service
+	// Alerts raises and closes the control plane's own alerts; AlertStore reads them.
+	Alerts     *alert.Manager
+	AlertStore watchdog.AlertStore
+	Watchdog   *watchdog.Watchdog
 }
 
 // Open opens an initialized control plane.
@@ -48,7 +58,23 @@ func Open(ctx context.Context, cfg *config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enroll.New(st, ca)}, nil
+	return newApp(ctx, cfg, st, ca)
+}
+
+// newApp puts the parts together over an open database.
+func newApp(ctx context.Context, cfg *config.Config, st *store.Store, ca *pki.CA) (*App, error) {
+	alertStore := watchdog.AlertStore{DB: st.DB}
+	alerts := &alert.Manager{Notifier: notify.NewMulti(cfg.Notifiers), Store: alertStore, Server: "sentinel-server", Cooldown: cfg.Cooldown}
+	if err := alerts.Load(ctx); err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("load alert state: %w", err)
+	}
+	enrolled := enroll.New(st, ca)
+	return &App{
+		Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enrolled, Inventory: inventory.New(st),
+		Alerts: alerts, AlertStore: alertStore,
+		Watchdog: &watchdog.Watchdog{Alerts: alerts, Agents: enrolled, OfflineAfter: cfg.OfflineAfter, Started: time.Now()},
+	}, nil
 }
 
 func (a *App) Close() error { return a.Store.Close() }

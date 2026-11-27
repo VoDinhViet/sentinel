@@ -268,3 +268,30 @@ func TestDeliverFailsOnlyWhenNobodyTookTheMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsValidateReportsEveryProblem(t *testing.T) {
+	good := Settings{Telegram: &TelegramSettings{Token: "t", ChatID: "1"}, Slack: &WebhookSettings{URL: "https://hooks.example.com/x"}}
+	if err := good.Validate(); err != nil {
+		t.Errorf("good settings: %v", err)
+	}
+	bad := Settings{
+		Telegram: &TelegramSettings{},
+		SMTP:     &SMTPSettings{},
+		Discord:  &WebhookSettings{URL: "http://hooks.example.com/x"},
+	}
+	err := bad.Validate()
+	if err == nil {
+		t.Fatal("bad settings passed")
+	}
+	for _, want := range []string{"telegram.token", "telegram.chat_id", "smtp.host", "smtp.to", "discord.webhook"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no complaint about %s: %v", want, err)
+		}
+	}
+	if (HeartbeatSettings{URL: "http://x"}).Validate() == nil || (HeartbeatSettings{Every: time.Second}).Validate() == nil {
+		t.Error("a bad heartbeat passed")
+	}
+	if err := (HeartbeatSettings{}).Validate(); err != nil {
+		t.Errorf("an empty heartbeat: %v", err)
+	}
+}

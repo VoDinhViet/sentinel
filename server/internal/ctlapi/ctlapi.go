@@ -2,7 +2,11 @@
 // client (sentinelctl) that calls it, so the two cannot drift apart.
 package ctlapi
 
-import "time"
+import (
+	"time"
+
+	"sentinel/pkg/agentapi"
+)
 
 // Routes. Everything but login needs the session token in "Authorization: Bearer".
 const (
@@ -10,7 +14,8 @@ const (
 	RouteLogout      = "/v1/ctl/logout"
 	RoutePasswd      = "/v1/ctl/passwd" //nolint:gosec // a route, not a credential
 	RouteAgents      = "/v1/ctl/agents"
-	RouteAgent       = "/v1/ctl/agents/{name}" // DELETE revokes
+	RouteAgent       = "/v1/ctl/agents/{name}" // GET shows, DELETE revokes
+	RouteAlerts      = "/v1/ctl/alerts"
 	RouteAudit       = "/v1/ctl/audit"
 	RouteAuditVerify = "/v1/ctl/audit/verify"
 )
@@ -36,11 +41,29 @@ type PasswdRequest struct {
 
 // Agent is one server the control plane knows. Times that do not apply are nil.
 type Agent struct {
-	Name         string     `json:"name"`
-	State        string     `json:"state"` // pending, active or revoked
+	Name  string `json:"name"`
+	State string `json:"state"` // pending, active or revoked
+	// Status is what to show: PENDING, ONLINE, OFFLINE or REVOKED.
+	Status       string     `json:"status"`
 	CreatedAt    time.Time  `json:"created_at"`
 	EnrolledAt   *time.Time `json:"enrolled_at,omitempty"`
+	LastSeen     *time.Time `json:"last_seen,omitempty"`
+	Version      string     `json:"version,omitempty"`
 	CertNotAfter *time.Time `json:"cert_not_after,omitempty"`
+}
+
+// AgentDetail is one agent with the latest report it sent. Report is nil until it has sent one.
+type AgentDetail struct {
+	Agent
+	Report   *agentapi.Report `json:"report,omitempty"`
+	ReportAt *time.Time       `json:"report_at,omitempty"`
+}
+
+// Alert is an alert the control plane has open.
+type Alert struct {
+	Key     string    `json:"key"`
+	Message string    `json:"message"`
+	Since   time.Time `json:"since"`
 }
 
 type AddAgentRequest struct {

@@ -150,12 +150,15 @@ type Agent struct {
 	CreatedAt    time.Time
 	EnrolledAt   time.Time // zero until it joins
 	CertNotAfter time.Time // of its newest certificate; zero if it has none
+	LastSeen     time.Time // of its latest request; zero if it never made one
+	Version      string    // of the sentinel it runs, as it last reported
 }
 
 // List returns every agent, by name.
 func (s *Service) List(ctx context.Context) ([]Agent, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT a.name, a.state, a.created_at, a.enrolled_at,
-		(SELECT MAX(c.not_after) FROM certs c WHERE c.agent = a.name AND c.revoked_at IS NULL)
+		(SELECT MAX(c.not_after) FROM certs c WHERE c.agent = a.name AND c.revoked_at IS NULL),
+		a.last_seen, a.version
 		FROM agents a ORDER BY a.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -165,8 +168,8 @@ func (s *Service) List(ctx context.Context) ([]Agent, error) {
 	for rows.Next() {
 		var agent Agent
 		var createdAt int64
-		var enrolledAt, notAfter sql.NullInt64
-		if err := rows.Scan(&agent.Name, &agent.State, &createdAt, &enrolledAt, &notAfter); err != nil {
+		var enrolledAt, notAfter, lastSeen sql.NullInt64
+		if err := rows.Scan(&agent.Name, &agent.State, &createdAt, &enrolledAt, &notAfter, &lastSeen, &agent.Version); err != nil {
 			return nil, fmt.Errorf("read agent: %w", err)
 		}
 		agent.CreatedAt = time.Unix(createdAt, 0)
@@ -175,6 +178,9 @@ func (s *Service) List(ctx context.Context) ([]Agent, error) {
 		}
 		if notAfter.Valid {
 			agent.CertNotAfter = time.Unix(notAfter.Int64, 0)
+		}
+		if lastSeen.Valid {
+			agent.LastSeen = time.Unix(lastSeen.Int64, 0)
 		}
 		agents = append(agents, agent)
 	}

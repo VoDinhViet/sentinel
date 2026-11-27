@@ -20,3 +20,15 @@ hosts:
 
 # An agent that has not reported for this long is offline.
 offline_after: 2m
+
+# Where the control plane sends its own alerts: an agent gone quiet, an agent certificate near its end.
+# Without a notifier they are only logged and shown by `sentinelctl alert`. Write secrets as ${VAR}; the
+# values go in the environment file of the service.
+# notifiers:
+#   telegram: {token: "${TELEGRAM_TOKEN}", chat_id: "123456"}
+#   slack: {webhook: "${SLACK_WEBHOOK}"}
+# How often an alert that stays open is sent again.
+cooldown: 1h
+# Request this URL every few minutes, so a service outside this machine (healthchecks.io, Uptime Kuma) tells
+# you when the control plane itself is down.
+# heartbeat: {url: "${HEARTBEAT_URL}", every: 5m}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/app"
 	"sentinel/server/internal/httpapi"
@@ -63,18 +64,45 @@ func serve(ctx context.Context, a *app.App) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	server := httpapi.New(a)
-	ended := make(chan error, 3)
-	go func() { ended <- httpapi.Serve(ctx, agentLn, server.AgentHandler()) }()
-	go func() { ended <- httpapi.Serve(ctx, ctlLn, server.CtlHandler()) }()
-	go func() { ended <- maintain(ctx, a, source) }()
+	runners := []func(context.Context) error{
+		func(ctx context.Context) error { return httpapi.Serve(ctx, agentLn, server.AgentHandler()) },
+		func(ctx context.Context) error { return httpapi.Serve(ctx, ctlLn, server.CtlHandler()) },
+		func(ctx context.Context) error { return maintain(ctx, a, source) },
+		a.Watchdog.Run,
+	}
+	if a.Config.Heartbeat.URL != "" {
+		runners = append(runners, func(ctx context.Context) error { return heartbeat(ctx, a.Config.Heartbeat) })
+	}
+	a.Watchdog.Started = time.Now() // agents need a little while to find a control plane that has just started
+	ended := make(chan error, len(runners))
+	for _, run := range runners {
+		go func() { ended <- run(ctx) }()
+	}
 	err = <-ended // the first to stop is the reason; the signal gives nil
 	stop()
-	for range 2 {
+	for range len(runners) - 1 {
 		if stopped := <-ended; stopped != nil {
 			slog.Warn("stopped", "err", stopped)
 		}
 	}
 	return err
+}
+
+// heartbeat requests the heartbeat URL now and then every settings.Every, until ctx is done. A failed
+// request is logged: the service on the other end raises the alarm.
+func heartbeat(ctx context.Context, settings notify.HeartbeatSettings) error {
+	ticker := time.NewTicker(settings.Every)
+	defer ticker.Stop()
+	for {
+		if err := notify.Heartbeat(ctx, settings.URL); err != nil && ctx.Err() == nil {
+			slog.Warn("heartbeat failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func listenTLS(address string, config *tls.Config) (net.Listener, error) {

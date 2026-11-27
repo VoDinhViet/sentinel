@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"sentinel/pkg/pki"
+	"sentinel/pkg/termtext"
 	"sentinel/server/internal/audit"
 	"sentinel/server/internal/auth"
 	"sentinel/server/internal/ctlapi"
 	"sentinel/server/internal/enroll"
+	"sentinel/server/internal/inventory"
 )
 
 // Audit pages.
@@ -124,12 +126,61 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, _ session) {
 		internalError(w, r, err)
 		return
 	}
+	now := time.Now()
 	listed := make([]ctlapi.Agent, 0, len(agents))
 	for _, agent := range agents {
-		listed = append(listed, ctlapi.Agent{
-			Name: agent.Name, State: agent.State, CreatedAt: agent.CreatedAt,
-			EnrolledAt: timePointer(agent.EnrolledAt), CertNotAfter: timePointer(agent.CertNotAfter),
-		})
+		listed = append(listed, s.ctlAgent(agent, now))
+	}
+	writeJSON(w, http.StatusOK, listed)
+}
+
+// ctlAgent is how sentinelctl sees an agent.
+func (s *Server) ctlAgent(agent enroll.Agent, now time.Time) ctlapi.Agent {
+	return ctlapi.Agent{
+		Name: agent.Name, State: agent.State, CreatedAt: agent.CreatedAt,
+		Status:     string(inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, s.app.Config.OfflineAfter)),
+		EnrolledAt: timePointer(agent.EnrolledAt), LastSeen: timePointer(agent.LastSeen), Version: termtext.Clean(agent.Version),
+		CertNotAfter: timePointer(agent.CertNotAfter),
+	}
+}
+
+// showAgent answers one agent with its latest report.
+func (s *Server) showAgent(w http.ResponseWriter, r *http.Request, _ session) {
+	name := r.PathValue("name")
+	agents, err := s.app.Enroll.List(r.Context())
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	for _, agent := range agents {
+		if agent.Name != name {
+			continue
+		}
+		detail := ctlapi.AgentDetail{Agent: s.ctlAgent(agent, time.Now())}
+		report, at, err := s.app.Inventory.Report(r.Context(), name)
+		switch {
+		case err == nil:
+			detail.Report, detail.ReportAt = &report, &at
+		case !errors.Is(err, inventory.ErrNoReport):
+			internalError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, detail)
+		return
+	}
+	writeError(w, http.StatusNotFound, enroll.ErrNotFound.Error())
+}
+
+// listAlerts answers the alerts that are open now.
+func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request, _ session) {
+	open, err := s.app.AlertStore.Alerts(r.Context(), true)
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	listed := make([]ctlapi.Alert, 0, len(open))
+	for _, alert := range open {
+		listed = append(listed, ctlapi.Alert{Key: termtext.Clean(alert.Key), Message: termtext.Clean(alert.Message), Since: alert.Since})
 	}
 	writeJSON(w, http.StatusOK, listed)
 }

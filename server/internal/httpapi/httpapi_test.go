@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"sentinel/pkg/agentapi"
+	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/app"
 	"sentinel/server/internal/auth"
@@ -411,5 +412,81 @@ func TestClientIP(t *testing.T) {
 		if got := clientIP(req); got != want {
 			t.Errorf("clientIP(%q) = %q, want %q", remote, got, want)
 		}
+	}
+}
+
+func TestAReportIsKeptCleanedAndShownBySentinelctl(t *testing.T) {
+	p := newPlant(t)
+	token := p.signedIn()
+	cert := p.join(token, "web01")
+	agent := p.client(&cert)
+
+	var detail ctlapi.AgentDetail
+	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+"/v1/ctl/agents/web01", token, nil, &detail); status != http.StatusOK || detail.Report != nil {
+		t.Fatalf("before any report: status %d, report %v", status, detail.Report)
+	}
+
+	// A field this version does not know (a newer agent) is let through; hostile text is cleaned.
+	body := `{"version":"2.0\u001b[31m","future_field":1,"alerts":[{"key":"disk:/","message":"full\u0007","since":"2026-01-01T00:00:00Z"}]}`
+	req, _ := http.NewRequest("POST", p.agents.URL+agentapi.RouteReport, strings.NewReader(body))
+	resp, err := agent.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer agentapi.ReportResponse
+	_ = json.NewDecoder(resp.Body).Decode(&answer)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || answer.ReportEverySeconds != agentapi.DefaultReportGap || time.Since(answer.ServerTime) > time.Minute {
+		t.Fatalf("report: status %d, answer %+v", resp.StatusCode, answer)
+	}
+
+	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+"/v1/ctl/agents/web01", token, nil, &detail); status != http.StatusOK {
+		t.Fatalf("show: status %d", status)
+	}
+	if detail.Report == nil || detail.Report.Version != "2.0" || detail.Report.Alerts[0].Message != "full" {
+		t.Errorf("the report was not kept cleaned: %+v", detail.Report)
+	}
+	if detail.Status != "ONLINE" || detail.LastSeen == nil || detail.Version != "2.0" {
+		t.Errorf("agent = %+v: want ONLINE, seen, version 2.0", detail.Agent)
+	}
+	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+"/v1/ctl/agents/ghost", token, nil, nil); status != http.StatusNotFound {
+		t.Errorf("an unknown agent: status %d", status)
+	}
+	big := bytes.Repeat([]byte("x"), maxReportBody+1)
+	if status, _ := call(t, agent, "POST", p.agents.URL+agentapi.RouteReport, "", json.RawMessage(`"`+string(big)+`"`), nil); status != http.StatusRequestEntityTooLarge {
+		t.Errorf("a huge report: status %d", status)
+	}
+}
+
+func TestRenewGivesACertificateOnlyNearTheEndAndAnAgentAskingIsSeen(t *testing.T) {
+	p := newPlant(t)
+	token := p.signedIn()
+	cert := p.join(token, "web01")
+	_, request, err := pki.NewKeyAndCSR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fresh certificate has 90 days: too early.
+	if status, _ := call(t, p.client(&cert), "POST", p.agents.URL+agentapi.RouteRenew, "", agentapi.RenewRequest{CSR: string(request)}, nil); status != http.StatusBadRequest {
+		t.Errorf("renewing a fresh certificate: status %d, want 400", status)
+	}
+	if status, _ := call(t, p.client(nil), "POST", p.agents.URL+agentapi.RouteRenew, "", agentapi.RenewRequest{CSR: string(request)}, nil); status != http.StatusUnauthorized {
+		t.Errorf("renewing without a certificate: status %d, want 401", status)
+	}
+}
+
+func TestAlertsListsWhatIsOpen(t *testing.T) {
+	p := newPlant(t)
+	token := p.signedIn()
+	p.app.Alerts.Fire(context.Background(), "agent:web01", notify.Critical, "web01 is offline\x1b[31m", "")
+	var open []ctlapi.Alert
+	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+ctlapi.RouteAlerts, token, nil, &open); status != http.StatusOK {
+		t.Fatalf("status %d", status)
+	}
+	if len(open) != 1 || open[0].Key != "agent:web01" || open[0].Message != "web01 is offline" {
+		t.Errorf("alerts = %+v", open)
+	}
+	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+ctlapi.RouteAlerts, "", nil, nil); status != http.StatusUnauthorized {
+		t.Errorf("alerts without a session: status %d", status)
 	}
 }

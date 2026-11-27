@@ -68,6 +68,10 @@ func (s *Server) agentOnly(next func(w http.ResponseWriter, r *http.Request, age
 			internalError(w, r, err)
 			return
 		}
+		if err := s.app.Inventory.Seen(r.Context(), name, time.Now()); err != nil {
+			internalError(w, r, err)
+			return
+		}
 		next(w, r, caller{Name: name, NotAfter: leaf.NotAfter})
 	})
 }
@@ -75,4 +79,39 @@ func (s *Server) agentOnly(next func(w http.ResponseWriter, r *http.Request, age
 // whoAmI says whom the control plane takes the caller for: it proves a certificate works end to end.
 func (s *Server) whoAmI(w http.ResponseWriter, _ *http.Request, agent caller) {
 	writeJSON(w, http.StatusOK, agentapi.WhoAmI{Name: agent.Name, NotAfter: agent.NotAfter})
+}
+
+// report keeps what an agent says about itself. The report is not trusted: it comes from another machine,
+// so it is cleaned and bounded before it is kept (see inventory.SaveReport).
+func (s *Server) report(w http.ResponseWriter, r *http.Request, agent caller) {
+	var req agentapi.Report
+	if !readJSONLoose(w, r, maxReportBody, &req) {
+		return
+	}
+	now := time.Now()
+	if err := s.app.Inventory.SaveReport(r.Context(), agent.Name, req, now); err != nil {
+		internalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentapi.ReportResponse{ServerTime: now, ReportEverySeconds: agentapi.DefaultReportGap})
+}
+
+// renew signs a new certificate for the agent that shows a good one, when its own is near its end.
+func (s *Server) renew(w http.ResponseWriter, r *http.Request, agent caller) {
+	var req agentapi.RenewRequest
+	if !readJSON(w, r, maxRenewBody, &req) {
+		return
+	}
+	ctx := audit.WithActor(r.Context(), audit.Actor{Name: "agent:" + agent.Name, IP: clientIP(r)})
+	renewed, err := s.app.Enroll.Renew(ctx, agent.Name, agent.NotAfter, []byte(req.CSR))
+	switch {
+	case errors.Is(err, enroll.ErrTooEarly), errors.Is(err, enroll.ErrBadRequest):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, enroll.ErrCertRefused):
+		writeError(w, http.StatusUnauthorized, err.Error())
+	case err != nil:
+		internalError(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, agentapi.RenewResponse{Cert: string(renewed.CertPEM), NotAfter: renewed.NotAfter})
+	}
 }

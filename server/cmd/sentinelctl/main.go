@@ -52,7 +52,7 @@ Lần đầu:  sentinelctl login --url https://127.0.0.1:9321 --ca-fingerprint s
 	}
 	root.PersistentFlags().StringVar(&c.dir, "dir", "", "thư mục lưu ctl.yaml và phiên đăng nhập (mặc định ~/.config/sentinel)")
 	root.PersistentFlags().StringVarP(&c.output, "output", "o", "text", "định dạng đầu ra: text hoặc json")
-	root.AddCommand(newLoginCmd(c), newLogoutCmd(c), newPasswdCmd(c), newServerCmd(c), newAuditCmd(c))
+	root.AddCommand(newLoginCmd(c), newLogoutCmd(c), newPasswdCmd(c), newServerCmd(c), newAlertCmd(c), newAuditCmd(c))
 	return root
 }
 

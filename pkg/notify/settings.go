@@ -1,6 +1,11 @@
 package notify
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Settings are the notifiers: section of a config file. A notifier that is not there is nil.
 type Settings struct {
@@ -40,4 +45,46 @@ const DefaultHeartbeatEvery = 5 * time.Minute
 type HeartbeatSettings struct {
 	URL   string        `yaml:"url" validate:"omitempty,https_url"`
 	Every time.Duration `yaml:"every" validate:"omitempty,gte=1m"`
+}
+
+// Validate reports every problem in the settings at once. It is the check a program without a config
+// validator makes (the control plane); the agent checks the same rules with tags on these types. A
+// webhook URL must be https, because it usually is the secret itself.
+func (s Settings) Validate() error {
+	var errs []error
+	if t := s.Telegram; t != nil {
+		if t.Token == "" {
+			errs = append(errs, errors.New("notifiers.telegram.token is required"))
+		}
+		if t.ChatID == "" {
+			errs = append(errs, errors.New("notifiers.telegram.chat_id is required"))
+		}
+	}
+	if m := s.SMTP; m != nil {
+		if m.Host == "" {
+			errs = append(errs, errors.New("notifiers.smtp.host is required"))
+		}
+		if len(m.To) == 0 {
+			errs = append(errs, errors.New("notifiers.smtp.to needs at least 1 entry"))
+		}
+	}
+	for name, hook := range map[string]*WebhookSettings{"discord": s.Discord, "slack": s.Slack} {
+		if hook != nil && !strings.HasPrefix(hook.URL, "https://") {
+			errs = append(errs, fmt.Errorf("notifiers.%s.webhook must be an https:// URL", name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the heartbeat settings: an https URL (or none, which turns it off) and an interval of
+// a minute or more (or none, for the default).
+func (h HeartbeatSettings) Validate() error {
+	var errs []error
+	if h.URL != "" && !strings.HasPrefix(h.URL, "https://") {
+		errs = append(errs, errors.New("heartbeat.url must be an https:// URL"))
+	}
+	if h.Every != 0 && h.Every < time.Minute {
+		errs = append(errs, errors.New("heartbeat.every must be at least 1m"))
+	}
+	return errors.Join(errs...)
 }

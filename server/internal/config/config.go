@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
 	"sentinel/pkg/yamlenv"
 )
@@ -22,6 +23,7 @@ const (
 	DefaultListen       = ":9320"
 	DefaultCtlListen    = "127.0.0.1:9321"
 	DefaultOfflineAfter = 2 * time.Minute
+	DefaultCooldown     = time.Hour
 	minOfflineAfter     = 30 * time.Second
 )
 
@@ -38,11 +40,19 @@ type Config struct {
 	Hosts []string `yaml:"hosts"`
 	// OfflineAfter is how long an agent may be silent before it is called offline.
 	OfflineAfter time.Duration `yaml:"offline_after"`
+	// Notifiers are where the control plane sends its own alerts (an agent gone quiet, a certificate near
+	// its end). Without any, the alerts are only logged and shown by `sentinelctl alert`.
+	Notifiers notify.Settings `yaml:"notifiers"`
+	// Cooldown is how often an alert that is still open is sent again.
+	Cooldown time.Duration `yaml:"cooldown"`
+	// Heartbeat is a URL the control plane requests on a schedule, so a service outside this machine
+	// (healthchecks.io, Uptime Kuma) tells you when the control plane itself is down.
+	Heartbeat notify.HeartbeatSettings `yaml:"heartbeat"`
 }
 
 // Default is the configuration with nothing set but the defaults.
 func Default() Config {
-	return Config{Listen: DefaultListen, CtlListen: DefaultCtlListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter}
+	return Config{Listen: DefaultListen, CtlListen: DefaultCtlListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter, Cooldown: DefaultCooldown}
 }
 
 // Load reads a config file. A key that is not known is an error, so a typo does not go unnoticed.
@@ -59,6 +69,9 @@ func Parse(raw []byte) (*Config, error) {
 	cfg := Default()
 	if err := yamlenv.DecodeStrict(raw, &cfg, true); err != nil {
 		return nil, err
+	}
+	if cfg.Heartbeat.URL != "" && cfg.Heartbeat.Every == 0 {
+		cfg.Heartbeat.Every = notify.DefaultHeartbeatEvery
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -90,6 +103,15 @@ func (c Config) Validate() error {
 	}
 	if c.OfflineAfter < minOfflineAfter {
 		errs = append(errs, fmt.Errorf("offline_after: must be at least %s", minOfflineAfter))
+	}
+	if c.Cooldown < time.Minute {
+		errs = append(errs, errors.New("cooldown: must be at least 1m"))
+	}
+	if err := c.Notifiers.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := c.Heartbeat.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -179,5 +201,14 @@ hosts:
 		text += "  - " + strconv.Quote(host) + "\n"
 	}
 	text += fmt.Sprintf("# An agent that has not reported for this long is offline.\noffline_after: %s\n", cfg.OfflineAfter)
+	text += fmt.Sprintf(`# Where alerts go, and how often one that stays open is sent again. Write secrets as ${VAR} and keep
+# the values in the environment file. Without a notifier the alerts are logged and shown by sentinelctl alert.
+# notifiers:
+#   telegram: {token: ${TELEGRAM_TOKEN}, chat_id: "123456"}
+#   slack: {webhook: ${SLACK_WEBHOOK}}
+cooldown: %s
+# Request this URL every few minutes so an outside service can tell you when the control plane is down.
+# heartbeat: {url: ${HEARTBEAT_URL}, every: 5m}
+`, cfg.Cooldown)
 	return pki.WritePublic(path, []byte(text))
 }

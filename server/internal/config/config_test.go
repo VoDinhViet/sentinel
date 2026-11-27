@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sentinel/pkg/notify"
 	"strings"
 	"testing"
 	"time"
@@ -108,5 +109,25 @@ func TestTheExampleInDeployParses(t *testing.T) {
 	}
 	if cfg.JoinURL() != "https://ctl.example.com:9320" {
 		t.Errorf("JoinURL = %s", cfg.JoinURL())
+	}
+}
+
+func TestNotifiersAndHeartbeatAreCheckedAndGetDefaults(t *testing.T) {
+	cfg, err := Parse([]byte("hosts: [a.example.com]\nheartbeat: {url: \"https://hc-ping.com/x\"}\nnotifiers:\n  slack: {webhook: \"https://hooks.slack.com/x\"}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Heartbeat.Every != notify.DefaultHeartbeatEvery || cfg.Cooldown != DefaultCooldown {
+		t.Errorf("defaults: heartbeat every %s, cooldown %s", cfg.Heartbeat.Every, cfg.Cooldown)
+	}
+	for name, text := range map[string]string{
+		"a webhook over http":       "hosts: [a.example.com]\nnotifiers:\n  slack: {webhook: \"http://x\"}\n",
+		"a telegram without a chat": "hosts: [a.example.com]\nnotifiers:\n  telegram: {token: t}\n",
+		"a short cooldown":          "hosts: [a.example.com]\ncooldown: 5s\n",
+		"a heartbeat over http":     "hosts: [a.example.com]\nheartbeat: {url: \"http://x\"}\n",
+	} {
+		if _, err := Parse([]byte(text)); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }
