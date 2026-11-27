@@ -305,3 +305,28 @@ func TestTheLogOfATaskGoesInBatchesNotLineByLine(t *testing.T) {
 		}
 	})
 }
+
+func TestATaskThatCameAfterItsDeadlineIsNotRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		late := agentapi.Task{ID: 1, Action: agentapi.ActionBackupStop, ResultBy: time.Now().Add(-time.Second)}
+		ontime := agentapi.Task{ID: 2, Action: agentapi.ActionBackupStop, ResultBy: time.Now().Add(time.Minute)}
+		control := newFakeTasks([]agentapi.Task{late}, []agentapi.Task{ontime})
+		var ran []int64
+		runner := runnerFunc(func(ctx context.Context, task agentapi.Task, log func(string)) agentapi.TaskResult {
+			ran = append(ran, task.ID)
+			return done(ctx, task, log)
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		finished := make(chan struct{})
+		go func() { (&Worker{Client: control, Runner: runner}).Loop(ctx); close(finished) }()
+		synctest.Wait()
+		cancel()
+		<-finished
+		if len(ran) != 1 || ran[0] != 2 {
+			t.Errorf("ran %v, want only task 2", ran)
+		}
+		if _, sent := control.result(1); sent {
+			t.Error("a result was sent for a task the control plane had already given up on")
+		}
+	})
+}

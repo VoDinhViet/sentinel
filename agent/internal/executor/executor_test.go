@@ -25,13 +25,14 @@ func TestMain(m *testing.M) {
 
 // fakeBackend records what it was asked and answers what the test set.
 type fakeBackend struct {
-	calls     []string
-	startErr  error
-	stopErr   error
-	snapshots []restic.Snapshot
-	listErr   error
-	findings  []doctor.Finding
-	jobs      []app.JobRepository
+	calls        []string
+	startErr     error
+	stopErr      error
+	snapshots    []restic.Snapshot
+	listErr      error
+	findings     []doctor.Finding
+	jobs         []app.JobRepository
+	doctorPanics bool
 }
 
 func (f *fakeBackend) StartBackup(job, repo string) (int, string, error) {
@@ -53,6 +54,9 @@ func (f *fakeBackend) JobRepositories() []app.JobRepository { return f.jobs }
 
 func (f *fakeBackend) Doctor(context.Context) []doctor.Finding {
 	f.calls = append(f.calls, "doctor")
+	if f.doctorPanics {
+		panic("a bug in a check")
+	}
 	return f.findings
 }
 
@@ -275,6 +279,14 @@ func TestTheResultHasItsTimesAndIsCleaned(t *testing.T) {
 	e.Now = func() time.Time { return now }
 	result, _ := run(e, task(agentapi.ActionDoctorRun, nil))
 	if !result.StartedAt.Equal(now) || !result.FinishedAt.Equal(now) || strings.ContainsRune(result.Output, 0x1b) {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestAPanicInATaskEndsItAsFailedInsteadOfTakingTheDaemonDown(t *testing.T) {
+	backend := &fakeBackend{doctorPanics: true}
+	result := loose(backend, config.Allow{Doctor: true}).Run(context.Background(), agentapi.Task{ID: 1, Action: agentapi.ActionDoctorRun}, func(string) {})
+	if result.State != agentapi.TaskFailed || result.Error == "" {
 		t.Errorf("result = %+v", result)
 	}
 }

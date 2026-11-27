@@ -142,6 +142,12 @@ func sleep(ctx context.Context, d time.Duration) {
 // handle runs a task and sends its result. The lines the task logs are sent in batches, so a task that
 // says a lot does not use up the control plane's limit on calls and make its own result wait.
 func (w *Worker) handle(ctx context.Context, task agentapi.Task) {
+	if !task.ResultBy.IsZero() && w.now().After(task.ResultBy) {
+		// The control plane has given up on it (it expired) and would refuse the result. Running it now would do
+		// something its operator has already been told did not happen.
+		slog.Warn("control plane: a task came too late and was not run", "task", task.ID, "action", task.Action, "result_by", task.ResultBy)
+		return
+	}
 	batch := &logBatch{}
 	flushed := make(chan struct{})
 	stop := make(chan struct{})

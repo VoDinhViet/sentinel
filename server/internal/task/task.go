@@ -30,8 +30,11 @@ const (
 	MaxOpen = 20
 	// Retention is how long a finished task, with its log, is kept.
 	Retention = 30 * 24 * time.Hour
-	// claimBatch is the most tasks one poll returns.
-	claimBatch = 5
+	// claimBatch is the most tasks one poll returns. The agent runs them one at a time and a task's result_by
+	// counts from the moment it is sent, so a second one would be waiting out its own deadline behind the first.
+	claimBatch = 1
+	// MaxLogLines is the most lines of log one task keeps; the characters are capped too (agentapi.MaxTaskLog).
+	MaxLogLines = 2000
 )
 
 var (
@@ -207,10 +210,12 @@ func (s *Service) Poll(ctx context.Context, agent string, wait time.Duration) ([
 	for {
 		tasks, err := s.claim(ctx, agent)
 		switch {
+		case err == nil && len(tasks) > 0: // committed: they are sent, so hand them over even if the poll has just ended
+			return tasks, nil
 		case ctx.Err() != nil: // the poll ended (the agent left, a newer poll replaced it): claim rolled back
 			return nil, nil
-		case err != nil || len(tasks) > 0:
-			return tasks, err
+		case err != nil:
+			return nil, err
 		}
 		select {
 		case <-woken:
@@ -338,10 +343,20 @@ func (s *Service) AppendLog(ctx context.Context, agent string, id int64, text st
 		if logged+length > agentapi.MaxTaskLog {
 			return ErrLogFull
 		}
+		var lines []string
 		for _, line := range strings.Split(text, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
+			if strings.TrimSpace(line) != "" {
+				lines = append(lines, line)
 			}
+		}
+		var kept int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_logs WHERE task = ?`, id).Scan(&kept); err != nil {
+			return fmt.Errorf("count log lines: %w", err)
+		}
+		if kept+len(lines) > MaxLogLines {
+			return ErrLogFull
+		}
+		for _, line := range lines {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO task_logs (task, seq, at, text)
 				VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_logs WHERE task = ?), ?, ?)`, id, id, now.Unix(), line); err != nil {
 				return fmt.Errorf("save log: %w", err)
@@ -381,7 +396,7 @@ func (s *Service) Expire(ctx context.Context, now time.Time) error {
 		for _, task := range tasks {
 			reason := "the server did not take it in time"
 			if task.state == agentapi.TaskSent {
-				reason = "the server sent no result in time"
+				reason = "the server gave no answer in time (it may never have got the task)"
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET state = 'expired', finished_at = ?, error = ? WHERE id = ?`, now.Unix(), reason, task.id); err != nil {
 				return fmt.Errorf("expire task: %w", err)
@@ -484,6 +499,9 @@ func (s *Service) Run(ctx context.Context) error {
 	expire, prune := time.NewTicker(30*time.Second), time.NewTicker(time.Hour)
 	defer expire.Stop()
 	defer prune.Stop()
+	if err := s.Prune(ctx, time.Now()); err != nil && ctx.Err() == nil { // a control plane that restarts often must still prune
+		slog.Error("prune tasks", "err", err)
+	}
 	for {
 		select {
 		case <-ctx.Done():

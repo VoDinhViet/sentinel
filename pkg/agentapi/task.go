@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"sentinel/pkg/redact"
 	"sentinel/pkg/termtext"
 )
 
@@ -149,8 +150,8 @@ func ValidState(state string) bool {
 // Clean returns the result with its texts stripped of escape sequences and control characters and cut to
 // the limits. Whoever receives a result from an agent calls it before keeping or showing it.
 func (r TaskResult) Clean() TaskResult {
-	r.Output = termtext.Shorten(termtext.Clean(r.Output), MaxTaskOutput)
-	r.Error = termtext.Shorten(termtext.Line(r.Error), MaxTaskError)
+	r.Output = termtext.Shorten(termtext.Clean(redact.Text(r.Output)), MaxTaskOutput)
+	r.Error = termtext.Shorten(termtext.Line(redact.Text(r.Error)), MaxTaskError)
 	return r
 }
 
@@ -159,5 +160,8 @@ type TaskLog struct {
 	Text string `json:"text"`
 }
 
-// CleanText returns text stripped of escape sequences and control characters, cut to limit characters.
-func CleanText(text string, limit int) string { return termtext.Shorten(termtext.Clean(text), limit) }
+// CleanText returns text with credentials masked, stripped of escape sequences and control characters, and cut
+// to limit characters. An agent masks its own text first; this is the second line, for an agent that did not.
+func CleanText(text string, limit int) string {
+	return termtext.Shorten(termtext.Clean(redact.Text(text)), limit)
+}

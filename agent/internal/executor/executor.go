@@ -79,7 +79,15 @@ func (e *Executor) Run(ctx context.Context, task agentapi.Task, log func(line st
 	return result.Clean()
 }
 
-func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line string)) agentapi.TaskResult {
+// run is Run without its bookkeeping. A panic in the code a task calls ends that task as failed: the daemon, with
+// its scheduled backups, must not go down with it.
+func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line string)) (result agentapi.TaskResult) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Error("task panicked", "task", task.ID, "action", task.Action, "panic", recovered)
+			result = agentapi.TaskResult{State: agentapi.TaskFailed, Error: "the task stopped on an internal error; see the log of this server"}
+		}
+	}()
 	if err := agentapi.ValidateTask(task.Action, task.Params); err != nil {
 		return refused("the task is not one this agent knows: " + err.Error())
 	}

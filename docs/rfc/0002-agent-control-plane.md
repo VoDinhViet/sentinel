@@ -137,11 +137,11 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 | `GET /v1/agent/whoami` | → `{name, cert_not_after}`: control plane đọc tên từ cert; dùng để kiểm tra cert hoạt động |
 | `POST /v1/agent/report` | `{version, sent_at, host, backups, checks, alerts}` → `{server_time, report_every_s}`; body tối đa 512 KiB, mỗi danh sách tối đa 200 phần tử, mọi chuỗi qua `termtext.Clean` và bị cắt; trường lạ được bỏ qua (agent mới hơn server vẫn báo được) |
 | `POST /v1/agent/renew` | `{csr}` → `{cert, not_after}`; chỉ khi cert hiện tại còn dưới 45 ngày và agent chưa được cấp cert nào trong giờ qua (429 nếu có: chặn vòng lặp làm đầy bảng `certs` và audit); cert cũ vẫn dùng được cho đến khi agent đưa cert mới ra lần đầu, lúc đó các cert cũ hơn của nó bị thu hồi (bản sao khoá cũ hết tác dụng, và `server ls` hiện hạn của cert đang dùng chứ không phải của cert đã cấp mà agent chưa nhận) |
-| `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]`; việc `queued` chuyển sang `sent` trong một transaction |
+| `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]`; mỗi lần poll giao tối đa một việc (`queued` chuyển sang `sent` trong một transaction), vì `result_by` tính từ lúc giao mà agent chạy từng việc một; việc đến sau hạn `result_by` thì agent không chạy |
 | `POST /v1/agent/tasks/{id}/result` | `{state, started_at, finished_at, output, error}` → 204; chỉ nhận một lần, chỉ từ agent được giao việc (agent khác nhận 404), thời điểm bắt đầu bị kẹp giữa `sent_at` và bây giờ |
-| `POST /v1/agent/tasks/{id}/log` | một đoạn log (tối đa 16 KiB; nhiều dòng thì mỗi dòng một bản ghi), mỗi task tối đa 256 KiB |
+| `POST /v1/agent/tasks/{id}/log` | một đoạn log (tối đa 16 KiB; nhiều dòng thì mỗi dòng một bản ghi), mỗi task tối đa 256 KiB và 2000 dòng |
 
-Phía `sentinelctl`: `GET|POST /v1/ctl/tasks`, `GET|DELETE /v1/ctl/tasks/{id}` (DELETE huỷ việc còn `queued`) và `GET /v1/ctl/tasks/{id}/events` (SSE: `state`, `log`, `done`; `Last-Event-ID` nối lại từ dòng log đã nhận).
+Phía `sentinelctl`: `GET|POST /v1/ctl/tasks`, `GET|DELETE /v1/ctl/tasks/{id}` (DELETE huỷ việc còn `queued`) và `GET /v1/ctl/tasks/{id}/events` (SSE: `state`, `log`, `done`; `Last-Event-ID` nối lại từ dòng log đã nhận; tối đa 10 stream cùng lúc, mỗi phút kiểm tra lại phiên nên đổi mật khẩu cũng cắt stream, và tắt server thì stream và long-poll kết thúc ngay). Server cũng chạy `restic.Redact` (nay là `pkg/redact`) trên output, lỗi và log của task: agent là lớp thứ nhất, server là lớp thứ hai.
 
 - `backups` là lần chạy mới nhất của từng job vào từng repository. Lịch sử các lần chạy (`backup_runs` với cursor) và `host_samples` thuộc giai đoạn 14, vì khi đó agent gửi lại từ cursor 0 nên không mất gì.
 - `allow` trong report là các action mà `control_plane.allow` của agent đang cho phép; `sentinelctl server show` in ra, để biết trước việc nào sẽ bị `refused`. Control plane không chặn trước: agent mới là nơi quyết định.

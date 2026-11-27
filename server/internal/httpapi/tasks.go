@@ -221,15 +221,26 @@ const (
 	eventsKeepAlive = 15 * time.Second
 	eventsMaxTime   = 20 * time.Minute
 	eventsWriteWait = 15 * time.Second
+	// eventsReauth is how often a stream asks again whether its session is still there, so that a password
+	// change (which ends every session) ends the streams too; maxStreams is how many may be open at once.
+	eventsReauth = time.Minute
+	maxStreams   = 10
 )
 
 // taskEvents streams a task as server-sent events: its state when it changes, each line of its log (the
 // id of the event is the number of the line, so Last-Event-ID resumes), and "done" with the task as it ended.
-func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request, _ session) {
+func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request, who session) {
 	id, ok := taskID(w, r)
 	if !ok {
 		return
 	}
+	if s.streams.Add(1) > maxStreams {
+		s.streams.Add(-1)
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusTooManyRequests, "too many task streams are open: close one, or wait")
+		return
+	}
+	defer s.streams.Add(-1)
 	after, _ := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
 	if _, err := s.app.Tasks.Get(r.Context(), id); err != nil {
 		taskError(w, r, err)
@@ -244,8 +255,14 @@ func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request, _ session) {
 	defer deadline.Stop()
 	tick := time.NewTicker(eventsEvery)
 	defer tick.Stop()
-	lastWrite, lastState := time.Now(), ""
+	lastWrite, lastState, lastAuth := time.Now(), "", time.Now()
 	for {
+		if time.Since(lastAuth) >= eventsReauth {
+			if _, err := s.app.Auth.Authenticate(r.Context(), who.Token); err != nil {
+				return // the session ended (or the store failed): the client asks again and is told
+			}
+			lastAuth = time.Now()
+		}
 		// The task is read before its log: a task seen finished has all its log, so no line is missed.
 		current, err := s.app.Tasks.Get(r.Context(), id)
 		if err != nil {

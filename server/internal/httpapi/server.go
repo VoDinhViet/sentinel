@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"sentinel/pkg/agentapi"
@@ -39,6 +40,8 @@ type Server struct {
 	// reports about once a minute, polls once in 25 seconds, and may call a few times at once (a task's
 	// result and the lines of its log, whoami, report, renew).
 	agentLimit *ratelimit.Limiter
+	// streams is how many task event streams are open: each one reads the database every second.
+	streams atomic.Int32
 }
 
 func New(a *app.App) *Server {
@@ -86,7 +89,12 @@ const shutdownWait = 5 * time.Second
 // Serve answers on ln (already TLS) until ctx is done, then shuts down gracefully. The caller
 // listens, so a port that is taken is found at startup and not in the background.
 func Serve(ctx context.Context, ln net.Listener, handler http.Handler) error {
+	// Every request context comes from here, so a stream or a long poll ends when the server is told to stop
+	// instead of holding the shutdown until its own deadline.
+	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer endRequests()
 	srv := &http.Server{
+		BaseContext:       func(net.Listener) context.Context { return requests },
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -101,6 +109,7 @@ func Serve(ctx context.Context, ln net.Listener, handler http.Handler) error {
 		return err
 	case <-ctx.Done():
 	}
+	endRequests()
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownWait)
 	defer cancel()
 	if err := srv.Shutdown(stopCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {

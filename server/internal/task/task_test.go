@@ -115,12 +115,18 @@ func TestPollSendsWaitingTasksOnceAndInOrder(t *testing.T) {
 		first := q.create(t, "web01", agentapi.ActionBackupStart, map[string]string{"job": "a"})
 		second := q.create(t, "web01", agentapi.ActionBackupStop, map[string]string{"job": "a"})
 		q.create(t, "db01", agentapi.ActionDoctorRun, nil)
+		// One task per poll: each one's result_by counts from the moment it is sent, so a task must not
+		// be sent while the agent is still busy with the one before it.
 		sent, err := q.Poll(ctl, "web01", time.Second)
-		if err != nil || len(sent) != 2 || sent[0].ID != first.ID || sent[1].ID != second.ID {
+		if err != nil || len(sent) != 1 || sent[0].ID != first.ID {
 			t.Fatalf("sent = %+v, err %v", sent, err)
 		}
-		if want := time.Now().Add(agentapi.Timeout(agentapi.ActionBackupStart) + agentapi.ResultGrace); !sent[0].ResultBy.Equal(want.Truncate(time.Second)) && sent[0].ResultBy.Sub(want).Abs() > time.Second {
-			t.Errorf("result_by = %s, want about %s", sent[0].ResultBy, want)
+		if want := time.Now().Add(agentapi.Timeout(agentapi.ActionBackupStart) + agentapi.ResultGrace); !sent[0].ResultBy.Equal(want) {
+			t.Errorf("result_by = %s, want %s", sent[0].ResultBy, want)
+		}
+		next, err := q.Poll(ctl, "web01", time.Second)
+		if err != nil || len(next) != 1 || next[0].ID != second.ID {
+			t.Fatalf("the second poll sent %+v, err %v", next, err)
 		}
 		if again, err := q.Poll(ctl, "web01", time.Second); err != nil || len(again) != 0 {
 			t.Errorf("the same tasks were sent twice: %+v, %v", again, err)
@@ -288,7 +294,7 @@ func TestExpireEndsWhatWaitedTooLongAndWhatWasNeverAnswered(t *testing.T) {
 	if err := q.Expire(ctl, later); err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[int64]string{waiting.ID: "did not take", lost.ID: "no result", fresh.ID: "did not take"} {
+	for id, want := range map[int64]string{waiting.ID: "did not take", lost.ID: "no answer", fresh.ID: "did not take"} {
 		got, _ := q.Get(ctl, id)
 		if got.State != agentapi.TaskExpired || !strings.Contains(got.Error, want) || got.FinishedAt == nil {
 			t.Errorf("task %d = %s %q", id, got.State, got.Error)
@@ -400,5 +406,74 @@ func TestAPieceOfLogWithSeveralLinesIsKeptAsOneRowPerLine(t *testing.T) {
 	lines, err := q.Log(ctl, created.ID, 0)
 	if err != nil || len(lines) != 3 || lines[0].Text != "one" || lines[1].Text != "two" || lines[2].Text != "three" || lines[2].Seq != 3 {
 		t.Fatalf("lines = %+v, err %v", lines, err)
+	}
+}
+
+func TestTheLogOfATaskIsLimitedInLinesAsWellAsInCharacters(t *testing.T) {
+	q := newQueue(t)
+	created := q.create(t, "web01", agentapi.ActionDoctorRun, nil)
+	_, _ = q.Poll(ctl, "web01", time.Second)
+	if err := q.AppendLog(ctl, "web01", created.ID, strings.Repeat("a\n", MaxLogLines)); err != nil {
+		t.Fatalf("a log that fills the lines exactly: %v", err)
+	}
+	if err := q.AppendLog(ctl, "web01", created.ID, "one more"); !errors.Is(err, ErrLogFull) {
+		t.Errorf("a line past the limit: %v", err)
+	}
+	if lines, _ := q.Log(ctl, created.ID, 0); len(lines) != MaxLogLines {
+		t.Errorf("%d lines kept, want %d", len(lines), MaxLogLines)
+	}
+}
+
+// Two polls of one agent at the same moment must not both be given the same task: the claim is one
+// transaction. (A newer poll cancels the older, so what matters is that nothing is sent twice.)
+func TestATaskIsNeverSentTwiceWhenPollsRace(t *testing.T) {
+	q := newQueue(t)
+	for range 4 {
+		q.create(t, "web01", agentapi.ActionDoctorRun, nil)
+	}
+	var mu sync.Mutex
+	seen := map[int64]int{}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sent, _ := q.claim(ctl, "web01")
+			mu.Lock()
+			defer mu.Unlock()
+			for _, task := range sent {
+				seen[task.ID]++
+			}
+		}()
+	}
+	wg.Wait()
+	for id, times := range seen {
+		if times != 1 {
+			t.Errorf("task %d was claimed %d times", id, times)
+		}
+	}
+	if len(seen) != 4 {
+		t.Errorf("%d tasks claimed, want 4", len(seen))
+	}
+}
+
+func TestTwoResultsForOneTaskAreNotBothTaken(t *testing.T) {
+	q := newQueue(t)
+	created := q.create(t, "web01", agentapi.ActionDoctorRun, nil)
+	_, _ = q.Poll(ctl, "web01", time.Second)
+	var accepted atomic.Int32
+	var wg sync.WaitGroup
+	for range 6 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if q.Result(ctl, "web01", created.ID, agentapi.TaskResult{State: agentapi.TaskSucceeded}) == nil {
+				accepted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if accepted.Load() != 1 {
+		t.Errorf("%d results were taken for one task", accepted.Load())
 	}
 }

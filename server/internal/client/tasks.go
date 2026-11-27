@@ -100,7 +100,11 @@ const (
 func (c *Client) FollowTask(ctx context.Context, id int64, onEvent func(TaskEvent) error) (ctlapi.Task, error) {
 	lastLine, failures := "", 0
 	for {
+		before := lastLine
 		task, ended, err := c.followOnce(ctx, id, &lastLine, onEvent)
+		if lastLine != before { // the stream gave lines before it was cut: the cuts counted are in a row
+			failures = 0
+		}
 		switch {
 		case ended:
 			return task, nil

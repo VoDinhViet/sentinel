@@ -320,3 +320,41 @@ func TestTheEventsOfARunningTaskFollowItToTheEnd(t *testing.T) {
 		t.Fatal("the stream did not end when the task did")
 	}
 }
+
+func TestOnlyAFewTaskStreamsCanBeOpenAtOnce(t *testing.T) {
+	p := newPlant(t)
+	token := p.signedIn()
+	cert := p.join(token, "web01")
+	agent := p.client(&cert)
+	created := p.queue(token, "web01", agentapi.ActionDoctorRun, nil)
+	p.take(agent, "1s") // sent and never answered: the stream stays open
+	route := fmt.Sprintf("/v1/ctl/tasks/%d/events", created.ID)
+	open := func() *http.Response {
+		req, _ := http.NewRequest("GET", p.ctl.URL+route, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := p.client(nil).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	var held []*http.Response
+	defer func() {
+		for _, resp := range held {
+			resp.Body.Close()
+		}
+	}()
+	for range maxStreams {
+		resp := open()
+		held = append(held, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("stream %d: status %d", len(held), resp.StatusCode)
+		}
+	}
+	over := open()
+	defer over.Body.Close()
+	if over.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("stream %d: status %d, want 429", maxStreams+1, over.StatusCode)
+	}
+	held[0].Body.Close() // one closes: the room is free again (the server notices when its write fails)
+}

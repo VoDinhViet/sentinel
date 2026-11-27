@@ -100,3 +100,12 @@ func TestResultCleanDropsEscapesKeepsLinesAndCuts(t *testing.T) {
 		t.Errorf("output has %d runes", len([]rune(big.Output)))
 	}
 }
+
+func TestAResultAndALogAreMaskedEvenWhenTheAgentDidNotMaskThem(t *testing.T) {
+	result := TaskResult{State: TaskFailed, Output: "repo s3:https://user:hunter2@host/bucket", Error: "AWS_SECRET_ACCESS_KEY=abcd1234 was refused"}.Clean()
+	for _, text := range []string{result.Output, result.Error, CleanText("password=hunter2", 100)} {
+		if strings.Contains(text, "hunter2") || strings.Contains(text, "abcd1234") {
+			t.Errorf("a secret is still in %q", text)
+		}
+	}
+}
