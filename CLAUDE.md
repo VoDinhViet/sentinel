@@ -19,7 +19,7 @@ operators use.
 - No AI/LLM features in the product: status and alerts are rule-based (thresholds, schedules).
 - README and runbooks are Vietnamese, and so are the command and flag descriptions in `--help` and the screens of `sentinel manage` and `sentinel init` (technical terms such as job, backup, snapshot, restore, repository, retention and schedule stay in English); log lines, restic/engine errors, code, comments and commit messages are English.
 - Layout follows go.dev/doc/modules/layout, inside each module: `agent/cmd/sentinel` holds thin cobra commands, `agent/internal/` packages are flat and split by responsibility, and `agent/internal/app` is the service the CLI, the manager and the API all call. In `agent/internal/tui` each screen opened over the tabs (help, delete, snapshots, restore, busy, form, folder browser) is a `screen` in `screen.go`, kept in a stack on the model: push to open, pop to close. Prefer the standard library over a new dependency.
-- **Remote actions are a fixed table** in `pkg/agentapi` (until `pkg/` exists, in the package that holds the wire types). Never add
+- **Remote actions are a fixed table** in `pkg/agentapi`. Never add
   an action that runs a shell or takes a path, a package name or a free-form command. The agent's local allowlist
   (`control_plane.allow`, everything off by default) has the last word; the control plane cannot widen it.
 - `internal/app` (agent) and `server/internal/app` are the services their CLI, TUI and HTTP layers call; `server/internal/httpapi`
