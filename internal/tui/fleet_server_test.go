@@ -39,7 +39,7 @@ func openServerScreen(t *testing.T, index int) (manageModel, *int) {
 func TestEnterOnAServerOpensItsAlertsBackupsAndChecks(t *testing.T) {
 	screen, _ := openServerScreen(t, 1)
 	view := plain(screen.render())
-	for _, want := range []string{"db-01", "ALERT", "v1.1.0", "1 Alerts 1", "2 Backups 2", "3 Uptime 2", "stale:shop", "no backup for 3 days"} {
+	for _, want := range []string{"db-01", "ALERT", "v1.1.0", "1 Alerts 1", "2 Backups 2", "3 Uptime 2", "4 Máy", "stale:shop", "no backup for 3 days"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the screen lacks %q:\n%s", want, view)
 		}
@@ -87,8 +87,8 @@ func TestTheScreenOfAServerMovesAndClosesWithKeys(t *testing.T) {
 		t.Errorf("the cursor left the 2 backups: %d", got)
 	}
 	screen = keys(t, screen, "shift+tab", "shift+tab")
-	if got := screen.top().(fleetServerScreen).part; got != serverChecksPart {
-		t.Errorf("two steps back from Backups is %d, want Uptime (wrapping)", got)
+	if got := screen.top().(fleetServerScreen).part; got != serverHostPart {
+		t.Errorf("two steps back from Backups is %d, want the machine (wrapping)", got)
 	}
 	if screen = keys(t, screen, "esc"); !screen.onTabs() || screen.tab != fleetTab {
 		t.Error("esc must go back to the Fleet tab")

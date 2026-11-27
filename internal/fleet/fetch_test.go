@@ -131,3 +131,21 @@ func TestPollReadsTheFileEachTimeAndAsksItsServers(t *testing.T) {
 		t.Errorf("statuses = %+v, err = %v", statuses, err)
 	}
 }
+
+func TestReadHostAsksOneServerForItsMachine(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/host" || r.Header.Get("Authorization") != "Bearer "+goodToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`{"hostname":"web-01","cpus":2}`))
+	}))
+	defer srv.Close()
+	host, err := ReadHost(context.Background(), Server{Name: "web-01", URL: srv.URL, Token: goodToken})
+	if err != nil || host.Hostname != "web-01" || host.CPUs != 2 {
+		t.Errorf("host = %+v, err = %v", host, err)
+	}
+	if _, err := ReadHost(context.Background(), Server{Name: "bad-ca", URL: "https://x", Token: goodToken, TLSCA: "/nowhere.pem"}); err == nil {
+		t.Error("a bad tls_ca was accepted")
+	}
+}

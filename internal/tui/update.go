@@ -87,6 +87,8 @@ func (m manageModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostReadMsg:
 		m.server.reading, m.server.report = false, msg.report
 		m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
+	case fleetHostReadMsg:
+		return m.afterFleetHostRead(msg), nil
 	case fleetReadMsg:
 		next := m.afterFleetRead(msg)
 		if m.fleetOnly {

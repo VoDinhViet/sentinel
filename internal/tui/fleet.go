@@ -32,6 +32,7 @@ type fleetState struct {
 	servers []fleet.ServerStatus
 	err     error
 	readAt  time.Time
+	host    fleetHostState // the machine of the server whose screen is open
 }
 
 // startFleetIfNeeded starts the first round when the Fleet tab is on screen. Update calls it after
@@ -68,7 +69,7 @@ func (m manageModel) askFleet() tea.Cmd {
 // newFleetModel is the manager of `sentinel fleet`. Its first round starts with the program (Init),
 // so it is marked as under way from the start.
 func newFleetModel(ctx context.Context, poll func(context.Context) ([]fleet.ServerStatus, error)) manageModel {
-	m := newManageModel(ctx, nil, manageActions{fleet: poll}, nil)
+	m := newManageModel(ctx, nil, manageActions{fleet: poll, fleetHost: fleet.ReadHost}, nil)
 	m.fleetOnly, m.tab = true, fleetTab
 	m.fleet.started, m.fleet.reading = true, true
 	m.report.Server = "fleet"
@@ -93,7 +94,9 @@ func (m manageModel) refreshFleet() (manageModel, tea.Cmd) {
 	if !m.fleetOnShow() {
 		return m, nil
 	}
-	return m.startFleet()
+	next, askServers := m.startFleet()
+	next, askMachine := next.refreshFleetHost()
+	return next, tea.Batch(askServers, askMachine)
 }
 
 // fleetOnShow says the Fleet tab or the screen of one server is what the person is looking at.

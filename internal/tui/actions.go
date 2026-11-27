@@ -52,6 +52,8 @@ type manageActions struct {
 	host func(ctx context.Context) app.HostReport
 	// fleet asks the servers of the fleet file for their reports (the Fleet tab).
 	fleet func(ctx context.Context) ([]fleet.ServerStatus, error)
+	// fleetHost reads the machine of one server of the fleet (the screen of that server).
+	fleetHost func(ctx context.Context, server fleet.Server) (fleet.HostStatus, error)
 	// initialize writes a first config file (`sentinel init`).
 	initialize func(initial configedit.Initial) error
 }
@@ -79,5 +81,6 @@ func newManageActions(svc *app.Service) manageActions {
 		testNotifier:     svc.TestNotifier,
 		host:             svc.Host,
 		fleet:            func(ctx context.Context) ([]fleet.ServerStatus, error) { return fleet.Poll(ctx, "") },
+		fleetHost:        fleet.ReadHost,
 	}
 }

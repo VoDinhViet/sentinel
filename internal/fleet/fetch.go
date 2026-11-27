@@ -63,3 +63,14 @@ func fetchOne(ctx context.Context, server Server) ServerStatus {
 	answer.FetchedAt = time.Now()
 	return answer
 }
+
+// ReadHost asks one server how its machine is doing. It is a call of its own, not part of Fetch:
+// reading a machine runs systemctl there, which is fine for the one server somebody is looking
+// at and too much for the whole list every few seconds.
+func ReadHost(ctx context.Context, server Server) (HostStatus, error) {
+	client, err := NewClient(server)
+	if err != nil {
+		return HostStatus{}, err
+	}
+	return client.Host(ctx)
+}
