@@ -177,6 +177,31 @@ Lỗi trả về dạng `{"error": "..."}`: `404` khi job hoặc repository khô
 curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:9311/api/v1/status
 ```
 
+## Nhiều server
+
+Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Chưa có lệnh xem chung nhiều server; thiết kế dự kiến nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md) (máy xem gọi API của từng daemon, không có server trung tâm). Trong lúc chờ, ba việc sau dùng được ngay:
+
+1. **Heartbeat trên mọi server.** Đặt `heartbeat.url` (xem phần đầu); dịch vụ bên ngoài báo khi daemon của bất kỳ server nào ngừng gọi.
+2. **Server này gọi `/healthz` của server kia** bằng uptime check có sẵn, để biết daemon bên kia còn trả lời không:
+
+   ```yaml
+   uptime:
+     - name: sentinel-web01
+       type: http
+       url: http://10.8.0.11:9311/healthz
+       fail_after: 3
+   ```
+
+   Cách này chỉ cho biết daemon có trả lời, không cho biết job nào lỗi. `/healthz` không cần token.
+3. **Xem trạng thái từ máy khác qua SSH tunnel**, không mở API ra mạng (API vẫn nghe trên `127.0.0.1`):
+
+   ```sh
+   ssh -N -L 19311:127.0.0.1:9311 web01 &
+   curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:19311/api/v1/status
+   ```
+
+   Mỗi server dùng một cổng cục bộ khác nhau (19311, 19312...) và một token riêng.
+
 ## Khôi phục dữ liệu
 
 `sentinel backup restore` đưa snapshot ra thư mục `--target`, rồi in lệnh để nạp lại vào database:
