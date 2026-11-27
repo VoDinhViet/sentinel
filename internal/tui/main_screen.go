@@ -31,14 +31,14 @@ func (m manageModel) renderMain() []string {
 	width, height := m.width+frameCols, m.height+frameRows
 	tabs := m.tabs()
 	tab := tabs[m.tab]
-	panels := m.loaded && width >= topPanelsMinWidth && height >= topPanelsMinHeight
+	panels := m.loaded && !m.fleetOnly && width >= topPanelsMinWidth && height >= topPanelsMinHeight
 
 	screenLines := []string{m.titleLine(width)}
 	switch {
 	case panels:
 		screenLines = append(screenLines, m.renderTopPanels(width)...)
 	case m.loaded:
-		screenLines = append(screenLines, " "+m.summary())
+		screenLines = append(screenLines, " "+m.mainSummary())
 	default:
 		screenLines = append(screenLines, "")
 	}
@@ -76,6 +76,14 @@ func (m manageModel) titleLine(width int) string {
 	return left
 }
 
+// mainSummary is the line under the title of a screen without the overview panels.
+func (m manageModel) mainSummary() string {
+	if m.fleetOnly {
+		return m.fleetSummary()
+	}
+	return m.summary()
+}
+
 // positionText is "2/5": which line of the tab is selected.
 func (m manageModel) positionText(tab manageTab) string {
 	if len(tab.lines) == 0 {
@@ -107,6 +115,9 @@ func (m manageModel) footerKeys(tab manageTab) []string {
 		keys = append(keys, "tab", "chuyển")
 	case fleetTab:
 		keys = []string{"enter", "chi tiết", "tab", "chuyển", "↑↓", "chọn", "r", "hỏi lại"}
+		if m.fleetOnly {
+			keys = []string{"enter", "chi tiết", "↑↓", "chọn", "r", "hỏi lại"}
+		}
 	default:
 		keys = []string{"tab", "chuyển", "↑↓", "chọn", "r", "làm mới"}
 	}
@@ -123,14 +134,16 @@ func (m manageModel) tabTitle(tabs []manageTab, limit int) (string, []tabSpan) {
 	var pills []string
 	var spans []tabSpan
 	column := 0
-	for i, label := range m.tabLabels(tabs, limit) {
+	shown := m.shownTabs()
+	for position, label := range m.tabLabels(tabs, limit) {
 		label = " " + label + " "
-		spans = append(spans, tabSpan{tab: i, from: column, width: lipgloss.Width(label)})
+		kind := shown[position]
+		spans = append(spans, tabSpan{tab: kind, from: column, width: lipgloss.Width(label)})
 		column += lipgloss.Width(label) + lipgloss.Width(gap)
 		switch {
-		case i == m.tab:
+		case kind == m.tab:
 			pills = append(pills, activeTab.Render(label))
-		case tabs[i].alarm:
+		case tabs[kind].alarm:
 			pills = append(pills, severityStyle(sevBad).Render(label))
 		default:
 			pills = append(pills, dimStyle.Render(label))
@@ -155,13 +168,13 @@ func (m manageModel) tabLabels(tabs []manageTab, limit int) []string {
 // labelsOf are the tab labels with or without the counts and the names of the tabs that are not open.
 func (m manageModel) labelsOf(tabs []manageTab, counts, names bool) []string {
 	var labels []string
-	for i, tab := range tabs {
-		label := fmt.Sprintf("%d", i+1)
-		if names || i == m.tab {
-			label += " " + tab.title
+	for position, kind := range m.shownTabs() {
+		label := fmt.Sprintf("%d", position+1)
+		if names || kind == m.tab {
+			label += " " + tabs[kind].title
 		}
-		if counts && tab.count > 0 {
-			label += fmt.Sprintf(" %d", tab.count)
+		if counts && tabs[kind].count > 0 {
+			label += fmt.Sprintf(" %d", tabs[kind].count)
 		}
 		labels = append(labels, label)
 	}

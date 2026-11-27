@@ -69,6 +69,9 @@ func (m manageModel) tabHelp() helpScreen {
 	default:
 		ownKeys = []keyHelp{refresh}
 	}
+	if m.fleetOnly { // there is only one tab to change to
+		common = common[1:]
+	}
 	return helpScreen{title: "Phím · " + m.tabs()[m.tab].title, keys: append(ownKeys, common...)}
 }
 

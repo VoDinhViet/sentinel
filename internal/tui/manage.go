@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"sentinel/internal/app"
+	"sentinel/internal/fleet"
 	"sentinel/internal/restic"
 	"sentinel/internal/status"
 )
@@ -27,6 +28,14 @@ func RunManage(ctx context.Context, svc *app.Service) error {
 	}
 	model := newManageModel(ctx, load, newManageActions(svc), jobRepositoriesOfService(svc))
 	_, err := tea.NewProgram(model, tea.WithContext(ctx)).Run()
+	return err
+}
+
+// RunFleet opens the terminal manager with only the Fleet tab, for a machine that has no config of
+// its own: it reads the servers named in the fleet file at path (fleet.DefaultPath when it is "").
+func RunFleet(ctx context.Context, path string) error {
+	poll := func(pollCtx context.Context) ([]fleet.ServerStatus, error) { return fleet.Poll(pollCtx, path) }
+	_, err := tea.NewProgram(newFleetModel(ctx, poll), tea.WithContext(ctx)).Run()
 	return err
 }
 
@@ -137,6 +146,10 @@ type manageModel struct {
 	server serverState
 
 	fleet fleetState
+
+	// fleetOnly is the manager of `sentinel fleet`: it has the Fleet tab and nothing of this machine,
+	// so it reads no report and has no config. The tab constants still name the tab on show.
+	fleetOnly bool
 
 	hits *hitMap // where a click lands, rebuilt by every render
 }

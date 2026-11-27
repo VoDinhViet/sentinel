@@ -166,3 +166,19 @@ func TestFleetCommandsExplainAMissingOrBadFile(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetWithoutASubcommandPrintsHelpWhenNotOnATerminal(t *testing.T) {
+	withoutAnyConfig(t)
+	output, err := runSentinel(t, "fleet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"status", "alerts", "--fleet-config"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("help lacks %q:\n%s", want, output)
+		}
+	}
+	if _, err := runSentinel(t, "fleet", "nonsense"); err == nil {
+		t.Error("an unknown subcommand was accepted")
+	}
+}

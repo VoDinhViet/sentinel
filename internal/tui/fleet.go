@@ -51,13 +51,40 @@ func (m manageModel) startFleet() (manageModel, tea.Cmd) {
 		return m, nil
 	}
 	m.fleet.started, m.fleet.reading = true, true
+	return m, m.askFleet()
+}
+
+// askFleet is the command that asks every server once.
+func (m manageModel) askFleet() tea.Cmd {
 	poll, ctx := m.actions.fleet, m.ctx
-	return m, func() tea.Msg {
+	return func() tea.Msg {
 		pollCtx, cancel := context.WithTimeout(ctx, fleetReadTimeout)
 		defer cancel()
 		servers, err := poll(pollCtx)
 		return fleetReadMsg{servers: servers, err: err, at: time.Now()}
 	}
+}
+
+// newFleetModel is the manager of `sentinel fleet`. Its first round starts with the program (Init),
+// so it is marked as under way from the start.
+func newFleetModel(ctx context.Context, poll func(context.Context) ([]fleet.ServerStatus, error)) manageModel {
+	m := newManageModel(ctx, nil, manageActions{fleet: poll}, nil)
+	m.fleetOnly, m.tab = true, fleetTab
+	m.fleet.started, m.fleet.reading = true, true
+	m.report.Server = "fleet"
+	return m
+}
+
+// refreshFleetOnly is the timed refresh of the manager that has only the Fleet tab. With no report
+// loads to chain it, the answer of a round schedules the next tick; a tick that finds nothing to
+// ask (a help screen is open) schedules the next one itself, unless a round is under way, whose
+// answer will.
+func (m manageModel) refreshFleetOnly() (manageModel, tea.Cmd) {
+	next, ask := m.refreshFleet()
+	if ask == nil && !next.fleet.reading {
+		return next, next.scheduleRefresh()
+	}
+	return next, ask
 }
 
 // refreshFleet is what the timed refresh does for the servers: ask again, but only while the tab or
@@ -78,6 +105,9 @@ func (m manageModel) fleetOnShow() bool {
 // afterFleetRead keeps the answers of a round, and the cursor on a line that still exists.
 func (m manageModel) afterFleetRead(msg fleetReadMsg) manageModel {
 	m.fleet.reading, m.fleet.servers, m.fleet.err, m.fleet.readAt = false, msg.servers, msg.err, msg.at
+	if m.fleetOnly { // the title shows when the servers were asked, as the manager shows when its report was built
+		m.loaded, m.report.GeneratedAt = true, msg.at
+	}
 	m.cursor = min(m.cursor, max(len(m.tabs()[m.tab].lines)-1, 0))
 	return m
 }
@@ -152,6 +182,28 @@ func dashIfEmpty(text string) string {
 		return "-"
 	}
 	return text
+}
+
+// fleetSummary is one line of how the fleet is, for the screen that has no overview panels.
+func (m manageModel) fleetSummary() string {
+	if m.fleet.err != nil {
+		return dimStyle.Render("không đọc được danh sách server")
+	}
+	var troubled, fine int
+	for _, answer := range m.fleet.servers {
+		if answer.Summary().State == fleet.StateOK {
+			fine++
+		} else {
+			troubled++
+		}
+	}
+	switch {
+	case troubled > 0:
+		return severityStyle(sevBad).Render(fmt.Sprintf("%d server có vấn đề", troubled)) + dimStyle.Render(fmt.Sprintf(" · %d ổn", fine))
+	case fine > 0:
+		return severityStyle(sevOK).Render(fmt.Sprintf("%d server đều ổn", fine))
+	}
+	return dimStyle.Render("chưa có server nào")
 }
 
 // fleetWaitText is what the tab says while it has no line to show.

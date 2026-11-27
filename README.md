@@ -210,6 +210,8 @@ sentinel fleet status -o json   # cùng dữ liệu, kèm report đầy đủ c�
 sentinel fleet alerts           # cảnh báo đang mở của mọi server; server không gọi được hiện với key "unreachable"
 ```
 
+Gõ `sentinel fleet` không kèm lệnh con trên terminal thì mở màn hình quản lý chỉ có tab **Fleet** (xem [Màn hình quản lý](#màn-hình-quản-lý)), không cần `config.yaml`; ngoài terminal nó in trợ giúp. Trên server đã có config, `sentinel manage` cũng có tab Fleet đó (đọc `fleet.yaml` ở chỗ mặc định).
+
 Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. API chưa có TLS riêng: giữa máy xem và server, dùng SSH tunnel hoặc reverse proxy có TLS, vì `http://` gửi token không mã hóa.
 
 Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
@@ -265,7 +267,7 @@ Job `files` thì file nằm ngay trong `--target`.
 
 - **Tab Server** (chỉ đọc) cho biết máy đang thế nào. Mục *Máy* ghi hostname, hệ điều hành và thời gian máy đã chạy ở dòng tiêu đề; bên dưới là CPU, RAM, swap và từng ổ đĩa thật, mỗi dòng có thanh phần trăm đã dùng (kernel và load 1/5/15 phút nằm ở khung chi tiết của dòng CPU). Chấm và thanh xanh khi ổn, vàng hoặc đỏ khi có vấn đề, và dòng đó có thêm một câu mờ giải thích vì sao. Mục *Dịch vụ* cho biết `sentinel.service` đang chạy hay đã dừng và liệt kê các systemd unit đang `failed` (không hiện trên máy không có systemd). Ổ đĩa đỏ khi còn trống dưới `disk.min_free_percent`, vàng khi dưới gấp đôi mức đó; load từ 1 CPU trở lên thì vàng, từ 2 thì đỏ; CPU bận từ 90% vàng; RAM khả dụng dưới 10% vàng, dưới 5% đỏ; swap dùng quá 50% vàng. Số liệu chỉ đọc khi tab đang mở (đọc lại mỗi 5 giây hoặc bấm `r`), không lưu lại và không gửi cảnh báo.
 
-- **Tab Fleet** (chỉ đọc) liệt kê các server trong `fleet.yaml` (xem [Nhiều server](#nhiều-server)), mỗi server một dòng: `OK`, `ALERT` hoặc `UNREACHABLE`, version, số alert, backup lỗi, uptime check down và backup đang chạy. Tab chỉ hỏi các server khi đang mở (lần đầu vào tab, rồi mỗi 5 giây hoặc bấm `r`); chưa có `fleet.yaml` thì tab nói cách tạo. `enter` (hoặc bấm hai lần) mở một server, chỉ đọc: ba mục **Alerts**, **Backups** (lần chạy gần nhất của từng job, có tiến độ nếu đang chạy) và **Uptime** của riêng server đó, chuyển bằng `tab` hoặc phím `1`-`3`, và tự hỏi lại mỗi 5 giây khi đang mở. Từ đây không chạy hay dừng backup được: muốn thao tác thì dùng `sentinel manage` trên chính server đó.
+- **Tab Fleet** (chỉ đọc) liệt kê các server trong `fleet.yaml` (xem [Nhiều server](#nhiều-server)), mỗi server một dòng: `OK`, `ALERT` hoặc `UNREACHABLE`, version, số alert, backup lỗi, uptime check down và backup đang chạy. Tab chỉ hỏi các server khi đang mở (lần đầu vào tab, rồi mỗi 5 giây hoặc bấm `r`); chưa có `fleet.yaml` thì tab nói cách tạo. Máy chỉ để xem (không có `config.yaml`) dùng `sentinel fleet` để mở riêng tab này. `enter` (hoặc bấm hai lần) mở một server, chỉ đọc: ba mục **Alerts**, **Backups** (lần chạy gần nhất của từng job, có tiến độ nếu đang chạy) và **Uptime** của riêng server đó, chuyển bằng `tab` hoặc phím `1`-`3`, và tự hỏi lại mỗi 5 giây khi đang mở. Từ đây không chạy hay dừng backup được: muốn thao tác thì dùng `sentinel manage` trên chính server đó.
 
 Màn hình tự làm mới mỗi 5 giây (2 giây khi có backup đang chạy); chuột dùng được cho mọi thứ (trong `tmux` cần `set -g mouse on`); bấm `?` để xem các phím của màn hình đang mở.
 

@@ -6,15 +6,24 @@ import (
 	"github.com/spf13/cobra"
 
 	"sentinel/internal/fleet"
+	"sentinel/internal/tui"
 )
 
 // newFleetCmd is `sentinel fleet`: how the other servers are doing, read from the HTTP API of
-// their daemons. It never reads config.yaml, so a laptop with only a fleet file can run it.
+// their daemons. It never reads config.yaml, so a laptop with only a fleet file can run it. On its
+// own it opens the screen with the Fleet tab; its subcommands print.
 func newFleetCmd() *cobra.Command {
 	var fleetPath string
 	fleetCmd := &cobra.Command{
 		Use:   "fleet",
 		Short: "Xem nhiều server Sentinel cùng lúc, qua HTTP API của daemon trên mỗi server",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !defaultTerminal().isTerminal() || !stdoutIsTerminal() {
+				return cmd.Help()
+			}
+			return tui.RunFleet(cmd.Context(), fleetPath)
+		},
 	}
 	fleetCmd.PersistentFlags().StringVar(&fleetPath, "fleet-config", "", "file fleet (mặc định: $SENTINEL_FLEET_CONFIG hoặc ~/.config/sentinel/fleet.yaml)")
 	fleetCmd.AddCommand(newFleetStatusCmd(&fleetPath), newFleetAlertsCmd(&fleetPath))

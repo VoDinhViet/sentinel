@@ -9,7 +9,6 @@ import (
 // The keys of the tabs, the screen under all the others.
 
 func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
-	tabCount := len(m.tabs())
 	m.notice = ""
 	if key != "x" {
 		m.stopAsked = ""
@@ -21,11 +20,13 @@ func (m manageModel) onTableKey(key string) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "tab", "right", "l":
-		m.tab, m.cursor = (m.tab+1)%tabCount, 0
+		m.tab, m.cursor = m.neighbourTab(1), 0
 	case "shift+tab", "left", "h":
-		m.tab, m.cursor = (m.tab+tabCount-1)%tabCount, 0
+		m.tab, m.cursor = m.neighbourTab(-1), 0
 	case "1", "2", "3", "4", "5", "6", "7":
-		m.tab, m.cursor = int(key[0]-'1'), 0
+		if position := int(key[0] - '1'); position < len(m.shownTabs()) {
+			m.tab, m.cursor = m.shownTabs()[position], 0
+		}
 	case "down", "j":
 		m.cursor = min(m.cursor+1, max(len(m.tabs()[m.tab].lines)-1, 0))
 	case "up", "k":
