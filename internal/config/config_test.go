@@ -167,6 +167,12 @@ api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: /etc/senti
 api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_key: /etc/sentinel/key.pem }`, "api: tls_cert is required when tls_key is set"},
 		"api tls relative path": {`
 api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: cert.pem, tls_key: /etc/sentinel/key.pem }`, "api: tls_cert must be an absolute path"},
+		"fleet file relative": {`
+fleet: { config: fleet.yaml }`, "fleet: config must be an absolute path"},
+		"fleet too often": {`
+fleet: { config: /etc/sentinel/fleet.yaml, every: 10s }`, "fleet: every must be at least 30s"},
+		"fleet fail_after negative": {`
+fleet: { config: /etc/sentinel/fleet.yaml, fail_after: -1 }`, "fleet: fail_after must be at least 1"},
 		"api listen without a port": {`
 api: { listen: "127.0.0.1", token: "0123456789abcdef" }`, "api: listen must be host:port"},
 		"heartbeat too often": {`
@@ -542,6 +548,21 @@ func TestAPIServesHTTPSOnlyWithBothFiles(t *testing.T) {
 	}
 	if (API{TLSCert: "/c.pem"}).TLS() || (API{}).TLS() {
 		t.Error("TLS() is true without both files")
+	}
+}
+
+func TestFleetIsOffWithoutAFileAndHasDefaultsWithOne(t *testing.T) {
+	cfg, err := Parse([]byte("fleet: { config: /etc/sentinel/fleet.yaml }"))
+	if err != nil || cfg.Fleet.Every != DefaultFleetEvery || cfg.Fleet.FailAfter != DefaultFleetFailAfter {
+		t.Errorf("fleet = %+v, %v; want the defaults", cfg.Fleet, err)
+	}
+	cfg, err = Parse([]byte("fleet: { config: /etc/sentinel/fleet.yaml, every: 5m, fail_after: 2 }"))
+	if err != nil || cfg.Fleet.Every != 5*time.Minute || cfg.Fleet.FailAfter != 2 {
+		t.Errorf("fleet = %+v, %v; want what the file says", cfg.Fleet, err)
+	}
+	cfg, err = Parse([]byte("server_name: x"))
+	if err != nil || cfg.Fleet != (Fleet{}) {
+		t.Errorf("fleet without a file = %+v, %v; want it off", cfg.Fleet, err)
 	}
 }
 

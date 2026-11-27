@@ -16,6 +16,7 @@ type Config struct {
 	Alert          AlertSettings         `yaml:"alert"`
 	Disk           DiskSettings          `yaml:"disk"`
 	Heartbeat      Heartbeat             `yaml:"heartbeat"`
+	Fleet          Fleet                 `yaml:"fleet"`
 	API            API                   `yaml:"api"`
 	Repositories   map[string]Repository `yaml:"repositories" validate:"dive"`
 	Jobs           []Job                 `yaml:"jobs" validate:"dive"`
@@ -109,6 +110,22 @@ const DefaultHeartbeatEvery = 5 * time.Minute
 type Heartbeat struct {
 	URL   string        `yaml:"url" validate:"omitempty,https_url"`
 	Every time.Duration `yaml:"every" validate:"omitempty,gte=1m"`
+}
+
+// DefaultFleetEvery is how often the servers of the fleet are asked when the config sets no interval.
+const DefaultFleetEvery = time.Minute
+
+// DefaultFleetFailAfter is how many rounds in a row a server must fail before the daemon alerts.
+const DefaultFleetFailAfter = 3
+
+// Fleet makes the daemon watch other servers: every Every it asks the API of each server in the
+// fleet file at Config, and alerts when one cannot be reached FailAfter times in a row. It is off
+// when Config is empty. The servers are the ones `sentinel fleet` shows.
+type Fleet struct {
+	// Config is the fleet file (see package fleet); an absolute path.
+	Config    string        `yaml:"config" validate:"omitempty,abspath"`
+	Every     time.Duration `yaml:"every" validate:"omitempty,gte=30s"`
+	FailAfter int           `yaml:"fail_after" validate:"omitempty,gte=1"`
 }
 
 // API is the HTTP API of the daemon (package api). It is off when Listen is empty.
