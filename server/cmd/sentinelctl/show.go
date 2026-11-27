@@ -10,6 +10,7 @@ import (
 
 	"sentinel/pkg/agentapi"
 	"sentinel/server/internal/ctlapi"
+	"sentinel/server/internal/format"
 )
 
 func newServerShowCmd(c *cli) *cobra.Command {
@@ -42,15 +43,15 @@ từng job, uptime check và các cảnh báo đang mở trên chính server đ�
 }
 
 func printDetail(out io.Writer, detail ctlapi.AgentDetail, now time.Time) {
-	fmt.Fprintf(out, "%s  %s\n", detail.Name, statusText(detail.Agent))
-	fmt.Fprintf(out, "  Thấy lần cuối:     %s\n", ago(detail.LastSeen, now))
-	fmt.Fprintf(out, "  Phiên bản:         %s\n", dashIfEmpty(detail.Version))
-	fmt.Fprintf(out, "  Chứng chỉ hết hạn: %s\n", dayOrDash(detail.CertNotAfter))
+	fmt.Fprintf(out, "%s  %s\n", detail.Name, format.Status(detail.Status, detail.State))
+	fmt.Fprintf(out, "  Thấy lần cuối:     %s\n", format.Ago(detail.LastSeen, now))
+	fmt.Fprintf(out, "  Phiên bản:         %s\n", format.Dash(detail.Version))
+	fmt.Fprintf(out, "  Chứng chỉ hết hạn: %s\n", format.Day(detail.CertNotAfter))
 	if detail.Report == nil {
 		fmt.Fprintln(out, "\nChưa nhận báo cáo nào từ server này.")
 		return
 	}
-	fmt.Fprintf(out, "  Báo cáo lúc:       %s\n", ago(detail.ReportAt, now))
+	fmt.Fprintf(out, "  Báo cáo lúc:       %s\n", format.Ago(detail.ReportAt, now))
 	printHost(out, detail.Report.Host)
 	printBackups(out, detail.Report.Backups)
 	printChecks(out, detail.Report.Checks)
@@ -58,13 +59,13 @@ func printDetail(out io.Writer, detail ctlapi.AgentDetail, now time.Time) {
 }
 
 func printHost(out io.Writer, host agentapi.HostStatus) {
-	fmt.Fprintf(out, "\nMáy: %s, %s, kernel %s\n", dashIfEmpty(host.Hostname), dashIfEmpty(host.OS), dashIfEmpty(host.Kernel))
+	fmt.Fprintf(out, "\nMáy: %s, %s, kernel %s\n", format.Dash(host.Hostname), format.Dash(host.OS), format.Dash(host.Kernel))
 	fmt.Fprintf(out, "  Bật được:  %s   Load: %.2f %.2f %.2f   CPU: %.0f%% của %d nhân\n",
-		(time.Duration(host.UptimeSeconds) * time.Second).String(), host.Load[0], host.Load[1], host.Load[2], host.CPUPercent, host.CPUs)
+		format.Uptime(host.UptimeSeconds), host.Load[0], host.Load[1], host.Load[2], host.CPUPercent, host.CPUs)
 	fmt.Fprintf(out, "  RAM:       %s trống / %s   Swap: %s trống / %s\n",
-		size(host.Memory.AvailableBytes), size(host.Memory.TotalBytes), size(host.Memory.SwapFreeBytes), size(host.Memory.SwapTotalBytes))
+		format.Size(host.Memory.AvailableBytes), format.Size(host.Memory.TotalBytes), format.Size(host.Memory.SwapFreeBytes), format.Size(host.Memory.SwapTotalBytes))
 	for _, disk := range host.Disks {
-		fmt.Fprintf(out, "  Ổ đĩa %-12s %s trống / %s\n", disk.Mount, size(disk.FreeBytes), size(disk.TotalBytes))
+		fmt.Fprintf(out, "  Ổ đĩa %-12s %s trống / %s\n", disk.Mount, format.Size(disk.FreeBytes), format.Size(disk.TotalBytes))
 	}
 	for _, unit := range host.FailedServices {
 		fmt.Fprintf(out, "  Unit lỗi:  %s (%s)\n", unit.Name, unit.Active)
@@ -112,20 +113,6 @@ func printAlerts(out io.Writer, title string, alerts []agentapi.AlertStatus) {
 	for _, open := range alerts {
 		fmt.Fprintf(out, "  %s  %s  (từ %s)\n", open.Key, open.Message, open.Since.Local().Format("2006-01-02 15:04"))
 	}
-}
-
-// size writes a number of bytes the way a person reads it: 1.5 GiB.
-func size(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	divisor, exp := uint64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		divisor *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(divisor), "KMGTPE"[exp])
 }
 
 func newAlertCmd(c *cli) *cobra.Command {

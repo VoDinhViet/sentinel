@@ -4,7 +4,7 @@ The agent is one Go binary (`agent/cmd/sentinel`) that runs on each Linux server
 checks, alerts). It is a CLI plus a daemon (`sentinel run`) driven by a YAML config. There is no web UI.
 
 **Direction (RFC 0002, in progress):** an optional control plane, `sentinel-server`, that agents dial out to over mTLS. The
-repo is three Go modules joined by `go.work`: `pkg/` (shared: `agentapi`, `alert`, `notify`, `termtext`, `yamlenv`, `pki`, `ratelimit`), `agent/` (this code, binary `sentinel`) and `server/` (`sentinel-server`: init, serve, enroll, passwd, unblock, audit verify; `sentinelctl`: login, logout, passwd, server ls|show|add|revoke, alert, audit; its TUI comes later). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
+repo is three Go modules joined by `go.work`: `pkg/` (shared: `agentapi`, `alert`, `notify`, `termtext`, `yamlenv`, `pki`, `ratelimit`), `agent/` (this code, binary `sentinel`) and `server/` (`sentinel-server`: init, serve, enroll, passwd, unblock, audit verify; `sentinelctl`: login, logout, passwd, server ls|show|add|revoke, alert, audit; no subcommand opens its read-only TUI, `server/internal/tui`). **The agent stands alone**: it builds without `go.work` (`make layers` checks it), is one static binary, imports only
 `agent/` and `pkg/`, and works with no control plane at all, so it can be rolled out to many servers by itself. The daemon can
 still serve a small JSON HTTP API (`internal/api`, `net/http`, bearer token, off unless `api.listen` is set) and watch other
 servers (`internal/fleet`); both go away when the control plane replaces them. You sign in to the control plane with one

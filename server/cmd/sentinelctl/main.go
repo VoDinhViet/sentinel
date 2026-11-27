@@ -14,9 +14,11 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"sentinel/server/internal/client"
 	"sentinel/server/internal/terminal"
+	"sentinel/server/internal/tui"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -48,7 +50,11 @@ func newRootCmd(c *cli) *cobra.Command {
 Chỉ có một mật khẩu đăng nhập: đăng nhập là có toàn quyền; quyền thật sự của mỗi server nằm ở allowlist local của agent trên đó.
 
 Lần đầu:  sentinelctl login --url https://127.0.0.1:9321 --ca-fingerprint sha256:…
-(sentinel-server init đã in fingerprint; cổng sentinelctl mặc định chỉ mở trên máy control plane: dùng ssh -L 9321:127.0.0.1:9321.)`,
+(sentinel-server init đã in fingerprint; cổng sentinelctl mặc định chỉ mở trên máy control plane: dùng ssh -L 9321:127.0.0.1:9321.)
+
+Không có lệnh con thì mở màn hình terminal: các server, cảnh báo và chi tiết từng server (chỉ đọc).`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error { return c.screen(cmd) },
 	}
 	root.PersistentFlags().StringVar(&c.dir, "dir", "", "thư mục lưu ctl.yaml và phiên đăng nhập (mặc định ~/.config/sentinel)")
 	root.PersistentFlags().StringVarP(&c.output, "output", "o", "text", "định dạng đầu ra: text hoặc json")
@@ -107,4 +113,23 @@ func explain(err error) error {
 		return errors.New("chưa đăng nhập: chạy sentinelctl login")
 	}
 	return err
+}
+
+// screen opens the terminal screen. It needs a terminal on both sides: a script that wants the servers
+// uses "server ls -o json".
+func (c *cli) screen(cmd *cobra.Command) error {
+	if !c.term.IsTTY || !isTerminal(cmd.OutOrStdout()) {
+		return cmd.Help()
+	}
+	api, _, err := c.connect()
+	if err != nil {
+		return explain(err)
+	}
+	return explain(tui.Run(cmd.Context(), api))
+}
+
+// isTerminal says out is a terminal.
+func isTerminal(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }

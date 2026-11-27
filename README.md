@@ -254,7 +254,7 @@ Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
 
 ## Control plane
 
-Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl`, chỉ có dòng lệnh, không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit, báo cáo tình trạng từng server, cảnh báo khi server mất liên lạc, tự gia hạn chứng chỉ. Tác vụ từ xa và TUI sẽ đến ở các bước sau. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
+Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl` (dòng lệnh và màn hình terminal), không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit, báo cáo tình trạng từng server, cảnh báo khi server mất liên lạc, tự gia hạn chứng chỉ, màn hình terminal (chỉ đọc). Tác vụ từ xa sẽ đến ở các bước sau. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
 
 ### Cài control plane
 
@@ -303,6 +303,7 @@ Từ đó daemon báo cáo cho control plane mỗi phút (máy, kết quả back
 
 | Lệnh | Việc |
 |---|---|
+| `sentinelctl` (không đối số) | Mở màn hình terminal: danh sách server và cảnh báo, `enter` để xem một server (máy, backup, uptime, cảnh báo). Chỉ đọc, tự làm mới mỗi 5 giây; `?` xem phím. Không chạy trong terminal (script, pipe) thì in trợ giúp |
 | `sentinelctl login` / `logout` | Đăng nhập (phiên 12 giờ, hoặc 1 giờ không dùng) / kết thúc phiên |
 | `sentinelctl passwd` | Đổi mật khẩu đăng nhập; mọi phiên kết thúc |
 | `sentinelctl server ls [-o json]` | Các server: trạng thái (PENDING, ONLINE, OFFLINE, REVOKED), lần cuối báo cáo, phiên bản, hạn chứng chỉ |

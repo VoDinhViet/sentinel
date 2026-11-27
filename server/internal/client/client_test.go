@@ -43,7 +43,7 @@ func TestAnAnswerIsDecodedAndTheTokenIsSent(t *testing.T) {
 	var sent atomic.Value
 	server, cfg := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sent.Store(r.Header.Get("Authorization"))
-		_ = json.NewEncoder(w).Encode([]ctlapi.Agent{{Name: "web\x1b[31m01", State: "active"}})
+		_ = json.NewEncoder(w).Encode([]ctlapi.Agent{{Name: "web\x1b[31m01", Version: "1.0\x1b[2J\n.1", State: "active"}})
 	}))
 	_ = server
 	api, err := New(cfg, "tok")
@@ -51,7 +51,7 @@ func TestAnAnswerIsDecodedAndTheTokenIsSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents, err := api.Agents(t.Context())
-	if err != nil || len(agents) != 1 || agents[0].Name != "web01" {
+	if err != nil || len(agents) != 1 || agents[0].Name != "web01" || agents[0].Version != "1.0 .1" {
 		t.Errorf("agents = %+v, err %v (escape sequences must be dropped)", agents, err)
 	}
 	if sent.Load() != "Bearer tok" {

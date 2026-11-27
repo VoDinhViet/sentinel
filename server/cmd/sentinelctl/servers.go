@@ -10,10 +10,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"sentinel/server/internal/ctlapi"
+	"sentinel/server/internal/format"
 )
-
-// Words for the states of an agent.
-var stateText = map[string]string{"pending": "chờ join", "active": "hoạt động", "revoked": "đã thu hồi"}
 
 func newServerCmd(c *cli) *cobra.Command {
 	serverCmd := &cobra.Command{Use: "server", Short: "Các server đã thêm vào control plane"}
@@ -58,54 +56,9 @@ func printAgents(out io.Writer, agents []ctlapi.Agent) {
 	fmt.Fprintln(table, "TÊN\tTRẠNG THÁI\tLẦN CUỐI\tPHIÊN BẢN\tCHỨNG CHỈ HẾT HẠN")
 	now := time.Now()
 	for _, agent := range agents {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", agent.Name, statusText(agent), ago(agent.LastSeen, now), dashIfEmpty(agent.Version), dayOrDash(agent.CertNotAfter))
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", agent.Name, format.Status(agent.Status, agent.State), format.Ago(agent.LastSeen, now), format.Dash(agent.Version), format.Day(agent.CertNotAfter))
 	}
 	_ = table.Flush()
-}
-
-// statusText is the status of an agent in words: ONLINE and OFFLINE are the words of the alerts; the other
-// two say where the agent is on its way.
-func statusText(agent ctlapi.Agent) string {
-	switch agent.Status {
-	case "PENDING":
-		return "PENDING (chờ join)"
-	case "REVOKED":
-		return "REVOKED (đã thu hồi)"
-	case "":
-		return stateText[agent.State] // a control plane older than the status
-	}
-	return agent.Status
-}
-
-// ago says how long before now a time was, or "-" when there is none.
-func ago(t *time.Time, now time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	elapsed := max(now.Sub(*t), 0)
-	switch {
-	case elapsed < time.Minute:
-		return fmt.Sprintf("%d giây trước", int(elapsed.Seconds()))
-	case elapsed < time.Hour:
-		return fmt.Sprintf("%d phút trước", int(elapsed.Minutes()))
-	case elapsed < 48*time.Hour:
-		return fmt.Sprintf("%d giờ trước", int(elapsed.Hours()))
-	}
-	return fmt.Sprintf("%d ngày trước", int(elapsed.Hours()/24))
-}
-
-func dashIfEmpty(text string) string {
-	if text == "" {
-		return "-"
-	}
-	return text
-}
-
-func dayOrDash(t *time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	return t.Local().Format("2006-01-02")
 }
 
 func newServerAddCmd(c *cli) *cobra.Command {

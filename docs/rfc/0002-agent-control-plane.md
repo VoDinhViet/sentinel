@@ -236,8 +236,9 @@ Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `al
 
 - `sentinel-server`: `init`, `serve`, `enroll`, `passwd`, `audit verify` (chạy bằng root trên máy control plane).
 - `sentinel agent join|status` trên server.
-- `sentinelctl`: `login`, `logout`, `passwd`, `server ls|add|revoke|show`, `alert`, `task`, `run <server> <action> k=v [--wait|--follow]`, `audit`, `schedule`, `maintenance`, `report`, `release`; có `-o json`. Không lệnh con thì mở TUI.
+- `sentinelctl`: `login`, `logout`, `passwd`, `server ls|add|revoke|show`, `alert`, `task`, `run <server> <action> k=v [--wait|--follow]`, `audit`, `schedule`, `maintenance`, `report`, `release`; có `-o json`. Không lệnh con thì mở TUI (chỉ khi cả stdin và stdout là terminal; ngược lại in trợ giúp).
 - `--follow` và màn hình task dùng SSE (`GET /v1/ctl/tasks/{id}/events`).
+- TUI (`server/internal/tui`, bubbletea và lipgloss, cùng phiên bản với agent) đọc qua `client`, không đọc DB: hai tab Server và Alert, và màn hình một server với bốn phần (Máy, Backup, Uptime, Alert). Hỏi lại control plane mỗi 5 giây, không bao giờ chồng hai lần hỏi lên nhau; phiên hết hạn thì thoát và báo chạy `sentinelctl login`. Nó không dùng chung code với `agent/internal/tui` (server không import agent); chỉ bảng màu và cách vẽ bảng giống nhau.
 - Mô tả lệnh và màn hình bằng tiếng Việt.
 
 ## 15. Xoá mô hình pull
@@ -279,7 +280,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 5 | Lõi server: config, store, auth, audit, enroll, `sentinel-server init\|enroll\|passwd` |
 | 6 | `httpapi`, `serve`, join, `sentinelctl login\|logout\|passwd\|server\|audit`, `deploy/server/` (`deploy/` chưa đổi thành `deploy/agent/`: đường dẫn trong release và `install.sh` mà vận hành đang dùng, làm riêng khi kiểm tra được `make dist`) |
 | 7 | Report, cảnh báo offline, gia hạn cert, `sentinelctl server show\|alert`, `control_plane` trong config agent, notifiers trong `server.yaml` (`host_samples` và `backup_runs` dời sang 14) |
-| 8 | TUI của `sentinelctl` |
+| 8 | TUI của `sentinelctl`: danh sách server và alert, màn hình một server (chỉ đọc; thêm/thu hồi vẫn bằng lệnh, tác vụ đến ở giai đoạn 9) |
 | 9 | Task engine và action backup, log qua SSE |
 | 10 | Xoá mô hình pull (mục 15) |
 | 11 | Action systemd và Docker |
@@ -290,7 +291,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 
 ## 18. Thư viện
 
-Không thêm dependency. Dùng `crypto/*`, `net/http`, `embed`, `testing/synctest` (stdlib), cùng `robfig/cron/v3`, `cenkalti/backoff/v5` và `gopsutil/v4` đã có trong `go.mod`. Docker qua Engine API bằng `net/http` trên unix socket, không dùng Docker SDK; systemd qua `systemctl`, không dùng go-systemd.
+Không thêm dependency mới cho dự án. Dùng `crypto/*`, `net/http`, `embed`, `testing/synctest` (stdlib), cùng `robfig/cron/v3`, `cenkalti/backoff/v5`, `gopsutil/v4` và (cho TUI) `bubbletea/v2`, `lipgloss/v2` đã có trong `go.mod`. Module `server` khai báo bubbletea và lipgloss cùng phiên bản với `agent`, nên cả repo vẫn chỉ dùng một bộ thư viện. Docker qua Engine API bằng `net/http` trên unix socket, không dùng Docker SDK; systemd qua `systemctl`, không dùng go-systemd.
 
 ## 19. Câu hỏi mở
 

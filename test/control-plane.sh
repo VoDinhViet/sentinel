@@ -129,6 +129,9 @@ ctl audit -n 100 | grep -q agent.revoke && pass "the audit log has the revoke" |
 "$SERVER" -c "$WORK/server.yaml" audit verify | grep -q nguyên && pass "audit chain (server)" || fail "audit verify (server)"
 ctl audit verify | grep -q nguyên && pass "audit chain (sentinelctl)" || fail "audit verify (sentinelctl)"
 
+echo "== screen"
+ctl </dev/null | grep -q "màn hình terminal" && pass "sentinelctl with no terminal prints the help, not the screen" || fail "sentinelctl with no terminal did not print the help"
+
 echo "== logout"
 ctl logout >/dev/null
 [ ! -e "$WORK/ctl/session" ] && pass "logout removes the session" || fail "the session file stayed"

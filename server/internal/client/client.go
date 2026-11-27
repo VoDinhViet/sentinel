@@ -154,7 +154,7 @@ func (c *Client) Agents(ctx context.Context) ([]ctlapi.Agent, error) {
 	var agents []ctlapi.Agent
 	err := c.do(ctx, http.MethodGet, ctlapi.RouteAgents, nil, &agents)
 	for i := range agents {
-		agents[i].Name = termtext.Line(agents[i].Name)
+		agents[i].Name, agents[i].Version = termtext.Line(agents[i].Name), termtext.Line(agents[i].Version)
 	}
 	return agents, err
 }
