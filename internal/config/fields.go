@@ -160,6 +160,8 @@ func fieldMessage(failure validator.FieldError) string {
 		return "must be host:port, e.g. 127.0.0.1:9311"
 	case "api_token":
 		return fmt.Sprintf("must be at least %d characters", MinTokenLength)
+	case "nefield":
+		return "must differ from " + strings.ToLower(param)
 	}
 	return fmt.Sprintf("fails the %q rule", failure.Tag())
 }

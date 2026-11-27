@@ -33,6 +33,8 @@ var _ Backend = (*app.Service)(nil)
 type Options struct {
 	// Token is the bearer token every /api/ request must carry. Empty, the server refuses every /api/ request.
 	Token string
+	// ReadToken is a second bearer token that may only call the read-only routes (GET and HEAD). Empty, it matches nothing.
+	ReadToken string
 	// Version is the release of this binary; the status report carries it. Empty, the report has none.
 	Version string
 }

@@ -19,7 +19,10 @@ import (
 	"sentinel/internal/status"
 )
 
-const testToken = "s3cret-token"
+const (
+	testToken     = "s3cret-token"
+	testReadToken = "r3ad-only-token"
+)
 
 // fakeBackend answers from fields, and fails with err when it is set.
 type fakeBackend struct {
@@ -73,7 +76,7 @@ func call(t *testing.T, backend Backend, method, target, token string) *httptest
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	rec := httptest.NewRecorder()
-	New(backend, Options{Token: testToken}).Handler().ServeHTTP(rec, req)
+	New(backend, Options{Token: testToken, ReadToken: testReadToken}).Handler().ServeHTTP(rec, req)
 	return rec
 }
 
@@ -95,6 +98,48 @@ func TestEveryAPIRouteNeedsTheTokenButHealthz(t *testing.T) {
 	}
 	if rec := call(t, &fakeBackend{}, "GET", "/healthz", ""); rec.Code != http.StatusOK {
 		t.Errorf("healthz status = %d, want 200", rec.Code)
+	}
+}
+
+func TestTheReadTokenOnlyReads(t *testing.T) {
+	routes := []struct {
+		method, target string
+		writes         bool
+	}{
+		{"GET", "/api/v1/status", false}, {"GET", "/api/v1/alerts", false}, {"GET", "/api/v1/jobs", false},
+		{"GET", "/api/v1/jobs/shop/snapshots?repository=local", false}, {"GET", "/api/v1/doctor", false},
+		{"POST", "/api/v1/jobs/shop/backups", true}, {"DELETE", "/api/v1/jobs/shop/backups/running", true},
+	}
+	for _, route := range routes {
+		for name, token := range map[string]string{"token": testToken, "read token": testReadToken} {
+			t.Run(route.method+" "+route.target+" "+name, func(t *testing.T) {
+				backend := &fakeBackend{}
+				rec := call(t, backend, route.method, route.target, token)
+				mustBeDenied := route.writes && token == testReadToken
+				switch {
+				case mustBeDenied && rec.Code != http.StatusForbidden:
+					t.Errorf("status = %d, want 403", rec.Code)
+				case !mustBeDenied && (rec.Code == http.StatusForbidden || rec.Code == http.StatusUnauthorized):
+					t.Errorf("status = %d, the token must be accepted", rec.Code)
+				}
+				if mustBeDenied && len(backend.started)+len(backend.stopped) != 0 {
+					t.Errorf("the read token changed something: started %v, stopped %v", backend.started, backend.stopped)
+				}
+			})
+		}
+	}
+}
+
+func TestTheReadTokenIsRefusedWhenNoneIsSet(t *testing.T) {
+	for _, readToken := range []string{"", testReadToken} {
+		req := httptest.NewRequest("GET", "/api/v1/status", nil)
+		req.Header.Set("Authorization", "Bearer "+testReadToken)
+		rec := httptest.NewRecorder()
+		New(&fakeBackend{}, Options{Token: testToken, ReadToken: readToken}).Handler().ServeHTTP(rec, req)
+		wantRefused := readToken == ""
+		if refused := rec.Code == http.StatusUnauthorized; refused != wantRefused {
+			t.Errorf("read token %q configured: status = %d, refused = %v, want %v", readToken, rec.Code, refused, wantRefused)
+		}
 	}
 }
 

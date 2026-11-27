@@ -66,7 +66,7 @@ func (a *cliApp) startAPI(ctx context.Context, cfg *config.Config, st *store.Sto
 	if err != nil {
 		return nil, fmt.Errorf("api.listen: %w", err)
 	}
-	handler := api.New(app.New(cfg, st, a.configPath), api.Options{Token: cfg.API.Token, Version: version}).Handler()
+	handler := api.New(app.New(cfg, st, a.configPath), api.Options{Token: cfg.API.Token, ReadToken: cfg.API.ReadToken, Version: version}).Handler()
 	apiCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {

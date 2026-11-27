@@ -95,6 +95,7 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 # api:
 #   listen: 127.0.0.1:9311
 #   token: ${SENTINEL_API_TOKEN}
+#   read_token: ${SENTINEL_API_READ_TOKEN}   # optional: a second token that can only read (GET), for a machine that watches this server
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;

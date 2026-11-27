@@ -157,6 +157,10 @@ heartbeat: { url: "http://hc.example.com/ping/x" }`, "heartbeat: url must start 
 api: { listen: "127.0.0.1:9311" }`, "api: token is required"},
 		"api with a short token": {`
 api: { listen: "127.0.0.1:9311", token: short }`, "api: token must be at least 16 characters"},
+		"api read token short": {`
+api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: short }`, "api: read_token must be at least 16 characters"},
+		"api read token same as token": {`
+api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: "0123456789abcdef" }`, "api: read_token must differ from token"},
 		"api listen without a port": {`
 api: { listen: "127.0.0.1", token: "0123456789abcdef" }`, "api: listen must be host:port"},
 		"heartbeat too often": {`
@@ -510,6 +514,18 @@ func TestAPIIsOffUnlessItListens(t *testing.T) {
 	cfg, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef' }"))
 	if err != nil || cfg.API.Listen != "127.0.0.1:9311" || !cfg.API.Loopback() {
 		t.Errorf("api = %+v, %v", cfg.API, err)
+	}
+}
+
+func TestAPIReadTokenIsOptional(t *testing.T) {
+	cfg, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', read_token: 'fedcba9876543210' }"))
+	if err != nil || cfg.API.ReadToken != "fedcba9876543210" {
+		t.Errorf("api = %+v, %v", cfg.API, err)
+	}
+	t.Setenv("READ_TOKEN", "0123456789abcdef")
+	_, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', read_token: '${READ_TOKEN}' }"))
+	if err == nil || !strings.Contains(err.Error(), "must differ from token") {
+		t.Errorf("a read token equal to the token after expansion must be refused: %v", err)
 	}
 }
 

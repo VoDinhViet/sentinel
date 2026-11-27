@@ -156,9 +156,10 @@ Tắt theo mặc định. Bật bằng khối `api:` trong config, rồi chạy 
 api:
   listen: 127.0.0.1:9311
   token: ${SENTINEL_API_TOKEN}   # giá trị (từ 16 ký tự) để trong sentinel.env
+  # read_token: ${SENTINEL_API_READ_TOKEN}   # tùy chọn: token thứ hai, chỉ đọc
 ```
 
-Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. Token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
+Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/api/` cần header `Authorization: Bearer <token>`; `/healthz` thì không cần. `read_token` (cũng từ 16 ký tự, phải khác `token`) chỉ gọi được các route `GET`; route bắt đầu hoặc dừng backup trả `403`. Đưa token này cho máy chỉ để xem, giữ `token` cho người được phép chạy backup. Token đi qua mạng không mã hóa, nên chỉ nghe trên `127.0.0.1` và truy cập qua SSH tunnel hoặc reverse proxy có TLS. `sentinel doctor` cảnh báo nếu API nghe trên địa chỉ khác máy này.
 
 | Route | Việc |
 |---|---|

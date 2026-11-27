@@ -118,6 +118,10 @@ type API struct {
 	// Token is the bearer token every /api/ request must carry; write it as ${SENTINEL_API_TOKEN} and
 	// keep the value in the env file.
 	Token string `yaml:"token" validate:"required_with=Listen,omitempty,api_token"`
+	// ReadToken is a second bearer token that may only read (GET): a machine that watches several
+	// servers needs no power to start or stop a backup. Write it as ${SENTINEL_API_READ_TOKEN}. Empty, the
+	// API has only Token.
+	ReadToken string `yaml:"read_token" validate:"omitempty,api_token,nefield=Token"`
 }
 
 // MinTokenLength is the shortest API token accepted.
