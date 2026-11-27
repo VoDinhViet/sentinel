@@ -11,10 +11,13 @@ marker="${TMPDIR:-/tmp}/sentinel-claude-go-dirty-$session"
 [ -f "$marker" ] || exit 0
 
 cd "${CLAUDE_PROJECT_DIR:-$PWD}" || exit 0
-# go vet type-checks every package, so it also catches build errors.
-if ! out=$(go vet ./... 2>&1); then
-	printf 'go vet failed after Go edits:\n%s\n' "$(printf '%s\n' "$out" | tail -40)" >&2
-	exit 2
-fi
+# go vet type-checks every package, so it also catches build errors. Each module of go.work has its own go.mod.
+for module in agent pkg server; do
+	[ -f "$module/go.mod" ] || continue
+	if ! out=$(go -C "$module" vet ./... 2>&1); then
+		printf 'go vet failed in %s after Go edits:\n%s\n' "$module" "$(printf '%s\n' "$out" | tail -40)" >&2
+		exit 2
+	fi
+done
 rm -f "$marker"
 exit 0

@@ -23,7 +23,7 @@ pass() { printf '  \033[32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 echo "== building sentinel (static, linux)"
-docker run --rm -v "$ROOT":/src -v "$WORK":/out -w /src -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+docker run --rm -v "$ROOT":/src -v "$WORK":/out -w /src/agent -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
 	"$GO_IMAGE" go build -o /out/sentinel ./cmd/sentinel
 
 echo "== starting mariadb, mysql and mongo"

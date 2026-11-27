@@ -46,11 +46,11 @@ Mặt hạn chế của pull: máy xem phải với tới được từng server
 
 ## 4. Những gì đã có
 
-- **Các route của daemon** ([internal/api/api.go:46-53](../../internal/api/api.go#L46-L53)): `GET /healthz` (không cần token), `/api/v1/status`, `/api/v1/alerts`, `/api/v1/jobs`, `/api/v1/jobs/{job}/snapshots`, `POST /api/v1/jobs/{job}/backups`, `DELETE /api/v1/jobs/{job}/backups/running`, `/api/v1/doctor`.
-- **`status.Report`** ([internal/status/status.go:15](../../internal/status/status.go#L15)) đã có `server`, `generated_at`, `daemon_running`, `alerts`, `jobs`, `checks`, `running`. Đủ để dựng bảng tổng hợp mà không đổi API.
-- **Bearer token** bắt buộc, tối thiểu 16 ký tự (`config.MinTokenLength`, [internal/config/types.go:124](../../internal/config/types.go#L124)).
-- **Cảnh báo cấu hình rủi ro**: `sentinel doctor` cảnh báo khi API nghe trên địa chỉ máy khác với tới được vì token đi qua mạng không mã hoá ([internal/doctor/doctor.go:199-208](../../internal/doctor/doctor.go#L199-L208)).
-- **Interface `api.Backend`** ([internal/api/api.go:21](../../internal/api/api.go#L21)): Status, JobRepositories, ListSnapshots, StartBackup, RequestStop, Doctor. `*app.Service` là một cài đặt của nó.
+- **Các route của daemon** ([internal/api/api.go:46-53](../../agent/internal/api/api.go#L46-L53)): `GET /healthz` (không cần token), `/api/v1/status`, `/api/v1/alerts`, `/api/v1/jobs`, `/api/v1/jobs/{job}/snapshots`, `POST /api/v1/jobs/{job}/backups`, `DELETE /api/v1/jobs/{job}/backups/running`, `/api/v1/doctor`.
+- **`status.Report`** ([internal/status/status.go:15](../../agent/internal/status/status.go#L15)) đã có `server`, `generated_at`, `daemon_running`, `alerts`, `jobs`, `checks`, `running`. Đủ để dựng bảng tổng hợp mà không đổi API.
+- **Bearer token** bắt buộc, tối thiểu 16 ký tự (`config.MinTokenLength`, [internal/config/types.go:124](../../agent/internal/config/types.go#L124)).
+- **Cảnh báo cấu hình rủi ro**: `sentinel doctor` cảnh báo khi API nghe trên địa chỉ máy khác với tới được vì token đi qua mạng không mã hoá ([internal/doctor/doctor.go:199-208](../../agent/internal/doctor/doctor.go#L199-L208)).
+- **Interface `api.Backend`** ([internal/api/api.go:21](../../agent/internal/api/api.go#L21)): Status, JobRepositories, ListSnapshots, StartBackup, RequestStop, Doctor. `*app.Service` là một cài đặt của nó.
 - **Heartbeat** (`heartbeat.url`, mặc định 5 phút): daemon gọi ra một dịch vụ ngoài (healthchecks.io, Uptime Kuma push) để dịch vụ đó báo khi daemon ngừng gọi.
 
 ## 5. Làm được ngay, chưa cần code
@@ -58,7 +58,7 @@ Mặt hạn chế của pull: máy xem phải với tới được từng server
 Ba việc dưới đây dùng được với bản hiện tại.
 
 1. **Báo khi daemon dừng.** Đặt `heartbeat.url` trên từng server. Đây là cách hiện có để biết daemon chết; `sentinel doctor` đã nhắc nếu chưa đặt. Fleet (RFC này) không thay thế heartbeat mà bổ sung một góc nhìn thứ hai từ máy xem.
-2. **Một server gọi `/healthz` của server khác** bằng uptime check có sẵn (`UptimeCheck`, [internal/config/types.go:282](../../internal/config/types.go#L282)):
+2. **Một server gọi `/healthz` của server khác** bằng uptime check có sẵn (`UptimeCheck`, [internal/config/types.go:282](../../agent/internal/config/types.go#L282)):
 
    ```yaml
    uptime:
@@ -81,10 +81,10 @@ Ba việc dưới đây dùng được với bản hiện tại.
 | --- | --- | --- |
 | F1 | Chưa có client nào gọi nhiều server | Phải chạy `curl` từng máy |
 | F2 | API không trả version của Sentinel | Không biết server nào chạy bản cũ, client không biết route nào có |
-| F3 | Số liệu máy (CPU, RAM, ổ đĩa, systemd unit lỗi) của `host.State` ([internal/host/host.go:27](../../internal/host/host.go#L27)) chỉ hiện trong tab `Server` của TUI, API chưa trả | Tổng hợp nhiều server không thấy ổ đĩa đầy hay unit lỗi |
+| F3 | Số liệu máy (CPU, RAM, ổ đĩa, systemd unit lỗi) của `host.State` ([internal/host/host.go:27](../../agent/internal/host/host.go#L27)) chỉ hiện trong tab `Server` của TUI, API chưa trả | Tổng hợp nhiều server không thấy ổ đĩa đầy hay unit lỗi |
 | F4 | Chỉ có một token và nó cho phép bắt đầu, dừng backup | Máy chỉ để xem không nên mang quyền ghi |
 | F5 | API không có TLS | Phải nhờ tunnel hoặc reverse proxy; `doctor` luôn cảnh báo khi nghe ngoài loopback |
-| F6 | `sentinel manage` bắt buộc có `config.yaml` và state DB của chính máy đó ([cmd/sentinel/manage.go](../../cmd/sentinel/manage.go)) | Laptop không chạy backup sẽ không mở được tab `Fleet` trong `manage`; cần một đường vào không cần config |
+| F6 | `sentinel manage` bắt buộc có `config.yaml` và state DB của chính máy đó ([cmd/sentinel/manage.go](../../agent/cmd/sentinel/manage.go)) | Laptop không chạy backup sẽ không mở được tab `Fleet` trong `manage`; cần một đường vào không cần config |
 | F7 | Daemon không biết gì về các server khác | Không ai canh chừng server nào không truy cập được khi máy xem tắt |
 
 ## 7. Thiết kế đề xuất
@@ -130,12 +130,12 @@ Token đọc từ biến môi trường hoặc từ file `fleet.env` nằm cạn
 
 - `cmd/sentinel/fleet.go` là lệnh cobra mỏng, chỉ gọi `internal/fleet`. Mô tả lệnh và cờ bằng tiếng Việt, theo quy ước của dự án.
 - `sentinel fleet status`: một dòng mỗi server (tên, trạng thái OK / ALERT / UNREACHABLE, version, số alert mở, backup lỗi, check down, backup đang chạy; server không gọi được thì có lý do). `sentinel fleet alerts`: mọi alert đang mở, có cột server, và một dòng `unreachable` cho mỗi server không gọi được. Cả hai thoát với mã 0 dù có server lỗi; một server lỗi không làm mất kết quả của server khác.
-- Tab `Fleet` trong `sentinel manage`, và `sentinel fleet` không kèm lệnh con mở TUI chỉ có tab này (trên terminal; không phải terminal thì in help). Enter trên một dòng mở một `screen` chỉ đọc (cơ chế ngăn xếp trong [internal/tui/screen.go](../../internal/tui/screen.go)), hiện `status.Report` của server đó.
+- Tab `Fleet` trong `sentinel manage`, và `sentinel fleet` không kèm lệnh con mở TUI chỉ có tab này (trên terminal; không phải terminal thì in help). Enter trên một dòng mở một `screen` chỉ đọc (cơ chế ngăn xếp trong [internal/tui/screen.go](../../agent/internal/tui/screen.go)), hiện `status.Report` của server đó.
 
 ### 7.5. Thay đổi API của daemon
 
 - `GET /api/v1/host`: số liệu của `host.State` (mục F3). Handler chỉ gọi `internal/app`, theo quy ước của `internal/api`.
-- Trường `version` trong `status.Report`, lấy từ `main.version` ([cmd/sentinel/main.go:21](../../cmd/sentinel/main.go#L21)). `sentinel status -o json` có cùng trường này. Không đưa vào `/healthz`: route đó mở, không cần token, nên không nên cho biết phiên bản.
+- Trường `version` trong `status.Report`, lấy từ `main.version` ([cmd/sentinel/main.go:21](../../agent/cmd/sentinel/main.go#L21)). `sentinel status -o json` có cùng trường này. Không đưa vào `/healthz`: route đó mở, không cần token, nên không nên cho biết phiên bản.
 - `api.read_token`: token thứ hai chỉ gọi được các route `GET`. `api.token` giữ toàn quyền. Với `read_token` rỗng thì chỉ có một token như hiện nay.
 - `api.tls_cert` và `api.tls_key`: nếu có, daemon phục vụ HTTPS bằng `crypto/tls` của thư viện chuẩn với `MinVersion` là TLS 1.2. Khi có TLS, `doctor` không cảnh báo nữa. Cert và key được nạp lúc daemon khởi động, nên lỗi lộ ra ngay.
 
@@ -145,7 +145,7 @@ Các thay đổi trên chỉ **thêm**: route mới, field mới, khoá config m
 
 ### 7.7. Canh chừng trong daemon (giai đoạn 4)
 
-Daemon của một server đọc thêm khối `fleet:` trong `config.yaml`, trỏ tới một `fleet.yaml`, rồi chạy một task `fleet` cùng loại với task uptime (`Task`, [internal/daemon/daemon.go](../../internal/daemon/daemon.go)):
+Daemon của một server đọc thêm khối `fleet:` trong `config.yaml`, trỏ tới một `fleet.yaml`, rồi chạy một task `fleet` cùng loại với task uptime (`Task`, [internal/daemon/daemon.go](../../agent/internal/daemon/daemon.go)):
 
 ```yaml
 fleet:
@@ -170,14 +170,14 @@ Task **không** gửi lại các alert mà từng server đã tự gửi, để 
 
 ### 7.8. Thư viện
 
-RFC này **không thêm dependency nào**. Mọi phần dùng thứ đã có trong [go.mod](../../go.mod) hoặc thư viện chuẩn:
+RFC này **không thêm dependency nào**. Mọi phần dùng thứ đã có trong [go.mod](../../agent/go.mod) hoặc thư viện chuẩn:
 
 | Việc | Dùng |
 | --- | --- |
 | Client và TLS | `net/http`, `crypto/tls`, `crypto/x509` (thư viện chuẩn) |
 | Gọi song song có giới hạn | channel và `sync.WaitGroup` (thư viện chuẩn) |
 | Đọc `fleet.yaml` | `go.yaml.in/yaml/v3`; kiểm tra bằng code thường vì file chỉ có vài trường |
-| Đọc YAML và mở rộng `${VAR}` | `decodeStrict` của `internal/config` ([load.go:165](../../internal/config/load.go#L165)) làm cả hai, nhận `target any`; đang không export, giai đoạn 2 export thành `config.DecodeStrict` |
+| Đọc YAML và mở rộng `${VAR}` | `decodeStrict` của `internal/config` ([load.go:165](../../agent/internal/config/load.go#L165)) làm cả hai, nhận `target any`; đang không export, giai đoạn 2 export thành `config.DecodeStrict` |
 | Lệnh và TUI | `cobra`, `bubbletea` và `lipgloss`, như hiện nay |
 | Thử lại khi lỗi mạng (nếu cần) | `cenkalti/backoff/v5`, đã dùng trong `internal/notify` |
 
@@ -189,9 +189,9 @@ Làm theo hướng branch by abstraction: mỗi bước giữ nguyên hành vi, 
 
 1. `api.New(backend, token)` thành `api.New(backend, api.Options{...})`, để thêm version và token chỉ đọc mà không đổi chữ ký hàm nhiều lần (giai đoạn 1).
 2. Export `decodeStrict` thành `config.DecodeStrict`, để `internal/fleet` dùng chung cách đọc YAML (giai đoạn 2).
-3. Tách phần dựng dòng của các tab Backups, Uptime và Alerts trong `tabs()` ([internal/tui/tabs.go:24](../../internal/tui/tabs.go#L24)) thành hàm nhận `status.Report`, để màn hình một server của fleet dùng lại (giai đoạn 3).
+3. Tách phần dựng dòng của các tab Backups, Uptime và Alerts trong `tabs()` ([internal/tui/tabs.go:24](../../agent/internal/tui/tabs.go#L24)) thành hàm nhận `status.Report`, để màn hình một server của fleet dùng lại (giai đoạn 3).
 
-Không cần đổi `tui.RunManage` sang nhận interface: TUI đi qua struct `manageActions` ([internal/tui/actions.go:18](../../internal/tui/actions.go#L18)), chỉ có `RunManage` và `newManageActions` chạm tới `*app.Service`. Tab `Fleet` thêm một field vào struct đó, theo mẫu tab Server. Cũng không cần chuyển `api.Backend` sang `internal/app`, vì `fleet.Client` không phải cài đặt của nó. Không dùng strangler fig: không có hệ thống cũ nào phải thay dần.
+Không cần đổi `tui.RunManage` sang nhận interface: TUI đi qua struct `manageActions` ([internal/tui/actions.go:18](../../agent/internal/tui/actions.go#L18)), chỉ có `RunManage` và `newManageActions` chạm tới `*app.Service`. Tab `Fleet` thêm một field vào struct đó, theo mẫu tab Server. Cũng không cần chuyển `api.Backend` sang `internal/app`, vì `fleet.Client` không phải cài đặt của nó. Không dùng strangler fig: không có hệ thống cũ nào phải thay dần.
 
 ## 9. Rủi ro và cách giảm
 
@@ -200,7 +200,7 @@ Không cần đổi `tui.RunManage` sang nhận interface: TUI đi qua struct `m
 | Lộ token (token đi qua mạng) | Mỗi server một token, đọc từ biến môi trường, không ghi vào log; dùng tunnel hoặc TLS (7.5); `fleet.env` bị từ chối nếu quyền rộng hơn chủ file |
 | Máy xem bị chiếm thì điều khiển được mọi server | Máy xem dùng `read_token`; token ghi chỉ cấp khi tới giai đoạn 5 |
 | Đồng hồ các máy lệch nhau làm `generated_at` sai | So `generated_at` với giờ máy xem có dung sai, và hiện tuổi dữ liệu thay vì giờ tuyệt đối |
-| Endpoint chậm (snapshots, doctor tới 100 giây, `slowCallTimeout` ở [internal/api/handlers.go:13](../../internal/api/handlers.go#L13)) | `fleet status` chỉ gọi `/api/v1/status` (nhanh); snapshots và doctor chỉ gọi khi người dùng mở xem |
+| Endpoint chậm (snapshots, doctor tới 100 giây, `slowCallTimeout` ở [internal/api/handlers.go:13](../../agent/internal/api/handlers.go#L13)) | `fleet status` chỉ gọi `/api/v1/status` (nhanh); snapshots và doctor chỉ gọi khi người dùng mở xem |
 | Nhiều server làm nghẽn máy xem | Giới hạn số request song song, timeout mỗi server |
 | Cổng API mở ra ngoài | Chỉ nghe trên mạng riêng hoặc loopback; firewall; `doctor` tiếp tục cảnh báo |
 | Daemon cũ không có route mới | Mục 7.6 |

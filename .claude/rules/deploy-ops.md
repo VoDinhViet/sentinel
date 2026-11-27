@@ -1,7 +1,6 @@
 ---
 paths:
   - "deploy/**"
-  - "agent/deploy/**"
   - "Dockerfile"
   - ".goreleaser.yaml"
   - "test/*.sh"

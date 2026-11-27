@@ -1,7 +1,8 @@
 ---
 paths:
-  - "cmd/**"
-  - "internal/**"
+  - "agent/**"
+  - "pkg/**"
+  - "server/**"
 ---
 
 # Domain naming (Sentinel)
@@ -31,7 +32,7 @@ shapes (`r`, `x`, `v`, `row`, `data`, `result`, `list`, `items`) stay banned.
 | Where messages are sent | `notifier` | `channel`, `sender` |
 | `sentinel doctor` output | `finding` | `check` |
 | Keeping snapshots | `retention` (only this meaning) | for check history |
-| The `sentinel run` process | `daemon` (`internal/daemon`) | `scheduler` |
+| The `sentinel run` process | `daemon` (`agent/internal/daemon`) | `scheduler` |
 | A server enrolled in the control plane (Go, DB) | `agent` (CLI and TUI text say "server") | `node`, `client`, `host` |
 | One queued remote action | `task` (`server/internal/task`, table `tasks`) | `command`, `job` |
 | The kind of a task, e.g. `backup.start` | `action` (table in `pkg/agentapi`) | `command`, `type` |
