@@ -2,7 +2,9 @@ package agentapi
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -21,11 +23,19 @@ const (
 // takes a path, a package name or a command. A parameter is a name from the agent's own config, and the
 // agent checks it there again, after checking that its local allowlist lets the action run.
 const (
-	ActionBackupStart     = "backup.start"
-	ActionBackupStop      = "backup.stop"
-	ActionBackupSnapshots = "backup.snapshots"
-	ActionDoctorRun       = "doctor.run"
+	ActionBackupStart      = "backup.start"
+	ActionBackupStop       = "backup.stop"
+	ActionBackupSnapshots  = "backup.snapshots"
+	ActionDoctorRun        = "doctor.run"
+	ActionServiceStart     = "service.start"
+	ActionServiceStop      = "service.stop"
+	ActionServiceRestart   = "service.restart"
+	ActionContainerRestart = "container.restart"
 )
+
+// OwnUnit is the unit of the agent itself. No task starts, stops or restarts it: the task would end the
+// process that has to report how it went, and a stop could not be undone from here.
+const OwnUnit = "sentinel.service"
 
 // The states of a task. A task is queued, then sent to the agent that asked for it, then ends in one of
 // succeeded, failed (it ran and did not work), refused (the agent would not run it), canceled (taken back
@@ -67,6 +77,11 @@ var actionTable = map[string]actionSpec{
 	ActionBackupStop:      {required: []string{"job"}, timeout: time.Minute},
 	ActionBackupSnapshots: {required: []string{"job"}, optional: []string{"repository"}, timeout: 3 * time.Minute},
 	ActionDoctorRun:       {timeout: 3 * time.Minute},
+	// The unit and the container are names the agent looks up in its own allowlist; nothing else is taken.
+	ActionServiceStart:     {required: []string{"unit"}, timeout: time.Minute},
+	ActionServiceStop:      {required: []string{"unit"}, timeout: time.Minute},
+	ActionServiceRestart:   {required: []string{"unit"}, timeout: time.Minute},
+	ActionContainerRestart: {required: []string{"container"}, optional: []string{"timeout_s"}, timeout: 2 * time.Minute},
 }
 
 // Actions are the names of the actions, in order.
@@ -112,7 +127,60 @@ func ValidateTask(action string, params map[string]string) error {
 	return nil
 }
 
+// The shape of the names a task may carry. They end up as one argument of systemctl (after "--") or as one
+// segment of a path of the Docker API, so they are held to the characters those names really use.
+var (
+	unitName      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.(service|timer)$`)
+	containerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+)
+
+// MaxRestartTimeout is the most seconds a container is given to stop before it is killed.
+const MaxRestartTimeout = 120
+
+// ValidUnit says name is a systemd service or timer a task may name: a plain unit name, and not the agent's own.
+func ValidUnit(name string) error {
+	switch {
+	case name == OwnUnit:
+		return fmt.Errorf("%s is the agent itself: no task touches it", OwnUnit)
+	case !unitName.MatchString(name):
+		return fmt.Errorf("%q is not a unit name (letters, digits and : _ . @ - ending in .service or .timer)", termtext.Shorten(termtext.Line(name), 64))
+	}
+	return nil
+}
+
+// ValidContainer says name is a Docker container name or id.
+func ValidContainer(name string) error {
+	if !containerName.MatchString(name) {
+		return fmt.Errorf("%q is not a container name (letters, digits and _ . -)", termtext.Shorten(termtext.Line(name), 64))
+	}
+	return nil
+}
+
+// validTimeout accepts whole seconds from 1 to MaxRestartTimeout.
+func validTimeout(value string) error {
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 1 || seconds > MaxRestartTimeout || strconv.Itoa(seconds) != value {
+		return fmt.Errorf("timeout_s is whole seconds from 1 to %d", MaxRestartTimeout)
+	}
+	return nil
+}
+
 func validValue(name, value string) error {
+	if err := validText(name, value); err != nil {
+		return err
+	}
+	switch name {
+	case "unit":
+		return ValidUnit(value)
+	case "container":
+		return ValidContainer(value)
+	case "timeout_s":
+		return validTimeout(value)
+	}
+	return nil
+}
+
+func validText(name, value string) error {
 	switch {
 	case value == "":
 		return fmt.Errorf("the parameter %s is empty", name)

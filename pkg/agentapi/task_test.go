@@ -28,7 +28,7 @@ func TestValidateTaskAcceptsTheTableAndNothingElse(t *testing.T) {
 		params       map[string]string
 		want         string
 	}{
-		{"an action that is not in the table", "service.restart", map[string]string{"unit": "nginx.service"}, "unknown action"},
+		{"an action that is not in the table", "package.install", map[string]string{"name": "nginx"}, "unknown action"},
 		{"a shell", "shell.run", map[string]string{"cmd": "id"}, "unknown action"},
 		{"no action", "", nil, "unknown action"},
 		{"a missing parameter", ActionBackupStart, nil, "needs the parameter job"},
@@ -107,5 +107,53 @@ func TestAResultAndALogAreMaskedEvenWhenTheAgentDidNotMaskThem(t *testing.T) {
 		if strings.Contains(text, "hunter2") || strings.Contains(text, "abcd1234") {
 			t.Errorf("a secret is still in %q", text)
 		}
+	}
+}
+
+func TestUnitAndContainerNamesAreHeldToTheCharactersTheyReallyUse(t *testing.T) {
+	good := []struct {
+		action string
+		params map[string]string
+	}{
+		{ActionServiceRestart, map[string]string{"unit": "nginx.service"}},
+		{ActionServiceStart, map[string]string{"unit": "postgresql@16-main.service"}},
+		{ActionServiceStop, map[string]string{"unit": "backup-nightly.timer"}},
+		{ActionContainerRestart, map[string]string{"container": "web.1"}},
+		{ActionContainerRestart, map[string]string{"container": "3f2a9c", "timeout_s": "30"}},
+	}
+	for _, tc := range good {
+		if err := ValidateTask(tc.action, tc.params); err != nil {
+			t.Errorf("%s %v refused: %v", tc.action, tc.params, err)
+		}
+	}
+	bad := []struct {
+		name, action string
+		params       map[string]string
+		want         string
+	}{
+		{"the agent itself", ActionServiceStop, map[string]string{"unit": OwnUnit}, "the agent itself"},
+		{"a flag", ActionServiceRestart, map[string]string{"unit": "--user.service"}, "not a unit name"},
+		{"a second argument", ActionServiceRestart, map[string]string{"unit": "a.service b.service"}, "not a unit name"},
+		{"a path", ActionServiceRestart, map[string]string{"unit": "/etc/systemd/system/x.service"}, "not a unit name"},
+		{"a unit type that is not a service or timer", ActionServiceRestart, map[string]string{"unit": "reboot.target"}, "not a unit name"},
+		{"a missing suffix", ActionServiceRestart, map[string]string{"unit": "nginx"}, "not a unit name"},
+		{"no unit", ActionServiceRestart, nil, "needs the parameter unit"},
+		{"a container path", ActionContainerRestart, map[string]string{"container": "../containers/x"}, "not a container name"},
+		{"a container with a slash", ActionContainerRestart, map[string]string{"container": "a/b"}, "not a container name"},
+		{"a container query", ActionContainerRestart, map[string]string{"container": "a?force=1"}, "not a container name"},
+		{"a leading dash", ActionContainerRestart, map[string]string{"container": "-a"}, "not a container name"},
+		{"a timeout that is not a number", ActionContainerRestart, map[string]string{"container": "a", "timeout_s": "soon"}, "whole seconds"},
+		{"a timeout too long", ActionContainerRestart, map[string]string{"container": "a", "timeout_s": "121"}, "whole seconds"},
+		{"a timeout with a sign", ActionContainerRestart, map[string]string{"container": "a", "timeout_s": "+5"}, "whole seconds"},
+		{"a timeout of zero", ActionContainerRestart, map[string]string{"container": "a", "timeout_s": "0"}, "whole seconds"},
+		{"a unit given to a container", ActionContainerRestart, map[string]string{"unit": "a.service"}, "does not take"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateTask(tc.action, tc.params)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s %v: err = %v, want one with %q", tc.action, tc.params, err, tc.want)
+			}
+		})
 	}
 }

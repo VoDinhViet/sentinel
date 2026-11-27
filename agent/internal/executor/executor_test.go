@@ -83,8 +83,13 @@ func TestNothingRunsWhileTheAllowlistIsOff(t *testing.T) {
 	for _, action := range agentapi.Actions() {
 		backend := &fakeBackend{}
 		params := map[string]string{"job": "db"}
-		if action == agentapi.ActionDoctorRun {
+		switch {
+		case action == agentapi.ActionDoctorRun:
 			params = nil
+		case strings.HasPrefix(action, "service."):
+			params = map[string]string{"unit": "nginx.service"}
+		case action == agentapi.ActionContainerRestart:
+			params = map[string]string{"container": "web"}
 		}
 		result, _ := run(New(backend, config.Allow{}), task(action, params))
 		if result.State != agentapi.TaskRefused || !strings.Contains(result.Error, "not allowed") || !strings.Contains(result.Error, "control_plane.allow.") {
@@ -106,12 +111,12 @@ func TestEachKeyOfTheAllowlistOpensOnlyItsActions(t *testing.T) {
 		{config.Allow{}, map[string]bool{}},
 	} {
 		for _, action := range agentapi.Actions() {
-			if got := tc.allow.Permits(action); got != tc.want[action] {
+			if got := tc.allow.Permits(action, nil); got != tc.want[action] {
 				t.Errorf("%+v permits %s = %v", tc.allow, action, got)
 			}
 		}
 	}
-	if (config.Allow{}).Permits("shell.run") || allowAll.Permits("service.restart") {
+	if (config.Allow{}).Permits("shell.run", nil) || allowAll.Permits("service.restart", map[string]string{"unit": "nginx.service"}) {
 		t.Error("an action that is not in the table was permitted")
 	}
 	if got := strings.Join(allowAll.Actions(), " "); got != "backup.snapshots backup.start backup.stop doctor.run" {

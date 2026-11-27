@@ -176,8 +176,8 @@ Bảng action cố định trong `pkg/agentapi`; tham số được decode bằn
 | `backup.start` / `backup.stop` | `job` (+ `repository` tuỳ chọn cho `backup.start`) | `job` phải có trong config local; `backup.start` xong khi backup đã *bắt đầu* (kết quả là pid), còn kết quả backup đến ở report kế tiếp |
 | `backup.snapshots` | `job`, `repository` tuỳ chọn | chỉ đọc; 50 snapshot mới nhất; bỏ `repository` thì dùng repository duy nhất của job |
 | `doctor.run` | — | kết quả đã `restic.Redact`; có check lỗi thì task `failed` ("N of M checks failed") |
-| `service.start\|stop\|restart` | `unit` | regex `.service\|.timer`, khớp chính xác trong `allow.services`; không đụng `sentinel.service` |
-| `container.restart` | `container`, `timeout_s` | khớp chính xác trong `allow.containers`; Docker Engine API qua unix socket |
+| `service.start\|stop\|restart` | `unit` | `^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.(service\|timer)$`, khớp chính xác trong `allow.services`; không bao giờ `sentinel.service` (cả server lẫn agent từ chối). Chạy `systemctl --no-ask-password --no-pager <động từ> -- <unit>` (argv cố định, unit đứng sau `--`), rồi `systemctl is-active -- <unit>`: unit ở trạng thái `failed` thì task `failed`, còn lại báo trạng thái trong output |
+| `container.restart` | `container`, `timeout_s` tuỳ chọn (1 đến 120) | `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, khớp chính xác trong `allow.containers`; `POST /containers/{PathEscape(tên)}/restart[?t=N]` qua unix socket `allow.docker_socket`, không theo redirect, không proxy; 204 là thành công, 404 là không có container đó |
 | `os.check_updates` | — | `apt-get -s upgrade` hoặc `dnf check-update` |
 | `os.apply_updates` | `security_only` | cần `allow.os_updates: apply`; xác nhận trước khi gửi |
 | `agent.update` | `version` | cần `allow.self_update`; mục 12 |
@@ -192,8 +192,8 @@ control_plane:
   allow:
     backup: false              # backup.start|stop|snapshots
     doctor: false              # doctor.run
-    services: []
-    containers: []
+    services: []               # service.*: đúng các unit này
+    containers: []             # container.restart: đúng các container này
     docker_socket: /var/run/docker.sock
     os_updates: off            # off | check | apply
     self_update: {}            # public_key để bật
@@ -288,7 +288,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 8 | TUI của `sentinelctl`: danh sách server và alert, màn hình một server (chỉ đọc; thêm/thu hồi vẫn bằng lệnh; giai đoạn 9 thêm `b`/`s` và mục Việc) |
 | 9 | Task engine và action `backup.*`, `doctor.run`; log qua SSE; `sentinelctl run\|task`; `control_plane.allow`; trong TUI phím `b`/`s` ở mục Backup (hỏi y/n, chặn trước nếu `allow` của server trong report không có action) và mục Việc |
 | 10 | Xoá mô hình pull (mục 15): tab Fleet và `sentinel fleet`, FleetWatcher và alert `fleet:`, `internal/fleet`, `internal/api` (daemon không nghe cổng nào); `api:` và `fleet:` thành khối deprecated |
-| 11 | Action systemd và Docker |
+| 11 | Action systemd và Docker (`service.start\|stop\|restart`, `container.restart`; `allow.services`, `allow.containers`, `allow.docker_socket`) |
 | 12 | Cập nhật OS |
 | 13 | Lịch và cửa sổ bảo trì |
 | 14 | Báo cáo và lịch sử |

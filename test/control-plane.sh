@@ -104,8 +104,17 @@ control_plane:
   dir: "$WORK/agent"
   allow:
     doctor: true
+    services: [demo.service]
 EOF
-	"$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
+	# A systemctl that only writes down how it was called: this machine's own units are not touched.
+	mkdir "$WORK/bin"
+	cat >"$WORK/bin/systemctl" <<'EOF'
+#!/bin/sh
+echo "$*" >>"$SYSTEMCTL_LOG"
+case "$*" in *is-active*) echo active ;; esac
+EOF
+	chmod +x "$WORK/bin/systemctl"
+	SYSTEMCTL_LOG="$WORK/systemctl.log" PATH="$WORK/bin:$PATH" "$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
 	for _ in $(seq 50); do
 		[ "$(ctl server show web01 -o json 2>/dev/null | jq -r '.report.host.hostname // empty')" != "" ] && break
@@ -115,7 +124,7 @@ EOF
 		{ sed 's/^/    daemon: /' "$WORK/daemon.log" >&2; fail "the daemon's report did not arrive"; }
 	ctl server show web01 | grep -q "Máy:" && pass "sentinelctl server show prints the host" || fail "server show printed no host"
 	[ "$(ctl alert -o json | jq length)" = 0 ] && pass "no alert while the server reports" || fail "an alert is open for a reporting server"
-	ctl server show web01 | grep -q "Cho phép:          doctor.run" && pass "server show says which actions the server allows" || fail "server show does not list the allowed actions"
+	ctl server show web01 | grep -q "Cho phép:.*doctor.run.*service.restart" && pass "server show says which actions the server allows" || fail "server show does not list the allowed actions"
 
 	echo "== task"
 	if ctl run web01 backup.start job=nothing --wait >"$WORK/refused.txt" 2>&1; then fail "a backup was started on a server that does not allow it"; fi
@@ -128,6 +137,17 @@ EOF
 	if ctl run web01 shell.run cmd=id >/dev/null 2>&1; then fail "an action that is not in the table was queued"; fi
 	pass "an action that is not in the table is refused by the control plane"
 	ctl audit -n 50 | grep -q task.result && pass "the audit log has the results" || fail "no task.result in the audit log"
+	echo "== service task"
+	ctl run web01 service.restart unit=demo.service --wait >"$WORK/service.txt" 2>&1 && pass "service.restart ran for a unit on the allowlist" || fail "service.restart failed: $(cat "$WORK/service.txt")"
+	grep -qx -- "--no-ask-password --no-pager restart -- demo.service" "$WORK/systemctl.log" && pass "systemctl got fixed arguments and the unit after --" || fail "systemctl was called as: $(cat "$WORK/systemctl.log")"
+	if ctl run web01 service.stop unit=other.service --wait >"$WORK/other.txt" 2>&1; then fail "a unit that is not on the allowlist was stopped"; fi
+	grep -q "control_plane.allow.services: \[other.service\]" "$WORK/other.txt" && pass "a unit that is not listed is refused, and the refusal says what to write" || fail "no refusal in: $(cat "$WORK/other.txt")"
+	! grep -q "other.service" "$WORK/systemctl.log" && pass "systemctl never saw the unit that was refused" || fail "systemctl was called for a refused unit"
+	for bad in "unit=sentinel.service" "unit=demo.service;id" "unit=--user.service" "unit=/etc/x.service"; do
+		if ctl run web01 service.restart "$bad" >"$WORK/bad.txt" 2>&1; then fail "the control plane queued service.restart $bad"; fi
+	done
+	pass "a unit that is the agent, a flag, a path or a second command never becomes a task"
+	[ "$(ctl task ls --server web01 -o json | jq '[.[] | select(.params.unit != null and .params.unit != "demo.service" and .params.unit != "other.service")] | length')" = 0 ] && pass "no such task is in the queue" || fail "a bad unit is in the queue"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null
 	DAEMON_PID=

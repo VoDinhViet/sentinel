@@ -569,11 +569,67 @@ func TestControlPlaneAllowsNothingUntilTheConfigSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.ControlPlane.Allow.Permits("backup.start") || cfg.ControlPlane.Allow.Permits("doctor.run") {
+	if !cfg.ControlPlane.Allow.Permits("backup.start", nil) || cfg.ControlPlane.Allow.Permits("doctor.run", nil) {
 		t.Errorf("allow = %+v", cfg.ControlPlane.Allow)
 	}
 	// A key for an action that does not exist yet is a typo until it does: the file does not load.
 	if _, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { shell: true } }\n")); err == nil {
 		t.Error("allow: shell was accepted")
+	}
+}
+
+func TestUnitsAndContainersAreAllowedByExactNameOnly(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	cfg, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { services: [nginx.service, backup.timer], containers: [web, \"3f2a9c\"], docker_socket: /run/docker.sock } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := cfg.ControlPlane.Allow
+	for action, want := range map[string]map[string]bool{
+		"service.restart": {"nginx.service": true, "backup.timer": true, "nginx": false, "nginx.service ": false, "other.service": false, "": false},
+	} {
+		for unit, ok := range want {
+			if got := allow.Permits(action, map[string]string{"unit": unit}); got != ok {
+				t.Errorf("%s %q = %v, want %v", action, unit, got, ok)
+			}
+		}
+	}
+	if !allow.Permits("container.restart", map[string]string{"container": "web"}) || allow.Permits("container.restart", map[string]string{"container": "we"}) ||
+		allow.Permits("container.restart", map[string]string{"container": "nginx.service"}) {
+		t.Error("a container is allowed by its exact name only")
+	}
+	if allow.Permits("service.restart", map[string]string{"container": "web"}) {
+		t.Error("a unit list allowed a task that named no unit")
+	}
+	if got := strings.Join(allow.Actions(), ","); got != "container.restart,service.restart,service.start,service.stop" {
+		t.Errorf("Actions = %s", got)
+	}
+	if allow.Socket() != "/run/docker.sock" || (Allow{}).Socket() != DefaultDockerSocket {
+		t.Errorf("sockets: %q, %q", allow.Socket(), (Allow{}).Socket())
+	}
+	if (Allow{Backup: true}).Offers("service.restart") || (Allow{}).Offers("container.restart") {
+		t.Error("an empty list offers an action")
+	}
+}
+
+func TestAllowListsAreCheckedWhenTheFileIsRead(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	for name, tc := range map[string]struct{ allow, want string }{
+		"the agent itself":   {"services: [sentinel.service]", "the agent itself"},
+		"a flag":             {"services: ['--user.service']", "not a unit name"},
+		"a path":             {"services: [/etc/x.service]", "not a unit name"},
+		"a unit twice":       {"services: [a.service, a.service]", "listed twice"},
+		"a container with /": {"containers: [a/b]", "not a container name"},
+		"a container twice":  {"containers: [a, a]", "listed twice"},
+		"a relative socket":  {"docker_socket: docker.sock", "docker_socket"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { " + tc.allow + " } }\n"))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want one with %q", err, tc.want)
+			}
+		})
 	}
 }

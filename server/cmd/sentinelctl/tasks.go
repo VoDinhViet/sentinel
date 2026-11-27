@@ -34,7 +34,9 @@ Việc không được server lấy trong 10 phút sẽ hết hạn.
 --wait đợi đến khi việc kết thúc; --follow cũng in log từng dòng khi nó chạy. Cả hai thoát với mã khác 0 nếu việc không thành công.`,
 		Example: `  sentinelctl run web01 doctor.run --follow
   sentinelctl run web01 backup.start job=db
-  sentinelctl run web01 backup.snapshots job=db repository=s3 --wait`,
+  sentinelctl run web01 backup.snapshots job=db repository=s3 --wait
+  sentinelctl run web01 service.restart unit=nginx.service --wait
+  sentinelctl run web01 container.restart container=web timeout_s=30 --wait`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			asJSON, err := c.wantsJSON()

@@ -166,3 +166,33 @@ func TestControlPlaneFindingFailsWithoutAnIdentityAndWarnsWhenTheControlPlaneIsO
 		t.Errorf("an unreachable control plane: %+v, want a warning", finding)
 	}
 }
+
+func TestAllowToolFindingsWarnOnlyWhenTheListNeedsSomethingThatIsMissing(t *testing.T) {
+	if got := allowToolFindings(config.Allow{Backup: true, Doctor: true}); len(got) != 0 {
+		t.Errorf("no units or containers listed, but %+v", got)
+	}
+	missing := allowToolFindings(config.Allow{Containers: []string{"web"}, DockerSocket: filepath.Join(t.TempDir(), "no.sock")})
+	if len(missing) != 1 || !missing[0].Warn || !strings.Contains(missing[0].Err.Error(), "not a Docker socket") {
+		t.Errorf("a socket that is not there: %+v", missing)
+	}
+	notSocket := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notSocket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := allowToolFindings(config.Allow{Containers: []string{"web"}, DockerSocket: notSocket}); len(got) != 1 {
+		t.Errorf("a regular file taken for a socket: %+v", got)
+	}
+	dir, err := os.MkdirTemp("", "sd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	listener, err := net.Listen("unix", filepath.Join(dir, "d.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if got := allowToolFindings(config.Allow{Containers: []string{"web"}, DockerSocket: filepath.Join(dir, "d.sock")}); len(got) != 0 {
+		t.Errorf("a real socket: %+v", got)
+	}
+}

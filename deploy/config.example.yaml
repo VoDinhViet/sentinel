@@ -100,6 +100,12 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 #   allow:
 #     backup: false   # start and stop the backup of a job in this file, and list its snapshots
 #     doctor: false   # run `sentinel doctor`
+#     # service.start|stop|restart: exactly these systemd units (.service or .timer), nothing else. sentinel.service
+#     # cannot be listed. Needs systemctl; the daemon runs as root, so it can act on any unit.
+#     services: []                      # e.g. [nginx.service, postgresql.service]
+#     # container.restart: exactly these Docker containers (names or ids), through the Docker socket.
+#     containers: []                    # e.g. [web, worker]
+#     docker_socket: /var/run/docker.sock
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;

@@ -90,6 +90,9 @@ type ControlPlane struct {
 	Allow Allow `yaml:"allow"`
 }
 
+// DefaultDockerSocket is where the Docker Engine listens, when allow.docker_socket says nothing.
+const DefaultDockerSocket = "/var/run/docker.sock"
+
 // Allow is the local allowlist of the actions of agentapi. A task whose action is not allowed is refused,
 // whoever asked.
 type Allow struct {
@@ -97,36 +100,72 @@ type Allow struct {
 	Backup bool `yaml:"backup"`
 	// Doctor lets it run `sentinel doctor`.
 	Doctor bool `yaml:"doctor"`
+	// Services are the systemd units that service.start, service.stop and service.restart may name: exactly
+	// these, never a pattern.
+	Services []string `yaml:"services"`
+	// Containers are the Docker containers (names or ids) that container.restart may name: exactly these.
+	Containers []string `yaml:"containers"`
+	// DockerSocket is the unix socket of the Docker Engine; DefaultDockerSocket when empty.
+	DockerSocket string `yaml:"docker_socket" validate:"omitempty,abspath"`
 }
 
-// Permits says the action is allowed.
-func (a Allow) Permits(action string) bool {
+// Permits says the action may run with these parameters. The names of a unit or a container have to be in
+// the lists above.
+func (a Allow) Permits(action string, params map[string]string) bool {
 	switch action {
 	case agentapi.ActionBackupStart, agentapi.ActionBackupStop, agentapi.ActionBackupSnapshots:
 		return a.Backup
 	case agentapi.ActionDoctorRun:
 		return a.Doctor
+	case agentapi.ActionServiceStart, agentapi.ActionServiceStop, agentapi.ActionServiceRestart:
+		return slices.Contains(a.Services, params["unit"])
+	case agentapi.ActionContainerRestart:
+		return slices.Contains(a.Containers, params["container"])
 	}
 	return false
 }
 
-// Actions are the actions that are allowed, in order.
+// Offers says the action can run for at least one name: it is what the report tells the control plane.
+func (a Allow) Offers(action string) bool {
+	switch action {
+	case agentapi.ActionServiceStart, agentapi.ActionServiceStop, agentapi.ActionServiceRestart:
+		return len(a.Services) > 0
+	case agentapi.ActionContainerRestart:
+		return len(a.Containers) > 0
+	}
+	return a.Permits(action, nil)
+}
+
+// Actions are the actions that can run, in order.
 func (a Allow) Actions() []string {
 	allowed := []string{}
 	for _, action := range agentapi.Actions() {
-		if a.Permits(action) {
+		if a.Offers(action) {
 			allowed = append(allowed, action)
 		}
 	}
 	return allowed
 }
 
-// Hint says which key of the config allows the action, for the message of a refusal.
-func (Allow) Hint(action string) string {
-	if action == agentapi.ActionDoctorRun {
-		return "control_plane.allow.doctor"
+// Hint says which key of the config allows the action with these parameters, for the message of a refusal.
+func (Allow) Hint(action string, params map[string]string) string {
+	switch action {
+	case agentapi.ActionDoctorRun:
+		return "control_plane.allow.doctor: true"
+	case agentapi.ActionServiceStart, agentapi.ActionServiceStop, agentapi.ActionServiceRestart:
+		return "control_plane.allow.services: [" + params["unit"] + "]"
+	case agentapi.ActionContainerRestart:
+		return "control_plane.allow.containers: [" + params["container"] + "]"
 	}
-	return "control_plane.allow.backup"
+	return "control_plane.allow.backup: true"
+}
+
+// Socket is the Docker socket to use.
+func (a Allow) Socket() string {
+	if a.DockerSocket != "" {
+		return a.DockerSocket
+	}
+	return DefaultDockerSocket
 }
 
 // Enabled says the daemon reports to a control plane.

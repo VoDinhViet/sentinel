@@ -196,6 +196,8 @@ control_plane:
   # allow:                 # mặc định tắt hết: control plane chưa được nhờ gì
   #   backup: true         # backup.start|stop|snapshots
   #   doctor: true         # doctor.run
+  #   services: [nginx.service]      # service.start|stop|restart: đúng các unit này
+  #   containers: [web]              # container.restart: đúng các container này (qua /var/run/docker.sock)
 ```
 
 Từ đó daemon báo cáo cho control plane mỗi phút (máy, kết quả backup, uptime check, cảnh báo đang mở) và tự xin chứng chỉ mới khi còn dưới 30 ngày, không cần ai làm gì. Control plane không chạy thì daemon vẫn backup và tự cảnh báo như cũ; `sentinel doctor` có dòng `control_plane` cho biết danh tính và kết nối có ổn không.
@@ -212,11 +214,11 @@ Từ đó daemon báo cáo cho control plane mỗi phút (máy, kết quả back
 | `sentinelctl alert [-o json]` | Cảnh báo của chính control plane đang mở |
 | `sentinelctl server add <tên>` | Tạo join token |
 | `sentinelctl server revoke <tên> [--yes]` | Thu hồi: chứng chỉ bị từ chối từ request kế tiếp. Hỏi gõ lại tên |
-| `sentinelctl run <server> <action> [k=v…] [--wait\|--follow]` | Giao một việc cho server: `backup.start job=<tên> [repository=<tên>]`, `backup.stop job=<tên>`, `backup.snapshots job=<tên>`, `doctor.run`. `--wait` đợi kết quả, `--follow` in log khi nó chạy; thoát khác 0 nếu việc không thành công |
+| `sentinelctl run <server> <action> [k=v…] [--wait\|--follow]` | Giao một việc cho server: `backup.start job=<tên> [repository=<tên>]`, `backup.stop job=<tên>`, `backup.snapshots job=<tên>`, `doctor.run`, `service.start`, `service.stop`, `service.restart` (kèm `unit=<unit>`), `container.restart container=<tên> [timeout_s=<giây>]`. `--wait` đợi kết quả, `--follow` in log khi nó chạy; thoát khác 0 nếu việc không thành công |
 | `sentinelctl task ls [--server <tên>] [-n 20]` / `task show <số>` / `task cancel <số>` | Các việc đã giao, chi tiết một việc, huỷ việc chưa được nhận |
 | `sentinelctl audit [-n 50] [-o json]` / `audit verify` | Ai đã làm gì từ đâu / kiểm tra chuỗi hash |
 
-Việc giao đi chỉ nằm trong bảng action cố định (không có shell, đường dẫn hay lệnh tự do) và chỉ chạy khi `control_plane.allow` trong config của chính server đó cho phép; không thì việc kết thúc `refused` và nói cần bật khoá nào. Việc chưa được nhận sau 10 phút thì hết hạn. `sentinelctl server show` ghi server cho phép những action nào.
+Việc giao đi chỉ nằm trong bảng action cố định (không có shell, đường dẫn hay lệnh tự do) và chỉ chạy khi `control_plane.allow` trong config của chính server đó cho phép; không thì việc kết thúc `refused` và nói cần bật khoá nào. Unit systemd và container Docker thì phải được liệt kê đúng tên trong `allow.services` và `allow.containers` (không có mẫu, không có ký tự đại diện; `sentinel.service` không bao giờ được phép), và `allow.docker_socket` là socket của Docker (mặc định `/var/run/docker.sock`); daemon chạy bằng root nên các việc này tác động được lên mọi unit trong danh sách. Việc chưa được nhận sau 10 phút thì hết hạn. `sentinelctl server show` ghi server cho phép những action nào.
 
 Chỉ có một mật khẩu đăng nhập, không có người dùng hay vai trò: đã đăng nhập là có toàn quyền trên control plane; quyền thật sự trên mỗi server nằm ở allowlist local của agent. Sai mật khẩu 5 lần liên tiếp thì địa chỉ đó bị chặn 15 phút; toàn server quá 30 lần sai trong một giờ thì mỗi địa chỉ chỉ được thử một lần. Phiên lưu trong `~/.config/sentinel/session` (mode 0600; file mà người khác đọc được bị từ chối). Nhật ký audit chỉ ghi thêm và nối hash, nên sửa hay xoá một dòng đều bị `audit verify` báo; mỗi dòng cũng được ghi ra journal của service.
 

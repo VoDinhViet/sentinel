@@ -43,6 +43,8 @@ type Executor struct {
 	Allow   config.Allow
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Systemctl runs systemctl with the given arguments; nil runs the real one. A test replaces it.
+	Systemctl func(ctx context.Context, args ...string) ([]byte, error)
 
 	limit *ratelimit.Limiter
 }
@@ -91,8 +93,8 @@ func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line st
 	if err := agentapi.ValidateTask(task.Action, task.Params); err != nil {
 		return refused("the task is not one this agent knows: " + err.Error())
 	}
-	if !e.Allow.Permits(task.Action) {
-		return refused(fmt.Sprintf("%s is not allowed on this server: set %s: true in its config and restart sentinel", task.Action, e.Allow.Hint(task.Action)))
+	if !e.Allow.Permits(task.Action, task.Params) {
+		return refused(fmt.Sprintf("%s is not allowed on this server: set %s in its config and restart sentinel", task.Action, e.Allow.Hint(task.Action, task.Params)))
 	}
 	if !e.limit.Allow(task.Action) {
 		return refused("too many " + task.Action + " tasks in a row: wait a few seconds")
@@ -106,6 +108,10 @@ func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line st
 		return e.stopBackup(task.Params["job"], log)
 	case agentapi.ActionBackupSnapshots:
 		return e.snapshots(ctx, task.Params, log)
+	case agentapi.ActionServiceStart, agentapi.ActionServiceStop, agentapi.ActionServiceRestart:
+		return e.service(ctx, task.Action, task.Params["unit"], log)
+	case agentapi.ActionContainerRestart:
+		return e.restartContainer(ctx, task.Params, log)
 	default: // agentapi.ActionDoctorRun: ValidateTask let nothing else through
 		return e.doctor(ctx, log)
 	}

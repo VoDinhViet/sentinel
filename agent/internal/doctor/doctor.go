@@ -159,6 +159,7 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 	findings = append(findings, notifierFinding, heartbeatFinding(cfg))
 	if cfg.ControlPlane.Enabled() {
 		findings = append(findings, controlPlaneFinding(ctx, cfg))
+		findings = append(findings, allowToolFindings(cfg.ControlPlane.Allow)...)
 	}
 	if blocks := cfg.Deprecated(); len(blocks) > 0 {
 		findings = append(findings, deprecatedFinding(blocks))
@@ -232,6 +233,25 @@ func controlPlaneFinding(ctx context.Context, cfg *config.Config) Finding {
 			who.NotAfter.Local().Format("2006-01-02"), allowedText(cfg.ControlPlane.Allow))
 	}
 	return finding
+}
+
+// allowToolFindings warns when the allowlist names units or containers and what the tasks need to touch them
+// is not here: a task would only fail, and the person who wrote the list would not know why.
+func allowToolFindings(allow config.Allow) []Finding {
+	var findings []Finding
+	if len(allow.Services) > 0 {
+		if _, err := exec.LookPath("systemctl"); err != nil {
+			findings = append(findings, Finding{Name: "allow.services", Warn: true, Err: errors.New("systemctl was not found, so service tasks will fail"),
+				Hint: "this machine has no systemd (a container, a minimal image): remove control_plane.allow.services"})
+		}
+	}
+	if len(allow.Containers) > 0 {
+		if info, err := os.Stat(allow.Socket()); err != nil || info.Mode()&os.ModeSocket == 0 {
+			findings = append(findings, Finding{Name: "allow.containers", Warn: true, Err: fmt.Errorf("%s is not a Docker socket, so container tasks will fail", allow.Socket()),
+				Hint: "start Docker, or set control_plane.allow.docker_socket to the right path"})
+		}
+	}
+	return findings
 }
 
 // allowedText is the actions the allowlist lets the control plane ask for, "none" when it is off.

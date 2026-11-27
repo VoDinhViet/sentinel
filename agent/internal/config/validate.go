@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"sentinel/agent/internal/schedule"
+	"sentinel/pkg/agentapi"
 	"sentinel/pkg/yamlenv"
 )
 
@@ -19,7 +20,36 @@ func (c *Config) validate() error {
 	errs = append(errs, c.jobErrors()...)
 	errs = append(errs, c.scheduleErrors()...)
 	errs = append(errs, c.uptimeErrors()...)
+	errs = append(errs, c.allowErrors()...)
 	return errors.Join(errs...)
+}
+
+// allowErrors checks the names a task may be allowed to touch: each must be a name the table of actions would
+// accept, once, so that a typo here is found when the file is read and not when a task is refused.
+func (c *Config) allowErrors() []error {
+	allow := c.ControlPlane.Allow
+	var errs []error
+	seen := map[string]bool{}
+	for _, unit := range allow.Services {
+		switch {
+		case agentapi.ValidUnit(unit) != nil:
+			errs = append(errs, fmt.Errorf("control_plane.allow.services: %w", agentapi.ValidUnit(unit)))
+		case seen[unit]:
+			errs = append(errs, fmt.Errorf("control_plane.allow.services: %s is listed twice", unit))
+		}
+		seen[unit] = true
+	}
+	seen = map[string]bool{}
+	for _, name := range allow.Containers {
+		switch {
+		case agentapi.ValidContainer(name) != nil:
+			errs = append(errs, fmt.Errorf("control_plane.allow.containers: %w", agentapi.ValidContainer(name)))
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("control_plane.allow.containers: %s is listed twice", name))
+		}
+		seen[name] = true
+	}
+	return errs
 }
 
 // repositoryErrors checks the env a repository passes to restic: only variable names, and none that
