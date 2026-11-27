@@ -19,6 +19,10 @@ const (
 	RouteTasks       = "/v1/ctl/tasks"             // GET lists, POST queues one
 	RouteTask        = "/v1/ctl/tasks/{id}"        // GET shows, DELETE takes back one that is waiting
 	RouteTaskEvents  = "/v1/ctl/tasks/{id}/events" // text/event-stream: state, log and done events
+	RouteSchedules   = "/v1/ctl/schedules"         // GET lists, POST makes one
+	RouteSchedule    = "/v1/ctl/schedules/{id}"    // DELETE removes
+	RouteMaintenance = "/v1/ctl/maintenance"       // GET lists the windows that are open or to come, POST opens one
+	RouteWindow      = "/v1/ctl/maintenance/{id}"  // DELETE removes (ends) one
 	RouteAudit       = "/v1/ctl/audit"
 	RouteAuditVerify = "/v1/ctl/audit/verify"
 )
@@ -46,7 +50,7 @@ type PasswdRequest struct {
 type Agent struct {
 	Name  string `json:"name"`
 	State string `json:"state"` // pending, active or revoked
-	// Status is what to show: PENDING, ONLINE, OFFLINE or REVOKED.
+	// Status is what to show: PENDING, ONLINE, OFFLINE, REVOKED, or MAINTENANCE while a maintenance window is open.
 	Status       string     `json:"status"`
 	CreatedAt    time.Time  `json:"created_at"`
 	EnrolledAt   *time.Time `json:"enrolled_at,omitempty"`
@@ -144,3 +148,45 @@ const (
 	EventLog   = "log"
 	EventDone  = "done"
 )
+
+// Schedule is a task the control plane queues by timetable. Next is nil when the timetable has no next run.
+type Schedule struct {
+	ID        int64             `json:"id"`
+	Agent     string            `json:"agent"`
+	Action    string            `json:"action"`
+	Params    map[string]string `json:"params"`
+	Spec      string            `json:"spec"`
+	Next      *time.Time        `json:"next,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	CreatedBy string            `json:"created_by"`
+	LastRunAt *time.Time        `json:"last_run_at,omitempty"`
+	LastTask  *int64            `json:"last_task,omitempty"`
+	LastError string            `json:"last_error,omitempty"`
+}
+
+// CreateScheduleRequest makes a schedule: Spec is a cron timetable.
+type CreateScheduleRequest struct {
+	Agent  string            `json:"agent"`
+	Spec   string            `json:"spec"`
+	Action string            `json:"action"`
+	Params map[string]string `json:"params"`
+}
+
+// Window is a maintenance window. Agent is empty when it is for every server; Open says it is open now.
+type Window struct {
+	ID        int64     `json:"id"`
+	Agent     string    `json:"agent,omitempty"`
+	StartsAt  time.Time `json:"starts_at"`
+	EndsAt    time.Time `json:"ends_at"`
+	Reason    string    `json:"reason,omitempty"`
+	Open      bool      `json:"open"`
+	CreatedBy string    `json:"created_by"`
+}
+
+// CreateWindowRequest opens a window: StartsAt nil means now.
+type CreateWindowRequest struct {
+	Agent    string     `json:"agent"`
+	StartsAt *time.Time `json:"starts_at,omitempty"`
+	EndsAt   time.Time  `json:"ends_at"`
+	Reason   string     `json:"reason"`
+}

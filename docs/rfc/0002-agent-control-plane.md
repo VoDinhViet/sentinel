@@ -232,7 +232,8 @@ Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `al
 
 - `agent:<tên>` (Critical): `last_seen` cũ hơn `offline_after` (mặc định 3 phút, tối thiểu 3 phút = ba nhịp báo cáo, để một báo cáo trượt không đủ gây báo giả); có thời gian ân hạn sau khi control plane khởi động, và 30 phút sau khi join cho agent chưa gửi báo cáo nào (chưa kịp sửa config và khởi động lại daemon).
 - `agent-cert:<tên>` (Warning): cert còn dưới 14 ngày.
-- Cửa sổ bảo trì tắt `agent:` và đặt trạng thái `MAINTENANCE`.
+- Cửa sổ bảo trì (`sentinelctl maintenance add <server>|--all --for 2h [--from …] [--reason …]`, tối đa 30 ngày, một lần, không lặp) làm `agent:` không được mở mới và đặt trạng thái `MAINTENANCE` cho server đang ở trong cửa sổ (chỉ ONLINE hoặc OFFLINE được đổi; PENDING và REVOKED giữ nguyên). Alert đã mở từ trước vẫn giữ đến khi server báo lại, và lúc đó vẫn gửi "is back". Alert chứng chỉ và alert agent tự gửi không bị ảnh hưởng. Không đọc được bảng cửa sổ thì coi như không có cửa sổ (báo thừa còn hơn im lặng khi server chết).
+- Lịch (`sentinelctl schedule add <server> "<cron>" <action> [k=v…]`): 5 trường (phút giờ ngày tháng thứ; `*`, số, `a-b`, `a,b`, `/bước`, tên tháng và thứ bằng tiếng Anh, 0 và 7 đều là Chủ nhật; ngày-trong-tháng và thứ cùng được chỉ định thì khớp một trong hai như cron) hoặc `@hourly|@daily|@weekly|@monthly|@yearly`, có thể mở đầu bằng `CRON_TZ=Asia/Ho_Chi_Minh ` (mặc định múi giờ của máy control plane). Mỗi 20 giây `scheduler` xếp việc cho mọi lịch đến hạn qua đúng `task.Create` (cùng bảng action, cùng giới hạn 20 việc mở, cùng allowlist ở agent); việc mang `created_by = schedule:<số>`. Lần chạy lỡ quá 10 phút (control plane tắt, hay agent đầy hàng đợi) bị bỏ chứ không chạy muộn, và nhiều lần lỡ chỉ tính một. Không xếp được thì lý do ghi vào lịch (`last_error`) và audit `schedule.run`, lần sau thử lại theo giờ. Tối đa 20 lịch mỗi server và 200 lịch. Action cần xác nhận (`os.apply_updates`) khi tạo lịch cũng hỏi gõ lại tên server, như `run`.
 - Control plane **không** chuyển tiếp alert mà agent đã tự gửi; nó chỉ báo điều agent không tự báo được.
 - Đặt `heartbeat.url` cho chính control plane để biết khi nó chết.
 - `server.yaml` có `notifiers`, `cooldown` (mặc định 1 giờ) và `heartbeat`, cùng kiểu với config của agent. Server không dùng thư viện validator của agent nên `notify.Settings.Validate` và `HeartbeatSettings.Validate` (trong `pkg/notify`) kiểm tra các trường bắt buộc và URL https. Alert lưu trong bảng `alerts`, sống qua lần khởi động lại.
@@ -290,7 +291,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 10 | Xoá mô hình pull (mục 15): tab Fleet và `sentinel fleet`, FleetWatcher và alert `fleet:`, `internal/fleet`, `internal/api` (daemon không nghe cổng nào); `api:` và `fleet:` thành khối deprecated |
 | 11 | Action systemd và Docker (`service.start\|stop\|restart`, `container.restart`; `allow.services`, `allow.containers`, `allow.docker_socket`) |
 | 12 | Action cập nhật OS (`os.check_updates`, `os.apply_updates`; `allow.os_updates: off\|check\|apply`), chỉ apt |
-| 13 | Lịch và cửa sổ bảo trì |
+| 13 | Lịch cron và cửa sổ bảo trì (`server/internal/scheduler`, migration 5 `schedules` và `maintenance`, `sentinelctl schedule add\|ls\|rm` và `maintenance add\|ls\|rm`; trạng thái MAINTENANCE; watchdog không báo offline trong cửa sổ). Parser cron viết bằng stdlib vì thêm `robfig/cron` vào module server cần bạn xác nhận |
 | 14 | Báo cáo và lịch sử |
 | 15 | Tự cập nhật agent |
 

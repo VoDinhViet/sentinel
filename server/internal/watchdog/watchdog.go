@@ -13,6 +13,7 @@ import (
 	"sentinel/pkg/notify"
 	"sentinel/server/internal/enroll"
 	"sentinel/server/internal/inventory"
+	"sentinel/server/internal/scheduler"
 )
 
 // Alert keys. They are stored: do not change their form without a migration.
@@ -41,9 +42,14 @@ const Every = 30 * time.Second
 
 // Watchdog looks at the agents and opens or closes their alerts.
 type Watchdog struct {
-	Alerts       *alert.Manager
-	Agents       *enroll.Service
-	Inventory    *inventory.Service
+	Alerts    *alert.Manager
+	Agents    *enroll.Service
+	Inventory *inventory.Service
+	// Maintenance says which agents are in a maintenance window: they are away on purpose, so their silence is
+	// no alert. Nil means there are no windows.
+	Maintenance interface {
+		ActiveAt(ctx context.Context, now time.Time) (scheduler.Active, error)
+	}
 	OfflineAfter time.Duration
 	// Now is the time; nil means the clock. Started is when the control plane started: for OfflineAfter after
 	// that no agent is called offline, because they have not had time to find it again.
@@ -82,24 +88,41 @@ func (w *Watchdog) Check(ctx context.Context) {
 	}
 	now := w.now()
 	graceOver := now.Sub(w.Started) >= w.OfflineAfter
+	away := w.awayAt(ctx, now)
 	var offlineKeys, certKeys []string
 	for _, agent := range agents {
 		if agent.State != "active" {
 			continue
 		}
 		offlineKeys, certKeys = append(offlineKeys, OfflineKey(agent.Name)), append(certKeys, CertKey(agent.Name))
-		w.checkOffline(ctx, agent, now, graceOver)
+		w.checkOffline(ctx, agent, now, graceOver, away.Covers(agent.Name))
 		w.checkCert(ctx, agent, now)
 	}
 	w.Alerts.ResolveMissing(ctx, offlinePrefix, offlineKeys, "Server no longer watched")
 	w.Alerts.ResolveMissing(ctx, certPrefix, certKeys, "Server no longer watched")
 }
 
-func (w *Watchdog) checkOffline(ctx context.Context, agent enroll.Agent, now time.Time, graceOver bool) {
+// awayAt reads the maintenance windows that are open. A window that cannot be read is no window: it is better
+// to alert too much than to stay quiet about a server that is down.
+func (w *Watchdog) awayAt(ctx context.Context, now time.Time) scheduler.Active {
+	if w.Maintenance == nil {
+		return scheduler.Active{}
+	}
+	away, err := w.Maintenance.ActiveAt(ctx, now)
+	if err != nil {
+		slog.Error("watchdog: read maintenance windows", "err", err)
+		return scheduler.Active{}
+	}
+	return away
+}
+
+// checkOffline opens the alert of an agent that is silent, unless it is in a maintenance window; one that is
+// already open stays until the agent is heard from again.
+func (w *Watchdog) checkOffline(ctx context.Context, agent enroll.Agent, now time.Time, graceOver, inMaintenance bool) {
 	key := OfflineKey(agent.Name)
 	status := inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, w.OfflineAfter)
 	switch {
-	case status == inventory.Offline && graceOver && !w.stillJoining(ctx, agent, now):
+	case status == inventory.Offline && graceOver && !inMaintenance && !w.stillJoining(ctx, agent, now):
 		w.Alerts.Fire(ctx, key, notify.Critical, agent.Name+" is offline", offlineBody(agent, now, w.OfflineAfter))
 	case status == inventory.Online && w.Alerts.Firing(key):
 		w.Alerts.Resolve(ctx, key, agent.Name+" is back", "It reported again.")

@@ -23,6 +23,8 @@ const (
 	Online  Status = "ONLINE"
 	Offline Status = "OFFLINE"
 	Revoked Status = "REVOKED"
+	// Maintenance is not worked out from the agent: the control plane puts it on an agent that is in an open window.
+	Maintenance Status = "MAINTENANCE"
 )
 
 // StatusOf says how an agent stands at now. An active agent is offline when it has not been heard from for

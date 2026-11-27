@@ -82,6 +82,8 @@ func Status(status, state string) string {
 		return "PENDING (chờ join)"
 	case "REVOKED":
 		return "REVOKED (đã thu hồi)"
+	case "MAINTENANCE":
+		return "MAINTENANCE (bảo trì)"
 	case "":
 		return map[string]string{"pending": "chờ join", "active": "hoạt động", "revoked": "đã thu hồi"}[state]
 	}

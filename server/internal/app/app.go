@@ -19,6 +19,7 @@ import (
 	"sentinel/server/internal/config"
 	"sentinel/server/internal/enroll"
 	"sentinel/server/internal/inventory"
+	"sentinel/server/internal/scheduler"
 	"sentinel/server/internal/store"
 	"sentinel/server/internal/task"
 	"sentinel/server/internal/watchdog"
@@ -41,6 +42,8 @@ type App struct {
 	Inventory *inventory.Service
 	// Tasks is the queue of what the agents are asked to do.
 	Tasks *task.Service
+	// Scheduler queues tasks by timetable and keeps the maintenance windows.
+	Scheduler *scheduler.Service
 	// Alerts raises and closes the control plane's own alerts; AlertStore reads them.
 	Alerts     *alert.Manager
 	AlertStore watchdog.AlertStore
@@ -74,10 +77,12 @@ func newApp(ctx context.Context, cfg *config.Config, st *store.Store, ca *pki.CA
 	}
 	enrolled := enroll.New(st, ca)
 	inv := inventory.New(st)
+	tasks := task.New(st)
+	timetable := scheduler.New(st, tasks)
 	return &App{
-		Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enrolled, Inventory: inv, Tasks: task.New(st),
+		Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enrolled, Inventory: inv, Tasks: tasks, Scheduler: timetable,
 		Alerts: alerts, AlertStore: alertStore,
-		Watchdog: &watchdog.Watchdog{Alerts: alerts, Agents: enrolled, Inventory: inv, OfflineAfter: cfg.OfflineAfter, Started: time.Now()},
+		Watchdog: &watchdog.Watchdog{Alerts: alerts, Agents: enrolled, Inventory: inv, Maintenance: timetable, OfflineAfter: cfg.OfflineAfter, Started: time.Now()},
 	}, nil
 }
 

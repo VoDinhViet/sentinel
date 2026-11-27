@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"sentinel/pkg/pki"
 	"sentinel/server/internal/enroll"
 	"sentinel/server/internal/inventory"
+	"sentinel/server/internal/scheduler"
 	"sentinel/server/internal/store"
 )
 
@@ -233,6 +235,63 @@ func TestAnAgentThatJoinedAndHasNotReportedYetGetsHalfAnHourBeforeItIsCalledOffl
 		p.watchdog.Check(ctx)
 		if titles := p.notified.titles(); len(titles) != 1 || titles[0] != "web01 is offline" {
 			t.Fatalf("35 minutes after joining, still no report: %v", titles)
+		}
+	})
+}
+
+// windows is a scheduler over the same database, with windows made at the time the test says.
+func (p plant) windows() *scheduler.Service {
+	return scheduler.New(p.store, nil)
+}
+
+func TestAnAgentInAMaintenanceWindowIsNotCalledOffline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newPlant(t)
+		ctx := context.Background()
+		p.joinAndReport(t, "web01")
+		p.joinAndReport(t, "db01")
+		p.watchdog.Started = time.Now().Add(-time.Hour)
+		timetable := p.windows()
+		p.watchdog.Maintenance = timetable
+		if _, err := timetable.AddWindow(ctx, "web01", time.Now(), time.Now().Add(time.Hour), "kernel"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Minute) // both are silent now
+		p.watchdog.Check(ctx)
+		if titles := p.notified.titles(); len(titles) != 1 || titles[0] != "db01 is offline" {
+			t.Fatalf("one server in a window, one not: %v", titles)
+		}
+		time.Sleep(time.Hour) // the window is over; web01 is still silent
+		p.watchdog.Check(ctx)
+		if titles := p.notified.titles(); !slices.Contains(titles, "web01 is offline") { // db01 is said again: the cooldown is an hour
+			t.Fatalf("after the window: %v", titles)
+		}
+	})
+}
+
+func TestAWindowForAllMutesEveryAgentButNotAnAlertThatIsAlreadyOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newPlant(t)
+		ctx := context.Background()
+		p.joinAndReport(t, "web01")
+		p.joinAndReport(t, "db01")
+		p.watchdog.Started = time.Now().Add(-time.Hour)
+		timetable := p.windows()
+		p.watchdog.Maintenance = timetable
+		time.Sleep(10 * time.Minute)
+		p.watchdog.Check(ctx) // both offline: two alerts
+		if titles := p.notified.titles(); len(titles) != 2 {
+			t.Fatalf("%v", titles)
+		}
+		if _, err := timetable.AddWindow(ctx, "", time.Now(), time.Now().Add(time.Hour), ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.inventory.Seen(ctx, "web01", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		p.watchdog.Check(ctx) // web01 came back inside the window: that is still said
+		if titles := p.notified.titles(); len(titles) != 3 || titles[2] != "web01 is back" {
+			t.Fatalf("%v", titles)
 		}
 	})
 }

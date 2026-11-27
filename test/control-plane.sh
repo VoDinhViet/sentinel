@@ -152,6 +152,25 @@ EOF
 	grep -q "control_plane.allow.os_updates: apply" "$WORK/apply.txt" && pass "os.apply_updates is refused unless os_updates is apply, and the refusal says what to write" || fail "no refusal in: $(cat "$WORK/apply.txt")"
 	if ctl run web01 os.apply_updates </dev/null >"$WORK/apply2.txt" 2>&1; then fail "os.apply_updates was queued without a confirmation"; fi
 	grep -q -- "--yes" "$WORK/apply2.txt" && pass "os.apply_updates asks for a confirmation (a script must say --yes)" || fail "no confirmation asked: $(cat "$WORK/apply2.txt")"
+	echo "== schedule and maintenance"
+	ctl schedule add web01 "* * * * *" doctor.run >"$WORK/schedule.txt" 2>&1 && pass "a schedule is added" || fail "schedule add: $(cat "$WORK/schedule.txt")"
+	if ctl schedule add web01 "every day" doctor.run >/dev/null 2>&1; then fail "a timetable that is not cron was accepted"; fi
+	if ctl schedule add web01 "@daily" shell.run cmd=id >/dev/null 2>&1; then fail "a schedule for an action that is not in the table was accepted"; fi
+	pass "a timetable that is not cron, and an action that is not in the table, are refused"
+	queued=0
+	for _ in $(seq 100); do
+		queued=$(ctl task ls --server web01 -o json | jq '[.[] | select(.created_by | startswith("schedule:"))] | length')
+		[ "$queued" -gt 0 ] && break
+		sleep 1
+	done
+	[ "$queued" -gt 0 ] && pass "the schedule queued its task when it was due" || fail "no task was queued by the schedule within 100s"
+	ctl schedule ls | grep "doctor.run" >/dev/null && pass "schedule ls lists it" || fail "schedule ls does not list it"
+	ctl schedule rm 1 >/dev/null && pass "the schedule is removed" || fail "schedule rm failed"
+	ctl maintenance add web01 --for 1h --reason "e2e" >/dev/null
+	[ "$(ctl server ls -o json | jq -r '.[] | select(.name == "web01") | .status')" = MAINTENANCE ] && pass "a server in a maintenance window shows MAINTENANCE" || fail "web01 is not MAINTENANCE"
+	ctl maintenance rm 1 >/dev/null
+	[ "$(ctl server ls -o json | jq -r '.[] | select(.name == "web01") | .status')" = ONLINE ] && pass "removing the window brings the status back" || fail "web01 is not ONLINE after the window"
+	ctl audit -n 100 | grep "schedule.run" >/dev/null && pass "the audit log has the schedule run" || fail "no schedule.run in the audit log"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null
 	DAEMON_PID=

@@ -207,7 +207,7 @@ func statusLevel(status string) level {
 		return levelOK
 	case "OFFLINE":
 		return levelBad
-	case "PENDING":
+	case "PENDING", "MAINTENANCE":
 		return levelWarn
 	}
 	return levelDim

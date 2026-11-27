@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"sentinel/server/internal/ctlapi"
 	"sentinel/server/internal/enroll"
 	"sentinel/server/internal/inventory"
+	"sentinel/server/internal/scheduler"
 )
 
 // Audit pages.
@@ -127,21 +129,34 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, _ session) {
 		return
 	}
 	now := time.Now()
+	away := s.awayAt(r, now)
 	listed := make([]ctlapi.Agent, 0, len(agents))
 	for _, agent := range agents {
-		listed = append(listed, s.ctlAgent(agent, now))
+		listed = append(listed, s.ctlAgent(agent, now, away))
 	}
 	writeJSON(w, http.StatusOK, listed)
 }
 
 // ctlAgent is how sentinelctl sees an agent.
-func (s *Server) ctlAgent(agent enroll.Agent, now time.Time) ctlapi.Agent {
+func (s *Server) ctlAgent(agent enroll.Agent, now time.Time, away scheduler.Active) ctlapi.Agent {
+	status := inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, s.app.Config.OfflineAfter)
+	if (status == inventory.Online || status == inventory.Offline) && away.Covers(agent.Name) {
+		status = inventory.Maintenance
+	}
 	return ctlapi.Agent{
-		Name: agent.Name, State: agent.State, CreatedAt: agent.CreatedAt,
-		Status:     string(inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, s.app.Config.OfflineAfter)),
+		Name: agent.Name, State: agent.State, CreatedAt: agent.CreatedAt, Status: string(status),
 		EnrolledAt: timePointer(agent.EnrolledAt), LastSeen: timePointer(agent.LastSeen), Version: termtext.Line(agent.Version),
 		CertNotAfter: timePointer(agent.CertNotAfter),
 	}
+}
+
+// awayAt reads the maintenance windows that are open; one that cannot be read shows the plain status.
+func (s *Server) awayAt(r *http.Request, now time.Time) scheduler.Active {
+	away, err := s.app.Scheduler.ActiveAt(r.Context(), now)
+	if err != nil {
+		slog.Error("read maintenance windows", "err", err)
+	}
+	return away
 }
 
 // showAgent answers one agent with its latest report.
@@ -156,7 +171,7 @@ func (s *Server) showAgent(w http.ResponseWriter, r *http.Request, _ session) {
 		if agent.Name != name {
 			continue
 		}
-		detail := ctlapi.AgentDetail{Agent: s.ctlAgent(agent, time.Now())}
+		detail := ctlapi.AgentDetail{Agent: s.ctlAgent(agent, time.Now(), s.awayAt(r, time.Now()))}
 		report, at, err := s.app.Inventory.Report(r.Context(), name)
 		switch {
 		case err == nil:

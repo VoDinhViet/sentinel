@@ -70,6 +70,7 @@ func serve(ctx context.Context, a *app.App) error {
 		func(ctx context.Context) error { return maintain(ctx, a, source) },
 		a.Watchdog.Run,
 		a.Tasks.Run,
+		a.Scheduler.Run,
 	}
 	if a.Config.Heartbeat.URL != "" {
 		runners = append(runners, func(ctx context.Context) error { return heartbeat(ctx, a.Config.Heartbeat) })

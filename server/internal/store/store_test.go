@@ -31,6 +31,7 @@ var knownChecksums = map[string]string{
 	"0002_login_table.sql":   "54333b73932c2e0816e3ac8d8f6f8e4ccb4f845bb1d8921e3a34a01d2e866d99",
 	"0003_agent_reports.sql": "6bff60fddf6336b83f13f4eff33d3496e5c974b0680507a05c32596fe0ec5391",
 	"0004_tasks.sql":         "08678e30d9bc870c6017fd9fb873619027c40b4d18bd83c1a959da60ad3e702a",
+	"0005_schedules.sql":     "9aae95e5bfe17cbb509d79dbb3568bf2ed7803d3a820296555982fb2a52247c2",
 }
 
 func TestMigrationsAreAppendOnly(t *testing.T) {
