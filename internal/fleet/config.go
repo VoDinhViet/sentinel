@@ -28,10 +28,10 @@ type Config struct {
 
 // Server is one daemon with its API on.
 type Server struct {
-	Name  string `yaml:"name"`   // how the server is shown, and part of the key of its alerts
-	URL   string `yaml:"url"`    // base address of the API, such as https://web-01.example.com:9311
-	Token string `yaml:"token"`  // api.token or, better, api.read_token of that server
-	TLSCA string `yaml:"tls_ca"` // PEM file of the authority that signed the server's certificate, when it is not a public one
+	Name  string `yaml:"name"`           // how the server is shown, and part of the key of its alerts
+	URL   string `yaml:"url"`            // base address of the API, such as https://web-01.example.com:9311
+	Token string `yaml:"token" json:"-"` // api.token or, better, api.read_token of that server; never written out
+	TLSCA string `yaml:"tls_ca"`         // PEM file of the authority that signed the server's certificate, when it is not a public one
 }
 
 // serverName is what a server may be called: it ends up in alert keys and on screens.
