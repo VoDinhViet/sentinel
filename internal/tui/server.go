@@ -133,9 +133,12 @@ func percentOf(part, whole uint64) float64 {
 	return float64(part) / float64(whole) * 100
 }
 
-func (m manageModel) buildServerTab() manageTab {
+// buildServerTab is the Server tab: how this machine is doing.
+func (m manageModel) buildServerTab() manageTab { return serverTabOf(m.server.report) }
+
+// serverTabOf is the lines of a reading of a machine: this one, or another seen through its API.
+func serverTabOf(report app.HostReport) manageTab {
 	tab := manageTab{title: "Server", statusCol: -1, historyCol: -1, gaugeCol: 1}
-	report := m.server.report
 	if report.CPUs == 0 { // nothing read yet: a reading always has at least one CPU
 		return tab
 	}
