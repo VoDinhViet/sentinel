@@ -47,7 +47,9 @@ type Executor struct {
 	Systemctl func(ctx context.Context, args ...string) ([]byte, error)
 	// LookTool finds apt-get and systemd-run, and RunTool runs a program line by line; nil means the real ones.
 	LookTool func(name string) (string, error)
-	RunTool  func(ctx context.Context, path string, args []string, line func(string)) error
+	// UpdateLog is the file the unit of an upgrade writes its output to, in the directory of the store.
+	UpdateLog string
+	RunTool   func(ctx context.Context, path string, args []string, line func(string)) error
 
 	limit *ratelimit.Limiter
 }
@@ -74,8 +76,11 @@ func (e *Executor) Run(ctx context.Context, task agentapi.Task, log func(line st
 	slog.Info("task received", "task", task.ID, "action", task.Action, "params", task.Params)
 	sent := 0
 	result := e.run(ctx, task, func(line string) { // what restic or a backend printed can quote a key
-		if sent++; sent <= maxLogLines {
+		switch sent++; {
+		case sent <= maxLogLines:
 			log(restic.Redact(line))
+		case sent == maxLogLines+1:
+			log("(more lines than this log keeps: the result has the end of the output)")
 		}
 	})
 	result.StartedAt, result.FinishedAt = started, e.now()

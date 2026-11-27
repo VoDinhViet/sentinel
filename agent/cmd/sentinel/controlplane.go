@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -34,7 +35,9 @@ func (a *cliApp) startReporter(ctx context.Context, cfg *config.Config, st *stor
 			return service.ControlPlaneReport(ctx, version, time.Now())
 		},
 	}
-	worker := &transport.Worker{Client: client, Runner: executor.New(service, cfg.ControlPlane.Allow)}
+	runner := executor.New(service, cfg.ControlPlane.Allow)
+	runner.UpdateLog = filepath.Join(filepath.Dir(cfg.StorePath), "os-update.log")
+	worker := &transport.Worker{Client: client, Runner: runner}
 	reportCtx, cancel := context.WithCancel(ctx)
 	var running sync.WaitGroup
 	running.Go(func() { reporter.Loop(reportCtx) })

@@ -266,7 +266,7 @@ func osUpdateFindings(mode string) []Finding {
 	for _, tool := range needs {
 		if !slices.ContainsFunc(osToolDirs, func(dir string) bool {
 			info, err := os.Stat(filepath.Join(dir, tool))
-			return err == nil && !info.IsDir()
+			return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 		}) {
 			findings = append(findings, Finding{Name: "allow.os_updates", Warn: true, Err: fmt.Errorf("%s was not found, so os_updates tasks will fail", tool),
 				Hint: "only Debian and Ubuntu (apt) are supported: set control_plane.allow.os_updates to off"})

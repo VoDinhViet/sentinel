@@ -273,8 +273,9 @@ func TestTheLogOfATaskIsCapped(t *testing.T) {
 		findings = append(findings, doctor.Finding{Name: fmt.Sprint("check", i), Info: "ok"})
 	}
 	_, lines := run(New(&fakeBackend{findings: findings}, allowAll), task(agentapi.ActionDoctorRun, nil))
-	if len(lines) != maxLogLines {
-		t.Errorf("%d lines of log, want %d", len(lines), maxLogLines)
+	// maxLogLines of the task, then one line that says there were more.
+	if len(lines) != maxLogLines+1 || !strings.Contains(lines[maxLogLines], "more lines than this log keeps") {
+		t.Errorf("%d lines of log, want %d and a note", len(lines), maxLogLines+1)
 	}
 }
 

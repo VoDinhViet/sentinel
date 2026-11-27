@@ -1,15 +1,17 @@
 package executor
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"sentinel/pkg/agentapi"
@@ -25,6 +27,9 @@ const (
 	maxUpdateLines = 100
 	maxScanLines   = 5000
 	tailLines      = 40
+	// maxLineLen is the longest piece of a line that is kept: a program that prints a megabyte without a line
+	// break (a progress bar, a binary) cannot make the agent hold it, and the pipe is read to the end all the same.
+	maxLineLen = 4096
 )
 
 // toolDirs are where apt-get and systemd-run are looked for: fixed places, not the PATH of the daemon.
@@ -48,6 +53,35 @@ func lookTool(name string) (string, error) {
 	return "", fmt.Errorf("this machine has no %s (only Debian and Ubuntu are supported)", name)
 }
 
+// lineSplitter turns a stream of bytes into lines: a "\n" or a "\r" ends one (progress bars redraw with "\r"), and
+// a line is cut at maxLineLen, the rest of it dropped. It never refuses a byte, so whoever feeds it can always
+// go on reading, which is the point: a program blocked on a full pipe holds whatever lock it has.
+type lineSplitter struct {
+	line func(string)
+	buf  []byte
+}
+
+func (l *lineSplitter) Write(chunk []byte) (int, error) {
+	for _, b := range chunk {
+		if b == '\n' || b == '\r' {
+			l.Flush()
+			continue
+		}
+		if len(l.buf) < maxLineLen {
+			l.buf = append(l.buf, b)
+		}
+	}
+	return len(chunk), nil
+}
+
+// Flush gives the line that is being read, if there is one.
+func (l *lineSplitter) Flush() {
+	if text := strings.TrimSpace(string(l.buf)); text != "" {
+		l.line(text)
+	}
+	l.buf = l.buf[:0]
+}
+
 // runTool runs the program at path with exactly these arguments, in a small environment of its own, and
 // gives each line it prints (both streams together) to line, here in the calling goroutine. Cancelling ctx
 // kills the program and stops the reading, even when a child of it still holds the pipe.
@@ -65,12 +99,56 @@ func runTool(ctx context.Context, path string, args []string, line func(string))
 	}
 	stop := context.AfterFunc(ctx, func() { out.Close() })
 	defer stop()
-	scanner := bufio.NewScanner(out)
-	scanner.Buffer(make([]byte, 0, 64<<10), 256<<10)
-	for scanner.Scan() {
-		line(scanner.Text())
+	split := &lineSplitter{line: line}
+	_, _ = io.Copy(split, out) // ends at the end of the output, or when ctx closes the pipe
+	split.Flush()
+	if err := cmd.Wait(); err != nil {
+		return errors.Join(err, ctx.Err())
 	}
-	return errors.Join(cmd.Wait(), ctx.Err())
+	return nil
+}
+
+// followFile gives the lines that are added to the file at path, until stop is closed and what is there has been
+// read. The unit of an upgrade writes its output to a file, and not to a pipe of the agent, because a pipe has a
+// reader that can go away (a timeout, a restart of the daemon), and a program that writes to a pipe nobody reads
+// gets EPIPE in the middle of dpkg.
+func followFile(path string, stop <-chan struct{}, line func(string)) {
+	file, err := os.Open(path)
+	if err != nil {
+		line("cannot read the log of the upgrade: " + err.Error())
+		return
+	}
+	defer file.Close()
+	split := &lineSplitter{line: line}
+	chunk := make([]byte, 32<<10)
+	stopped := false
+	for {
+		if n, _ := file.Read(chunk); n > 0 {
+			_, _ = split.Write(chunk[:n])
+			continue
+		}
+		if stopped {
+			split.Flush()
+			return
+		}
+		select {
+		case <-stop:
+			stopped = true // one more pass to the end of the file
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+// newUpdateLog makes the file the unit writes to, empty and only for root.
+func newUpdateLog(path string) error {
+	if path == "" {
+		return errors.New("this agent has no place to keep the log of an upgrade")
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("making the log of the upgrade: %w", err)
+	}
+	return file.Close()
 }
 
 func (e *Executor) lookTool(name string) (string, error) {
@@ -181,6 +259,8 @@ func (e *Executor) since(then time.Time) time.Duration { return e.now().Sub(then
 // sentinel-os-update. The daemon's own sandbox (ProtectSystem=full) keeps /usr read-only, so the upgrade has to
 // run outside it: systemd starts the unit, and that is the one deliberate way out of the sandbox. There is no
 // package name, no dist-upgrade, no source change and no reboot, and an upgrade already running blocks a second.
+// The unit writes to a file that this function follows; when the task ends early (its time is up, the daemon
+// stops) only the following stops, and the upgrade goes on and finishes.
 func (e *Executor) applyUpdates(ctx context.Context, log func(string)) agentapi.TaskResult {
 	apt, err := e.lookTool("apt-get")
 	if err != nil {
@@ -190,13 +270,23 @@ func (e *Executor) applyUpdates(ctx context.Context, log func(string)) agentapi.
 	if err != nil {
 		return failed(err)
 	}
-	args := []string{"--wait", "--pipe", "--collect", "--quiet", "--unit=" + updateUnit,
+	if err := newUpdateLog(e.UpdateLog); err != nil {
+		return failed(err)
+	}
+	output := "append:" + e.UpdateLog
+	args := []string{"--wait", "--collect", "--unit=" + updateUnit,
+		"--property=StandardOutput=" + output, "--property=StandardError=" + output,
 		"--setenv=DEBIAN_FRONTEND=noninteractive", "--setenv=LANG=C",
 		"--", apt, "-y", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", "upgrade"}
-	log("upgrading the packages with apt-get in the unit " + updateUnit)
-	var tail []string
-	summary := ""
-	err = e.runTool(ctx, run, args, func(text string) {
+	log("upgrading the packages with apt-get in the unit " + updateUnit + " (it does not run apt-get update first)")
+	var (
+		mu      sync.Mutex // the file and systemd-run are read by two goroutines
+		tail    []string
+		summary string
+	)
+	record := func(text string) {
+		mu.Lock()
+		defer mu.Unlock()
 		log(text)
 		if tail = append(tail, text); len(tail) > tailLines {
 			tail = tail[1:]
@@ -204,12 +294,20 @@ func (e *Executor) applyUpdates(ctx context.Context, log func(string)) agentapi.
 		if upgraded.MatchString(text) {
 			summary = text
 		}
-	})
-	output := strings.Join(tail, "\n")
+	}
+	stop := make(chan struct{})
+	var following sync.WaitGroup
+	following.Go(func() { followFile(e.UpdateLog, stop, record) })
+	err = e.runTool(ctx, run, args, record)
+	close(stop)
+	following.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	output = strings.Join(tail, "\n")
 	if err != nil {
 		note := ""
 		if ctx.Err() != nil {
-			note = fmt.Sprintf(" (stopped waiting: the upgrade goes on in the unit %s, see journalctl -u %s)", updateUnit, updateUnit)
+			note = fmt.Sprintf(" (stopped waiting: the upgrade goes on in the unit %s, see journalctl -u %s and %s)", updateUnit, updateUnit, e.UpdateLog)
 		}
 		result := failed(fmt.Errorf("the upgrade did not finish well: %w: %s%s", err, lastLine(tail), note))
 		result.Output = output
