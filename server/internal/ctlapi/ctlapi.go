@@ -10,21 +10,23 @@ import (
 
 // Routes. Everything but login needs the session token in "Authorization: Bearer".
 const (
-	RouteLogin       = "/v1/ctl/login"
-	RouteLogout      = "/v1/ctl/logout"
-	RoutePasswd      = "/v1/ctl/passwd" //nolint:gosec // a route, not a credential
-	RouteAgents      = "/v1/ctl/agents"
-	RouteAgent       = "/v1/ctl/agents/{name}" // GET shows, DELETE revokes
-	RouteAlerts      = "/v1/ctl/alerts"
-	RouteTasks       = "/v1/ctl/tasks"             // GET lists, POST queues one
-	RouteTask        = "/v1/ctl/tasks/{id}"        // GET shows, DELETE takes back one that is waiting
-	RouteTaskEvents  = "/v1/ctl/tasks/{id}/events" // text/event-stream: state, log and done events
-	RouteSchedules   = "/v1/ctl/schedules"         // GET lists, POST makes one
-	RouteSchedule    = "/v1/ctl/schedules/{id}"    // DELETE removes
-	RouteMaintenance = "/v1/ctl/maintenance"       // GET lists the windows that are open or to come, POST opens one
-	RouteWindow      = "/v1/ctl/maintenance/{id}"  // DELETE removes (ends) one
-	RouteAudit       = "/v1/ctl/audit"
-	RouteAuditVerify = "/v1/ctl/audit/verify"
+	RouteLogin         = "/v1/ctl/login"
+	RouteLogout        = "/v1/ctl/logout"
+	RoutePasswd        = "/v1/ctl/passwd" //nolint:gosec // a route, not a credential
+	RouteAgents        = "/v1/ctl/agents"
+	RouteAgent         = "/v1/ctl/agents/{name}" // GET shows, DELETE revokes
+	RouteAlerts        = "/v1/ctl/alerts"
+	RouteTasks         = "/v1/ctl/tasks"             // GET lists, POST queues one
+	RouteTask          = "/v1/ctl/tasks/{id}"        // GET shows, DELETE takes back one that is waiting
+	RouteTaskEvents    = "/v1/ctl/tasks/{id}/events" // text/event-stream: state, log and done events
+	RouteSchedules     = "/v1/ctl/schedules"         // GET lists, POST makes one
+	RouteSchedule      = "/v1/ctl/schedules/{id}"    // DELETE removes
+	RouteMaintenance   = "/v1/ctl/maintenance"       // GET lists the windows that are open or to come, POST opens one
+	RouteWindow        = "/v1/ctl/maintenance/{id}"  // DELETE removes (ends) one
+	RouteReportHost    = "/v1/ctl/reports/host"      // ?agent=&hours=
+	RouteReportBackups = "/v1/ctl/reports/backups"   // ?agent=&hours=
+	RouteAudit         = "/v1/ctl/audit"
+	RouteAuditVerify   = "/v1/ctl/audit/verify"
 )
 
 // ErrorBody is every error answer.
@@ -189,4 +191,65 @@ type CreateWindowRequest struct {
 	StartsAt *time.Time `json:"starts_at,omitempty"`
 	EndsAt   time.Time  `json:"ends_at"`
 	Reason   string     `json:"reason"`
+}
+
+// HostPoint is the host at one moment, or the average of a step of the history.
+type HostPoint struct {
+	At          time.Time `json:"at"`
+	CPUPercent  float64   `json:"cpu_percent"`
+	Load1       float64   `json:"load1"`
+	MemPercent  float64   `json:"mem_percent"`
+	DiskPercent float64   `json:"disk_percent"` // of the fullest disk
+}
+
+// HostSummary is a span of the history in a few numbers.
+type HostSummary struct {
+	Samples int     `json:"samples"`
+	CPUAvg  float64 `json:"cpu_avg"`
+	CPUMax  float64 `json:"cpu_max"`
+	MemAvg  float64 `json:"mem_avg"`
+	MemMax  float64 `json:"mem_max"`
+	LoadAvg float64 `json:"load_avg"`
+	DiskMax float64 `json:"disk_max"`
+}
+
+// HostReport is the history of the host of one server over the last Hours hours. A point is the average of
+// StepSeconds seconds (the disk is the highest in the step).
+type HostReport struct {
+	Agent       string      `json:"agent"`
+	Hours       int         `json:"hours"`
+	StepSeconds int         `json:"step_s"`
+	Summary     HostSummary `json:"summary"`
+	Points      []HostPoint `json:"points"`
+}
+
+// BackupJob is how one job of one server to one repository went over the span of a report.
+type BackupJob struct {
+	Agent          string     `json:"agent"`
+	Job            string     `json:"job"`
+	Repository     string     `json:"repository"`
+	Runs           int        `json:"runs"`
+	Failures       int        `json:"failures"`
+	LastFinishedAt time.Time  `json:"last_finished_at"`
+	LastSuccessAt  *time.Time `json:"last_success_at,omitempty"`
+	LastResult     string     `json:"last_result"`
+	BytesAdded     int64      `json:"bytes_added"`
+}
+
+// BackupRun is one backup that failed.
+type BackupRun struct {
+	Agent      string    `json:"agent"`
+	Job        string    `json:"job"`
+	Repository string    `json:"repository"`
+	FinishedAt time.Time `json:"finished_at"`
+	Result     string    `json:"result"`
+}
+
+// BackupReport is the backups of one server, or of all, over the last Hours hours, with the failed runs
+// newest first.
+type BackupReport struct {
+	Agent  string      `json:"agent,omitempty"`
+	Hours  int         `json:"hours"`
+	Jobs   []BackupJob `json:"jobs"`
+	Failed []BackupRun `json:"failed"`
 }

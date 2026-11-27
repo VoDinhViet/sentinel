@@ -33,10 +33,12 @@ type serverScreen struct {
 	current int // the part on show
 	cursor  int
 
-	tasks    []ctlapi.Task // the latest tasks given to this server
-	tasksErr error
-	confirm  *confirmation // a task waiting for the person to say yes
-	notice   notice
+	history    ctlapi.HostReport // the host over the last day, for the graphs
+	historyErr error
+	tasks      []ctlapi.Task // the latest tasks given to this server
+	tasksErr   error
+	confirm    *confirmation // a task waiting for the person to say yes
+	notice     notice
 }
 
 // table is the part on show.
@@ -50,7 +52,7 @@ func (s serverScreen) parts(now time.Time) []table {
 		empty := s.noReportText()
 		return []table{{title: "Máy", empty: empty}, {title: "Backup", empty: empty}, {title: "Uptime", empty: empty}, {title: "Alert", empty: empty}, tasksTable(s.tasks, now, s.tasksErr)}
 	}
-	return []table{hostTable(report.Host), backupsTable(report.Backups, now), checksTable(report.Checks, now), alertsTable(report.Alerts, now), tasksTable(s.tasks, now, s.tasksErr)}
+	return []table{hostTable(report.Host, s.history), backupsTable(report.Backups, now), checksTable(report.Checks, now), alertsTable(report.Alerts, now), tasksTable(s.tasks, now, s.tasksErr)}
 }
 
 func (s serverScreen) noReportText() string {
@@ -65,7 +67,7 @@ func (s serverScreen) noReportText() string {
 	return "Chưa nhận báo cáo nào từ server này."
 }
 
-func hostTable(host agentapi.HostStatus) table {
+func hostTable(host agentapi.HostStatus, history ctlapi.HostReport) table {
 	t := table{title: "Máy", headers: []string{"MỤC", "GIÁ TRỊ"}, statusCol: 1}
 	add := func(of level, label, value string) {
 		t.lines = append(t.lines, tableLine{cells: []string{label, value}, level: of, detail: label + ": " + value})
@@ -75,6 +77,9 @@ func hostTable(host agentapi.HostStatus) table {
 	add(levelNone, "Load", fmt.Sprintf("%.2f %.2f %.2f", host.Load[0], host.Load[1], host.Load[2]))
 	add(busyLevel(host.CPUPercent), "CPU", fmt.Sprintf("%.0f%% của %d nhân", host.CPUPercent, host.CPUs))
 	add(freeLevel(host.Memory.AvailableBytes, host.Memory.TotalBytes, host.MinFreePercent), "RAM", freeText(host.Memory.AvailableBytes, host.Memory.TotalBytes))
+	for _, graph := range historyGraphs(history) {
+		add(levelNone, graph.label, graph.text)
+	}
 	if host.Memory.SwapTotalBytes > 0 {
 		add(levelNone, "Swap", freeText(host.Memory.SwapFreeBytes, host.Memory.SwapTotalBytes))
 	}
@@ -279,4 +284,27 @@ func alertsOfControlPlane(alerts []ctlapi.Alert, now time.Time, loaded bool) tab
 		t.lines = append(t.lines, alertLine(open.Key, open.Message, open.Since, now, of))
 	}
 	return t
+}
+
+type graph struct{ label, text string }
+
+// historyGraphs are CPU, RAM and the fullest disk over the span of the history, each as a row of blocks with the
+// highest value; none when the control plane has no samples yet (or could not be asked).
+func historyGraphs(history ctlapi.HostReport) []graph {
+	if len(history.Points) < 2 {
+		return nil
+	}
+	row := func(value func(ctlapi.HostPoint) float64) string {
+		values := make([]float64, 0, len(history.Points))
+		for _, point := range history.Points {
+			values = append(values, value(point))
+		}
+		return format.Sparkline(values, 100)
+	}
+	span := fmt.Sprintf("%d giờ", history.Hours)
+	return []graph{
+		{"CPU " + span, fmt.Sprintf("%s  cao nhất %.0f%%", row(func(p ctlapi.HostPoint) float64 { return p.CPUPercent }), history.Summary.CPUMax)},
+		{"RAM " + span, fmt.Sprintf("%s  cao nhất %.0f%%", row(func(p ctlapi.HostPoint) float64 { return p.MemPercent }), history.Summary.MemMax)},
+		{"Ổ đĩa " + span, fmt.Sprintf("%s  đầy nhất %.0f%%", row(func(p ctlapi.HostPoint) float64 { return p.DiskPercent }), history.Summary.DiskMax)},
+	}
 }

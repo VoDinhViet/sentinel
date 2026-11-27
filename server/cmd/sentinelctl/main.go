@@ -58,7 +58,7 @@ Không có lệnh con thì mở màn hình terminal: các server, cảnh báo v�
 	}
 	root.PersistentFlags().StringVar(&c.dir, "dir", "", "thư mục lưu ctl.yaml và phiên đăng nhập (mặc định ~/.config/sentinel)")
 	root.PersistentFlags().StringVarP(&c.output, "output", "o", "text", "định dạng đầu ra: text hoặc json")
-	root.AddCommand(newLoginCmd(c), newLogoutCmd(c), newPasswdCmd(c), newServerCmd(c), newAlertCmd(c), newRunCmd(c), newTaskCmd(c), newScheduleCmd(c), newMaintenanceCmd(c), newAuditCmd(c))
+	root.AddCommand(newLoginCmd(c), newLogoutCmd(c), newPasswdCmd(c), newServerCmd(c), newAlertCmd(c), newRunCmd(c), newTaskCmd(c), newScheduleCmd(c), newMaintenanceCmd(c), newReportCmd(c), newAuditCmd(c))
 	return root
 }
 

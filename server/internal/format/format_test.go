@@ -55,3 +55,15 @@ func TestDay(t *testing.T) {
 		t.Errorf("Day = %q", got)
 	}
 }
+
+func TestSparklineScalesFromZeroToTop(t *testing.T) {
+	if got := Sparkline([]float64{0, 12.5, 50, 99, 100, 250, -5}, 100); got != "▁▂▅███▁" {
+		t.Errorf("%q", got)
+	}
+	if got := Sparkline(nil, 100); got != "" {
+		t.Errorf("%q", got)
+	}
+	if got := Sparkline([]float64{5, 5}, 0); got != "▁▁" {
+		t.Errorf("a top of zero: %q", got)
+	}
+}

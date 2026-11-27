@@ -140,3 +140,17 @@ func TestOfflineAfterIsAtLeastThreeReportingPeriods(t *testing.T) {
 		t.Errorf("offline_after of 3m: %v", err)
 	}
 }
+
+func TestDigestAtIsATimeOfDayOrEmpty(t *testing.T) {
+	for _, good := range []string{"", "08:00", "23:59", "00:00"} {
+		cfg, err := Parse([]byte("hosts: [cp.example.com]\ndigest_at: \"" + good + "\"\n"))
+		if err != nil || cfg.DigestAt != good {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	for _, bad := range []string{"8", "24:00", "08:60", "8am", "daily"} {
+		if _, err := Parse([]byte("hosts: [cp.example.com]\ndigest_at: \"" + bad + "\"\n")); err == nil || !strings.Contains(err.Error(), "digest_at") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

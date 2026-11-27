@@ -170,6 +170,11 @@ EOF
 	[ "$(ctl server ls -o json | jq -r '.[] | select(.name == "web01") | .status')" = MAINTENANCE ] && pass "a server in a maintenance window shows MAINTENANCE" || fail "web01 is not MAINTENANCE"
 	ctl maintenance rm 1 >/dev/null
 	[ "$(ctl server ls -o json | jq -r '.[] | select(.name == "web01") | .status')" = ONLINE ] && pass "removing the window brings the status back" || fail "web01 is not ONLINE after the window"
+	echo "== reports"
+	[ "$(ctl report host web01 -o json | jq '.summary.samples')" -ge 1 ] && pass "the host history has a sample from the daemon's report" || fail "no host sample in the history"
+	ctl report host web01 | grep "CPU" >/dev/null && pass "report host prints the graphs" || fail "report host printed no CPU line"
+	ctl report backups -o json | jq -e '.jobs | type == "array"' >/dev/null && pass "report backups answers" || fail "report backups gave no list"
+	if ctl report host nobody >/dev/null 2>&1; then fail "a report of a server that does not exist was answered"; fi
 	ctl audit -n 100 | grep "schedule.run" >/dev/null && pass "the audit log has the schedule run" || fail "no schedule.run in the audit log"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null

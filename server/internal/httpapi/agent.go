@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -98,6 +99,9 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request, agent caller) {
 	if err := s.app.Inventory.SaveReport(r.Context(), agent.Name, req, now); err != nil {
 		internalError(w, r, err)
 		return
+	}
+	if err := s.app.Report.Record(r.Context(), agent.Name, req, now); err != nil { // the history is not worth failing a report for
+		slog.Error("record the history of a report", "agent", agent.Name, "err", err)
 	}
 	writeJSON(w, http.StatusOK, agentapi.ReportResponse{ServerTime: now, ReportEverySeconds: agentapi.DefaultReportGap})
 }

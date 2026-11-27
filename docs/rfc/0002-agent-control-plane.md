@@ -215,6 +215,7 @@ SQLite (`modernc.org/sqlite`), migration nhúng bằng `embed` ở `server/inter
 | 3 | `agent_reports` (báo cáo mới nhất của mỗi agent) |
 | 4 | `tasks` (queued/sent/succeeded/failed/refused/canceled/expired), `task_logs` |
 | 5 | `schedules`, `maintenance` |
+| 6 | `host_samples` (một mẫu của máy mỗi agent ít nhất 5 phút một lần, giữ 30 ngày), `backup_runs` (mỗi lần backup mà agent báo xong, khoá `(agent, job, repository, finished_at)` nên báo lại cùng một lần thì bỏ qua; giữ 90 ngày; thời điểm xa tương lai hoặc quá 90 ngày bị bỏ) |
 
 Audit: mỗi dòng có `hash = sha256(prev_hash ‖ nội dung chuẩn hoá)`; `sentinel-server audit verify` kiểm tra chuỗi. Mỗi entry cũng ghi `slog` để journald giữ bản thứ hai.
 
@@ -239,6 +240,8 @@ Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `al
 - `server.yaml` có `notifiers`, `cooldown` (mặc định 1 giờ) và `heartbeat`, cùng kiểu với config của agent. Server không dùng thư viện validator của agent nên `notify.Settings.Validate` và `HeartbeatSettings.Validate` (trong `pkg/notify`) kiểm tra các trường bắt buộc và URL https. Alert lưu trong bảng `alerts`, sống qua lần khởi động lại.
 
 ## 14. CLI và TUI
+
+- Lịch sử và báo cáo: mỗi report của agent được `report.Record` ghi thêm vào lịch sử (đồng hồ tính là của control plane, số liệu bị kẹp vào 0 đến 100%; ghi hỏng không làm hỏng report). `sentinelctl report host <server> [--hours N]` (CPU, RAM, ổ đầy nhất và load: trung bình, cao nhất, biểu đồ khối; tối đa 300 cột, mỗi cột là trung bình của một bước ít nhất 5 phút) và `sentinelctl report backups [--server X] [--days N]` (mỗi job: số lần, số lần lỗi, lần cuối, thành công cuối, kết quả cuối, và 20 lần lỗi mới nhất); cả hai có `-o json`. Phần Máy trong TUI hiện biểu đồ 24 giờ. `digest_at: "08:00"` trong `server.yaml` (giờ của máy control plane, rỗng là tắt) gửi mỗi ngày một tin cho các notifier: số server theo trạng thái, các server không ONLINE, backup lỗi 24 giờ qua và alert đang mở (Warning nếu có gì không ổn, Info nếu không).
 
 - `sentinel-server`: `init`, `serve`, `enroll`, `passwd`, `audit verify` (chạy bằng root trên máy control plane).
 - `sentinel agent join|status` trên server.
@@ -292,7 +295,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 11 | Action systemd và Docker (`service.start\|stop\|restart`, `container.restart`; `allow.services`, `allow.containers`, `allow.docker_socket`) |
 | 12 | Action cập nhật OS (`os.check_updates`, `os.apply_updates`; `allow.os_updates: off\|check\|apply`), chỉ apt |
 | 13 | Lịch cron và cửa sổ bảo trì (`server/internal/scheduler`, migration 5 `schedules` và `maintenance`, `sentinelctl schedule add\|ls\|rm` và `maintenance add\|ls\|rm`; trạng thái MAINTENANCE; watchdog không báo offline trong cửa sổ). Parser cron viết bằng stdlib vì thêm `robfig/cron` vào module server cần bạn xác nhận |
-| 14 | Báo cáo và lịch sử |
+| 14 | Lịch sử và báo cáo (`server/internal/report`, migration 6 `host_samples` và `backup_runs`; `sentinelctl report host\|backups`; biểu đồ CPU, RAM, ổ đĩa trong phần Máy của TUI; digest hằng ngày `digest_at`) |
 | 15 | Tự cập nhật agent |
 
 ## 18. Thư viện

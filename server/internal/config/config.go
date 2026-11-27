@@ -50,6 +50,9 @@ type Config struct {
 	// Heartbeat is a URL the control plane requests on a schedule, so a service outside this machine
 	// (healthchecks.io, Uptime Kuma) tells you when the control plane itself is down.
 	Heartbeat notify.HeartbeatSettings `yaml:"heartbeat"`
+	// DigestAt is the time of day (local to this machine, "08:00") the control plane sends a daily report to the
+	// notifiers: how many servers are in each state, the backups that failed, the alerts that are open. Empty is off.
+	DigestAt string `yaml:"digest_at"`
 }
 
 // Default is the configuration with nothing set but the defaults.
@@ -108,6 +111,11 @@ func (c Config) Validate() error {
 	}
 	if c.Cooldown < time.Minute {
 		errs = append(errs, errors.New("cooldown: must be at least 1m"))
+	}
+	if c.DigestAt != "" {
+		if _, err := time.Parse("15:04", c.DigestAt); err != nil {
+			errs = append(errs, fmt.Errorf("digest_at: %q is not a time of day like 08:00", c.DigestAt))
+		}
 	}
 	if err := c.Notifiers.Validate(); err != nil {
 		errs = append(errs, err)

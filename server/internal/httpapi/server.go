@@ -84,6 +84,8 @@ func (s *Server) CtlHandler() http.Handler {
 	mux.Handle("GET "+ctlapi.RouteMaintenance, s.signedIn(s.listWindows))
 	mux.Handle("POST "+ctlapi.RouteMaintenance, s.signedIn(s.createWindow))
 	mux.Handle("DELETE "+ctlapi.RouteWindow, s.signedIn(s.removeWindow))
+	mux.Handle("GET "+ctlapi.RouteReportHost, s.signedIn(s.hostReport))
+	mux.Handle("GET "+ctlapi.RouteReportBackups, s.signedIn(s.backupReport))
 	mux.Handle("GET "+ctlapi.RouteAudit, s.signedIn(s.listAudit))
 	mux.Handle("GET "+ctlapi.RouteAuditVerify, s.signedIn(s.verifyAudit))
 	return recovered(logged(mux))

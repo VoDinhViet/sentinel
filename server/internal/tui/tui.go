@@ -15,6 +15,7 @@ import (
 
 const (
 	refreshEvery = 5 * time.Second
+	historyHours = 24               // the span of the graphs in the part Máy
 	askTimeout   = 15 * time.Second // a call that hangs must still end, or the screen would never refresh
 )
 
@@ -24,6 +25,7 @@ type Source interface {
 	Agent(ctx context.Context, name string) (ctlapi.AgentDetail, error)
 	Alerts(ctx context.Context) ([]ctlapi.Alert, error)
 	Tasks(ctx context.Context, agent string, limit int) ([]ctlapi.Task, error)
+	HostReport(ctx context.Context, agent string, hours int) (ctlapi.HostReport, error)
 	CreateTask(ctx context.Context, agent, action string, params map[string]string) (ctlapi.Task, error)
 }
 
@@ -81,11 +83,13 @@ type (
 		at      time.Time
 	}
 	detailMsg struct {
-		name     string
-		detail   ctlapi.AgentDetail
-		tasks    []ctlapi.Task
-		tasksErr error // the tasks could not be read, though the server could
-		err      error
+		name       string
+		detail     ctlapi.AgentDetail
+		tasks      []ctlapi.Task
+		tasksErr   error // the tasks could not be read, though the server could
+		history    ctlapi.HostReport
+		historyErr error // the same for the history of the host
+		err        error
 	}
 	refreshMsg struct{}
 )
@@ -122,7 +126,8 @@ func (m model) askDetail(name string) tea.Cmd {
 			return detailMsg{name: name, err: err}
 		}
 		tasks, tasksErr := source.Tasks(askCtx, name, tasksShown)
-		return detailMsg{name: name, detail: detail, tasks: tasks, tasksErr: tasksErr}
+		history, historyErr := source.HostReport(askCtx, name, historyHours)
+		return detailMsg{name: name, detail: detail, tasks: tasks, tasksErr: tasksErr, history: history, historyErr: historyErr}
 	}
 }
 
@@ -178,9 +183,13 @@ func (m model) afterDetail(msg detailMsg) (tea.Model, tea.Cmd) {
 	if next, quit, over := m.fail(msg.tasksErr); over {
 		return next, quit
 	}
+	if next, quit, over := m.fail(msg.historyErr); over {
+		return next, quit
+	}
 	if msg.err == nil {
 		m.open.detail, m.open.read = msg.detail, true
 		m.open.tasks, m.open.tasksErr = msg.tasks, msg.tasksErr
+		m.open.history, m.open.historyErr = msg.history, msg.historyErr
 	}
 	m.open.cursor = min(m.open.cursor, max(len(m.open.table(m.now()).lines)-1, 0))
 	return m, nil

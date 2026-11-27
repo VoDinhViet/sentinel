@@ -89,3 +89,18 @@ func Status(status, state string) string {
 	}
 	return status
 }
+
+// Sparkline draws values as a row of block characters, scaled from 0 to top (a value above top is a full block, a
+// negative or missing one the lowest). No values make no row.
+func Sparkline(values []float64, top float64) string {
+	blocks := []rune("▁▂▃▄▅▆▇█")
+	line := make([]rune, 0, len(values))
+	for _, value := range values {
+		index := 0
+		if top > 0 && value > 0 {
+			index = min(int(value/top*float64(len(blocks))), len(blocks)-1)
+		}
+		line = append(line, blocks[index])
+	}
+	return string(line)
+}

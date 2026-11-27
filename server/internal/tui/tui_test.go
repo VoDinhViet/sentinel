@@ -30,6 +30,7 @@ type fakeSource struct {
 	err     error
 	calls   atomic.Int32
 
+	history   ctlapi.HostReport
 	tasks     []ctlapi.Task
 	given     []givenTask // what CreateTask was asked, in order
 	createErr error
@@ -58,6 +59,11 @@ func (f *fakeSource) Alerts(context.Context) ([]ctlapi.Alert, error) {
 func (f *fakeSource) Tasks(_ context.Context, _ string, _ int) ([]ctlapi.Task, error) {
 	f.calls.Add(1)
 	return f.tasks, f.err
+}
+
+func (f *fakeSource) HostReport(_ context.Context, _ string, _ int) (ctlapi.HostReport, error) {
+	f.calls.Add(1)
+	return f.history, f.err
 }
 
 func (f *fakeSource) CreateTask(_ context.Context, agent, action string, params map[string]string) (ctlapi.Task, error) {
@@ -407,7 +413,7 @@ func TestADiskBelowTheLimitIsRedAndAFullOneIsNot(t *testing.T) {
 		{Mount: "/", TotalBytes: 100, FreeBytes: 50}, {Mount: "/data", TotalBytes: 100, FreeBytes: 5}, {Mount: "/empty"},
 	}}
 	levels := map[string]level{}
-	for _, line := range hostTable(host).lines {
+	for _, line := range hostTable(host, ctlapi.HostReport{}).lines {
 		levels[line.cells[0]] = line.level
 	}
 	if levels["Ổ đĩa /"] != levelNone || levels["Ổ đĩa /data"] != levelBad || levels["Ổ đĩa /empty"] != levelNone {
@@ -508,4 +514,37 @@ func TestATinyTerminalGetsAtMostItsHeight(t *testing.T) {
 			t.Errorf("height %d drew %d lines", height, lines)
 		}
 	}
+}
+
+func TestThePartMayShowsGraphsOfTheHistoryWhenThereIsOne(t *testing.T) {
+	host := agentapi.HostStatus{}
+	if lines := hostTable(host, ctlapi.HostReport{}).lines; hasLine(lines, "CPU 24 giờ") {
+		t.Error("graphs without a history")
+	}
+	history := ctlapi.HostReport{Hours: 24, Summary: ctlapi.HostSummary{CPUMax: 90, MemMax: 60, DiskMax: 81}, Points: []ctlapi.HostPoint{
+		{CPUPercent: 0, MemPercent: 50, DiskPercent: 80}, {CPUPercent: 50, MemPercent: 55, DiskPercent: 80}, {CPUPercent: 90, MemPercent: 60, DiskPercent: 81},
+	}}
+	lines := hostTable(host, history).lines
+	for _, want := range []string{"CPU 24 giờ", "RAM 24 giờ", "Ổ đĩa 24 giờ"} {
+		if !hasLine(lines, want) {
+			t.Errorf("no line %q", want)
+		}
+	}
+	for _, line := range lines {
+		if line.cells[0] == "CPU 24 giờ" && !strings.Contains(line.cells[1], "▁") || line.cells[0] == "CPU 24 giờ" && !strings.Contains(line.cells[1], "cao nhất 90%") {
+			t.Errorf("the CPU graph: %q", line.cells[1])
+		}
+	}
+	if lines := hostTable(host, ctlapi.HostReport{Hours: 24, Points: history.Points[:1]}).lines; hasLine(lines, "CPU 24 giờ") {
+		t.Error("a graph of one point")
+	}
+}
+
+func hasLine(lines []tableLine, label string) bool {
+	for _, line := range lines {
+		if line.cells[0] == label {
+			return true
+		}
+	}
+	return false
 }

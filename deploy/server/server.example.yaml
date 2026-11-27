@@ -32,3 +32,6 @@ cooldown: 1h
 # Request this URL every few minutes, so a service outside this machine (healthchecks.io, Uptime Kuma) tells
 # you when the control plane itself is down.
 # heartbeat: {url: "${HEARTBEAT_URL}", every: 5m}
+# Once a day, at this time of day on this machine, send the notifiers a summary: how many servers are in each
+# state, the backups that failed in the last 24 hours, and the alerts that are open. Empty (the default) is off.
+# digest_at: "08:00"
