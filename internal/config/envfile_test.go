@@ -95,6 +95,27 @@ func TestLoadEnvFileIgnoresNamesTheConfigDoesNotUse(t *testing.T) {
 	}
 }
 
+func TestReadEnvFileSetsNothingAndKeepsTheRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.env")
+	content := "READ_ONLY_NEW=from-file\nREAD_ONLY_SET=from-file\nLD_PRELOAD=/evil.so\nNOT_WANTED=x\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("READ_ONLY_NEW")
+	t.Setenv("READ_ONLY_SET", "from-environment")
+	values, err := ReadEnvFile(path, []string{"READ_ONLY_NEW", "READ_ONLY_SET", "LD_PRELOAD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values["READ_ONLY_NEW"] != "from-file" {
+		t.Errorf("values = %v, want only READ_ONLY_NEW (the environment wins, LD_PRELOAD is never read)", values)
+	}
+	if _, set := os.LookupEnv("READ_ONLY_NEW"); set {
+		os.Unsetenv("READ_ONLY_NEW")
+		t.Error("ReadEnvFile put a variable in the environment")
+	}
+}
+
 func TestRefVars(t *testing.T) {
 	names, err := RefVars([]byte("a: ${ONE}\nb: [\"x-${TWO}\", \"${ONE}\"]\n\"${KEY}\": plain\n"))
 	if err != nil || !slices.Equal(names, []string{"ONE", "TWO"}) {

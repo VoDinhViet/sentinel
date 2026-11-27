@@ -21,10 +21,15 @@ var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // is caught at startup instead of producing an empty password. Expanding after
 // parsing means a secret containing YAML syntax cannot change the structure.
 func expandEnv(node *yaml.Node, missingVars map[string]bool) {
+	expandWith(node, os.LookupEnv, missingVars)
+}
+
+// expandWith is expandEnv with the variables taken from lookup.
+func expandWith(node *yaml.Node, lookup func(name string) (string, bool), missingVars map[string]bool) {
 	if node.Kind == yaml.ScalarNode {
 		node.Value = envRef.ReplaceAllStringFunc(node.Value, func(ref string) string {
 			name := envRef.FindStringSubmatch(ref)[1]
-			value, ok := os.LookupEnv(name)
+			value, ok := lookup(name)
 			if !ok {
 				missingVars[name] = true
 			}
@@ -36,7 +41,7 @@ func expandEnv(node *yaml.Node, missingVars map[string]bool) {
 		if node.Kind == yaml.MappingNode && i%2 == 0 {
 			continue // mapping key
 		}
-		expandEnv(child, missingVars)
+		expandWith(child, lookup, missingVars)
 	}
 }
 
@@ -164,6 +169,15 @@ func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 // conventions such as the fleet file), optionally expanding ${VAR} in values,
 // and rejects unknown fields.
 func DecodeStrict(raw []byte, target any, expandVars bool) error {
+	if expandVars {
+		return DecodeStrictWith(raw, target, os.LookupEnv)
+	}
+	return DecodeStrictWith(raw, target, nil)
+}
+
+// DecodeStrictWith is DecodeStrict that expands ${VAR} from lookup instead of the environment, and
+// not at all when lookup is nil.
+func DecodeStrictWith(raw []byte, target any, lookup func(name string) (string, bool)) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("parse config: %w", err)
@@ -171,9 +185,9 @@ func DecodeStrict(raw []byte, target any, expandVars bool) error {
 	if len(doc.Content) == 0 {
 		return nil
 	}
-	if expandVars {
+	if lookup != nil {
 		missingVars := map[string]bool{}
-		expandEnv(&doc, missingVars)
+		expandWith(&doc, lookup, missingVars)
 		if len(missingVars) > 0 {
 			return fmt.Errorf("unset environment variables: %v", slices.Sorted(maps.Keys(missingVars)))
 		}

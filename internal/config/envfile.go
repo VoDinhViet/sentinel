@@ -23,16 +23,39 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // refers to): other lines are skipped, so the file cannot set PATH or LD_PRELOAD for the
 // tools Sentinel starts. A missing file is not an error. It returns the names it set.
 func LoadEnvFile(path string, wanted []string) ([]string, error) {
+	var loaded []string
+	err := eachEnvValue(path, wanted, func(name, value string) error {
+		loaded = append(loaded, name)
+		return os.Setenv(name, value)
+	})
+	return loaded, err
+}
+
+// ReadEnvFile returns the values of an env file for the names in wanted that the environment does
+// not define, in the same format and with the same rules as LoadEnvFile, but sets nothing: the
+// values stay out of the environment that restic, rclone and the dump tools inherit, and the file
+// is read again whenever the caller asks, so a changed value is seen.
+func ReadEnvFile(path string, wanted []string) (map[string]string, error) {
+	values := map[string]string{}
+	err := eachEnvValue(path, wanted, func(name, value string) error {
+		values[name] = value
+		return nil
+	})
+	return values, err
+}
+
+// eachEnvValue calls visit with every wanted, not dangerous name of the env file that the
+// environment does not define yet, and its value.
+func eachEnvValue(path string, wanted []string, visit func(name, value string) error) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
 	defer file.Close()
 
-	var loaded []string
 	scanner := bufio.NewScanner(file)
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		line := strings.TrimSpace(scanner.Text())
@@ -43,7 +66,7 @@ func LoadEnvFile(path string, wanted []string) ([]string, error) {
 		name, value, found := strings.Cut(line, "=")
 		name = strings.TrimSpace(name)
 		if !found || !envName.MatchString(name) {
-			return loaded, fmt.Errorf("%s:%d: want NAME=value", path, lineNum)
+			return fmt.Errorf("%s:%d: want NAME=value", path, lineNum)
 		}
 		if _, set := os.LookupEnv(name); set || !slices.Contains(wanted, name) {
 			continue
@@ -53,14 +76,13 @@ func LoadEnvFile(path string, wanted []string) ([]string, error) {
 		}
 		parsed, err := parseEnvValue(strings.TrimSpace(value))
 		if err != nil {
-			return loaded, fmt.Errorf("%s:%d: %w", path, lineNum, err)
+			return fmt.Errorf("%s:%d: %w", path, lineNum, err)
 		}
-		if err := os.Setenv(name, parsed); err != nil {
-			return loaded, err
+		if err := visit(name, parsed); err != nil {
+			return err
 		}
-		loaded = append(loaded, name)
 	}
-	return loaded, scanner.Err()
+	return scanner.Err()
 }
 
 // parseEnvValue unquotes a value: '…' is literal, "…" understands \\ \" \$ and \`, a bare

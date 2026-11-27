@@ -120,7 +120,6 @@ func TestTokensComeFromTheEnvFileBesideTheFile(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("FLEET_TEST_FROM_FILE="+goodToken+"\nPATH=/evil\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Unsetenv("FLEET_TEST_FROM_FILE") })
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +129,40 @@ func TestTokensComeFromTheEnvFileBesideTheFile(t *testing.T) {
 	}
 	if os.Getenv("PATH") == "/evil" {
 		t.Error("the env file set a variable the fleet file does not refer to")
+	}
+}
+
+// The tools the daemon starts (restic, rclone, dumps) inherit its environment: they must not get the
+// tokens of the other servers.
+func TestTokensOfTheEnvFileDoNotReachTheEnvironment(t *testing.T) {
+	path := writeFleetFile(t, "servers: [{name: a, url: 'https://a', token: '${FLEET_TEST_PRIVATE}'}]", 0o600)
+	envFile := filepath.Join(filepath.Dir(path), EnvFileName)
+	if err := os.WriteFile(envFile, []byte("FLEET_TEST_PRIVATE="+goodToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if value, set := os.LookupEnv("FLEET_TEST_PRIVATE"); set {
+		os.Unsetenv("FLEET_TEST_PRIVATE")
+		t.Errorf("Load put the token in the environment: %q", value)
+	}
+}
+
+func TestATokenChangedInTheEnvFileIsSeenByTheNextLoad(t *testing.T) {
+	path := writeFleetFile(t, "servers: [{name: a, url: 'https://a', token: '${FLEET_TEST_ROTATED}'}]", 0o600)
+	envFile := filepath.Join(filepath.Dir(path), EnvFileName)
+	for _, token := range []string{goodToken, goodToken + "-rotated"} {
+		if err := os.WriteFile(envFile, []byte("FLEET_TEST_ROTATED="+token+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Servers[0].Token != token {
+			t.Errorf("token = %q, want %q", cfg.Servers[0].Token, token)
+		}
 	}
 }
 

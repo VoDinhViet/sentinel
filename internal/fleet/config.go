@@ -64,11 +64,12 @@ func Load(path string) (*Config, error) {
 	if err := refusePlainTokensInOpenFile(path, raw); err != nil {
 		return nil, err
 	}
-	if err := loadSecrets(path, raw); err != nil {
+	secrets, err := readSecrets(path, raw)
+	if err != nil {
 		return nil, err
 	}
 	var cfg Config
-	if err := config.DecodeStrict(raw, &cfg, true); err != nil {
+	if err := config.DecodeStrictWith(raw, &cfg, lookupIn(secrets)); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := cfg.validate(); err != nil {
@@ -110,23 +111,32 @@ func refusePlainTokensInOpenFile(path string, raw []byte) error {
 	return nil
 }
 
-// loadSecrets reads fleet.env beside the file, for the ${VAR}s the file refers to that the
-// environment does not set.
-func loadSecrets(path string, raw []byte) error {
+// readSecrets reads fleet.env beside the file, for the ${VAR}s the file refers to that the
+// environment does not set. They are kept in the returned map, not put in the environment: the tools
+// the daemon starts must not inherit the tokens of other servers, and a token changed in the file
+// is seen the next time the file is loaded.
+func readSecrets(path string, raw []byte) (map[string]string, error) {
 	referenced, err := config.RefVars(raw)
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	envFile := filepath.Join(filepath.Dir(path), EnvFileName)
 	info, err := config.CheckEnvFile(envFile)
-	if err != nil {
-		return err
+	if err != nil || info == nil {
+		return nil, err
 	}
-	if info == nil {
-		return nil
+	return config.ReadEnvFile(envFile, referenced)
+}
+
+// lookupIn finds a variable in the environment first, then in the secrets of fleet.env.
+func lookupIn(secrets map[string]string) func(name string) (string, bool) {
+	return func(name string) (string, bool) {
+		if value, ok := os.LookupEnv(name); ok {
+			return value, true
+		}
+		value, ok := secrets[name]
+		return value, ok
 	}
-	_, err = config.LoadEnvFile(envFile, referenced)
-	return err
 }
 
 func (c *Config) validate() error {
