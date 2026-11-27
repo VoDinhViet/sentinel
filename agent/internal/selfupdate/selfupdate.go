@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,8 @@ const (
 	// StagedName is the downloaded binary; MarkerName is the note about it and about the trial.
 	StagedName = "sentinel.new"
 	MarkerName = "update.json"
+	// ManifestName is the signed manifest of the staged release, kept so that the helper that installs it can check it again.
+	ManifestName = "manifest.json"
 	// TrialWindow is how long a new version has to report to the control plane before it is taken for bad.
 	TrialWindow = 5 * time.Minute
 	// MaxTrialStarts is how many times the new version may be started in its trial: a version that crashes at once
@@ -98,6 +101,7 @@ func WriteMarker(dir string, marker Marker) error {
 func RemoveMarker(dir string) {
 	_ = os.Remove(filepath.Join(dir, MarkerName))
 	_ = os.Remove(filepath.Join(dir, StagedName))
+	_ = os.Remove(filepath.Join(dir, ManifestName))
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {
@@ -123,7 +127,15 @@ type Stager struct {
 }
 
 // Forget drops a staged binary and its note: the update did not go through.
-func (s *Stager) Forget() { RemoveMarker(s.Dir) }
+// An update that is already on trial is left alone.
+func (s *Stager) Forget() {
+	if marker, found, _ := ReadMarker(s.Dir); found && marker.State != Staged {
+		return
+	}
+	RemoveMarker(s.Dir)
+	_ = os.Remove(filepath.Join(s.Dir, StagedName))
+	_ = os.Remove(filepath.Join(s.Dir, ManifestName))
+}
 
 // Client is the HTTP client for the release files: no proxy (a proxy is another party in the middle), no
 // redirect (the address in the manifest is the address that is used), and TLS 1.2 at least.
@@ -155,6 +167,11 @@ func (s *Stager) get(ctx context.Context, address string, limit int64, timeout t
 	request.Header.Set("User-Agent", "sentinel-agent")
 	response, err := s.client().Do(request)
 	if err != nil {
+		// A *url.Error prints the whole address, query included, and that may carry a token.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return fmt.Errorf("fetch %s: %w", host(address), err)
 	}
 	defer response.Body.Close()
@@ -171,11 +188,13 @@ func (s *Stager) get(ctx context.Context, address string, limit int64, timeout t
 	return nil
 }
 
+// host is the scheme and host of an address: nothing after them (a path, a query) is repeated in text that is sent away.
 func host(address string) string {
-	if cut := strings.IndexByte(address[min(8, len(address)):], '/'); cut >= 0 {
-		return address[:min(8, len(address))+cut]
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Host == "" {
+		return "the release server"
 	}
-	return address
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // Stage gets the release of version and keeps it, ready to install. It refuses a version that is not later than
@@ -198,6 +217,9 @@ func (s *Stager) Stage(ctx context.Context, version string, log func(string)) (M
 	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return Marker{}, fmt.Errorf("make the directory of the update: %w", err)
+	}
+	if existing, found, _ := ReadMarker(s.Dir); found && existing.State == Installed {
+		return Marker{}, fmt.Errorf("version %s was installed and has not reported to the control plane yet: it is on trial, and another update waits for it to end", existing.To)
 	}
 	address := s.URLFor(version, s.GOOS, s.GOARCH)
 	log("fetching the manifest from " + host(address))
@@ -226,9 +248,12 @@ func (s *Stager) Stage(ctx context.Context, version string, log func(string)) (M
 		_ = os.Remove(staged)
 		return Marker{}, fmt.Errorf("the new binary does not run on this machine: %w", err)
 	}
-	if !strings.Contains(said, version) {
+	if !saysVersion(said, version) {
 		_ = os.Remove(staged)
 		return Marker{}, fmt.Errorf("the new binary says it is %q, not %s", strings.TrimSpace(said), version)
+	}
+	if err := writeFile(filepath.Join(s.Dir, ManifestName), raw.bytes(), 0o600); err != nil {
+		return Marker{}, fmt.Errorf("keep the signed manifest: %w", err)
 	}
 	marker := Marker{State: Staged, From: s.Current, To: version, SHA256: manifest.SHA256, At: time.Now()}
 	if err := WriteMarker(s.Dir, marker); err != nil {
@@ -296,12 +321,15 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 func (b *limitedBuffer) bytes() []byte { return b.data }
 
 // sumFile is the SHA-256 of a file, in hex.
-func sumFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
+
+// saysVersion says the output of --version names the release, as a word: 1.2.0 is not in 11.2.0.
+func saysVersion(said, version string) bool {
+	for _, word := range strings.Fields(said) {
+		if parsed, err := release.ParseVersion(word); err == nil {
+			if wanted, err := release.ParseVersion(version); err == nil && parsed == wanted {
+				return true
+			}
+		}
 	}
-	defer file.Close()
-	sum, _, err := release.Sum(file)
-	return sum, err
+	return false
 }

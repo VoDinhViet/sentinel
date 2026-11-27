@@ -195,9 +195,25 @@ func installation(t *testing.T) (dir, exe string) {
 	return dir, exe
 }
 
+// releaseKey signs the manifests the install helper checks again.
+var releasePublic, releasePrivate = func() (ed25519.PublicKey, ed25519.PrivateKey) {
+	public, private, err := release.GenerateKey()
+	if err != nil {
+		panic(err)
+	}
+	return public, private
+}()
+
 func stage(t *testing.T, dir string, content []byte) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, StagedName), content, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := release.Sign(releasePrivate, release.Manifest{Version: "1.2.0", OS: "linux", Arch: "amd64", SHA256: sum(binary), Size: int64(len(binary)), URL: "https://releases.example.com/s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), signed, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteMarker(dir, Marker{State: Staged, From: "1.1.0", To: "1.2.0", SHA256: sum(binary), At: time.Now()}); err != nil {
@@ -208,7 +224,7 @@ func stage(t *testing.T, dir string, content []byte) {
 func TestInstallKeepsTheOldBinaryAndPutsTheNewOneInItsPlace(t *testing.T) {
 	dir, exe := installation(t)
 	stage(t, dir, binary)
-	if err := Install(dir, exe); err != nil {
+	if err := Install(dir, exe, releasePublic); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(exe); string(data) != string(binary) {
@@ -251,7 +267,7 @@ func TestInstallRefusesWhatIsNotTheBinaryThatWasChecked(t *testing.T) {
 	} {
 		dir, exe := installation(t)
 		prepare(dir, exe)
-		if err := Install(dir, exe); err == nil {
+		if err := Install(dir, exe, releasePublic); err == nil {
 			t.Errorf("%s: installed", name)
 		}
 		if data, _ := os.ReadFile(exe); string(data) != "old binary" {
@@ -269,7 +285,7 @@ func TestInstallRefusesWhatIsNotTheBinaryThatWasChecked(t *testing.T) {
 	if err := os.Symlink("/bin/sh", exe); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(dir, exe); err == nil {
+	if err := Install(dir, exe, releasePublic); err == nil {
 		t.Error("a binary that is a link was replaced")
 	}
 }
@@ -277,7 +293,7 @@ func TestInstallRefusesWhatIsNotTheBinaryThatWasChecked(t *testing.T) {
 func TestRollbackPutsThePreviousBinaryBackAndSaysWhy(t *testing.T) {
 	dir, exe := installation(t)
 	stage(t, dir, binary)
-	if err := Install(dir, exe); err != nil {
+	if err := Install(dir, exe, releasePublic); err != nil {
 		t.Fatal(err)
 	}
 	if err := Rollback(dir, exe, "no report in 5m"); err != nil {
@@ -297,7 +313,7 @@ func TestRollbackPutsThePreviousBinaryBackAndSaysWhy(t *testing.T) {
 func TestTheTrialCountsStartsAndEndsWhenTheNewVersionReports(t *testing.T) {
 	dir, exe := installation(t)
 	stage(t, dir, binary)
-	if err := Install(dir, exe); err != nil {
+	if err := Install(dir, exe, releasePublic); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -308,7 +324,7 @@ func TestTheTrialCountsStartsAndEndsWhenTheNewVersionReports(t *testing.T) {
 		t.Error("a note about a binary that does not run was kept")
 	}
 	stage(t, dir, binary)
-	if err := Install(dir, exe); err != nil {
+	if err := Install(dir, exe, releasePublic); err != nil {
 		t.Fatal(err)
 	}
 	for start := 1; start <= MaxTrialStarts; start++ {
@@ -322,7 +338,7 @@ func TestTheTrialCountsStartsAndEndsWhenTheNewVersionReports(t *testing.T) {
 	// A new version that reports ends its trial.
 	dir, exe = installation(t)
 	stage(t, dir, binary)
-	_ = Install(dir, exe)
+	_ = Install(dir, exe, releasePublic)
 	if verdict, _, _ := BeginTrial(dir, "v1.2.0-3-gabc", now); verdict != OnTrial {
 		t.Fatalf("%v", verdict)
 	}
@@ -338,7 +354,7 @@ func TestTheTrialCountsStartsAndEndsWhenTheNewVersionReports(t *testing.T) {
 func TestANoteOfARollbackGoesWhenTheOldVersionRunsAgain(t *testing.T) {
 	dir, exe := installation(t)
 	stage(t, dir, binary)
-	_ = Install(dir, exe)
+	_ = Install(dir, exe, releasePublic)
 	_ = Rollback(dir, exe, "x")
 	if verdict, marker, _ := BeginTrial(dir, "v1.1.0", time.Now()); verdict != NoTrial || marker.State != RolledBack {
 		t.Errorf("%v %+v", verdict, marker)
@@ -369,5 +385,105 @@ func TestADamagedNoteIsRemovedNotObeyed(t *testing.T) {
 	}
 	if _, found, _ := ReadMarker(dir); found {
 		t.Error("the damaged note stayed")
+	}
+}
+
+func TestInstallChecksTheSignedManifestAgainWithItsOwnKey(t *testing.T) {
+	other, _, _ := release.GenerateKey()
+	dir, exe := installation(t)
+	stage(t, dir, binary)
+	if err := Install(dir, exe, other); err == nil {
+		t.Error("installed with a manifest the key of this agent did not sign")
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, ManifestName))
+	raw[len(raw)/2] ^= 1
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(dir, exe, releasePublic); err == nil {
+		t.Error("installed with a manifest that was changed")
+	}
+	if data, _ := os.ReadFile(exe); string(data) != "old binary" {
+		t.Errorf("the binary was changed to %q", data)
+	}
+}
+
+func TestInstallRefusesADirectoryOthersCanWriteAndReplacesAStaleNewFile(t *testing.T) {
+	dir, exe := installation(t)
+	stage(t, dir, binary)
+	if err := os.Chmod(dir, 0o777); err != nil { //nolint:gosec // the point of the test
+		t.Fatal(err)
+	}
+	if err := Install(dir, exe, releasePublic); err == nil {
+		t.Error("installed from a directory anyone can write")
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe+".new", []byte("what a killed install left"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(dir, exe, releasePublic); err != nil {
+		t.Errorf("a stale .new blocks the install: %v", err)
+	}
+}
+
+func TestAnUpdateOnTrialIsNotReplacedByAnotherNorItsPreviousBinaryLost(t *testing.T) {
+	shelf := newShelf(t)
+	stager := shelf.stager(t, "1.1.0")
+	dir, exe := installation(t)
+	stager.Dir = dir
+	if _, err := stager.Stage(context.Background(), "1.2.0", func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(dir, exe, shelf.public); err != nil {
+		t.Fatal(err)
+	}
+	// 1.2.0 is on trial. Another release, later still, is refused until it has reported.
+	stager.Current = "1.1.0"
+	if _, err := stager.Stage(context.Background(), "1.2.0", func(string) {}); err == nil || !strings.Contains(err.Error(), "on trial") {
+		t.Errorf("a second update during the trial: %v", err)
+	}
+	if data, _ := os.ReadFile(exe + ".prev"); string(data) != "old binary" {
+		t.Errorf("the previous binary is %q", data)
+	}
+	stager.Forget() // a failed task does not take away a trial
+	if !OnTrialNow(dir) {
+		t.Error("Forget removed the note of a trial")
+	}
+}
+
+func TestAnErrorDoesNotRepeatTheQueryOfTheManifestAddress(t *testing.T) {
+	stager := newShelf(t).stager(t, "1.1.0")
+	stager.URLFor = func(version, _, _ string) string {
+		return "https://127.0.0.1:1/rel/" + version + "/m.json?token=SECRET123"
+	}
+	stager.HTTP = nil
+	_, err := stager.Stage(context.Background(), "1.2.0", func(string) {})
+	if err == nil || strings.Contains(err.Error(), "SECRET123") || strings.Contains(err.Error(), "/rel/") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSaysVersionReadsAWordNotASubstring(t *testing.T) {
+	for said, want := range map[string]bool{"sentinel version 1.2.0": true, "sentinel version v1.2.0-3-gabc": true, "sentinel version 11.2.0": false, "1.2.01": false, "dev": false} {
+		if got := saysVersion(said, "1.2.0"); got != want {
+			t.Errorf("%q: %v", said, got)
+		}
+	}
+}
+
+func TestADownloadThatWasKilledIsCleanedUpAtTheNextStart(t *testing.T) {
+	dir, _ := installation(t)
+	for _, name := range []string{StagedName, ManifestName} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("half"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if verdict, _, _ := BeginTrial(dir, "v1.1.0", time.Now()); verdict != NoTrial {
+		t.Error(verdict)
+	}
+	if _, err := os.Stat(filepath.Join(dir, StagedName)); err == nil {
+		t.Error("a partial download was kept")
 	}
 }

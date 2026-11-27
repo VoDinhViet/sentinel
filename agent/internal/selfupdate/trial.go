@@ -31,6 +31,9 @@ func BeginTrial(dir, running string, now time.Time) (Verdict, Marker, error) {
 		return NoTrial, Marker{}, err
 	}
 	if !found {
+		// A download the daemon was killed in the middle of leaves no note; the daemon is the only one that stages, and it has just started.
+		_ = os.Remove(filepath.Join(dir, StagedName))
+		_ = os.Remove(filepath.Join(dir, ManifestName))
 		return NoTrial, Marker{}, nil
 	}
 	switch marker.State {
@@ -68,6 +71,7 @@ func Confirm(dir string) {
 	if marker, found, _ := ReadMarker(dir); found && marker.State == Installed {
 		slog.Info("self-update: the new version reported to the control plane; it stays", "version", marker.To, "was", marker.From)
 		_ = os.Remove(filepath.Join(dir, MarkerName))
+		_ = os.Remove(filepath.Join(dir, ManifestName))
 	}
 }
 

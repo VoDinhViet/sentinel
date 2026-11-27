@@ -59,7 +59,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&cli.configFlag, "config", "c", "", "file config (mặc định: $SENTINEL_CONFIG, /etc/sentinel/config.yaml hoặc ~/.config/sentinel/config.yaml, file nào có trước)")
-	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd(), cli.agentCmd(), cli.updateInstallCmd(), cli.updateRollbackCmd())
+	root.AddCommand(cli.notifyCmd(), cli.backupCmd(), cli.doctorCmd(), cli.runCmd(), cli.checkCmd(), cli.statusCmd(), cli.manageCmd(), cli.initCmd(), cli.agentCmd(), cli.updateInstallCmd(), cli.updateRollbackCmd(), cli.updateGuardCmd())
 	root.PersistentFlags().StringVar(&cli.logLevel, "log-level", "info", "debug, info, warn hoặc error")
 	localizeHelp(root)
 	return root
