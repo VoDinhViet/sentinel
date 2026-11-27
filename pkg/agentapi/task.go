@@ -135,7 +135,7 @@ var (
 )
 
 // MaxRestartTimeout is the most seconds a container is given to stop before it is killed.
-const MaxRestartTimeout = 120
+const MaxRestartTimeout = 90
 
 // ValidUnit says name is a systemd service or timer a task may name: a plain unit name, and not the agent's own.
 func ValidUnit(name string) error {

@@ -106,15 +106,7 @@ control_plane:
     doctor: true
     services: [demo.service]
 EOF
-	# A systemctl that only writes down how it was called: this machine's own units are not touched.
-	mkdir "$WORK/bin"
-	cat >"$WORK/bin/systemctl" <<'EOF'
-#!/bin/sh
-echo "$*" >>"$SYSTEMCTL_LOG"
-case "$*" in *is-active*) echo active ;; esac
-EOF
-	chmod +x "$WORK/bin/systemctl"
-	SYSTEMCTL_LOG="$WORK/systemctl.log" PATH="$WORK/bin:$PATH" "$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
+	"$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
 	for _ in $(seq 50); do
 		[ "$(ctl server show web01 -o json 2>/dev/null | jq -r '.report.host.hostname // empty')" != "" ] && break
@@ -138,11 +130,13 @@ EOF
 	pass "an action that is not in the table is refused by the control plane"
 	ctl audit -n 50 | grep -q task.result && pass "the audit log has the results" || fail "no task.result in the audit log"
 	echo "== service task"
-	ctl run web01 service.restart unit=demo.service --wait >"$WORK/service.txt" 2>&1 && pass "service.restart ran for a unit on the allowlist" || fail "service.restart failed: $(cat "$WORK/service.txt")"
-	grep -qx -- "--no-ask-password --no-pager restart -- demo.service" "$WORK/systemctl.log" && pass "systemctl got fixed arguments and the unit after --" || fail "systemctl was called as: $(cat "$WORK/systemctl.log")"
+	# The daemon looks for systemctl in fixed places, so a stand-in on PATH is not used: the real one answers. The
+	# unit does not exist (and this is not root, usually), so the task must fail, but with systemctl's own words:
+	# it got as far as systemctl with this unit. The exact arguments are covered by the executor's tests.
+	ctl run web01 service.restart unit=demo.service --wait >"$WORK/service.txt" 2>&1 && fail "a unit that does not exist was restarted"
+	grep -q "systemctl restart demo.service" "$WORK/service.txt" || grep -q "cannot be told apart" "$WORK/service.txt" && pass "a unit on the allowlist is handed to systemctl, and its answer comes back" || fail "no answer from systemctl: $(cat "$WORK/service.txt")"
 	if ctl run web01 service.stop unit=other.service --wait >"$WORK/other.txt" 2>&1; then fail "a unit that is not on the allowlist was stopped"; fi
-	grep -q "control_plane.allow.services: \[other.service\]" "$WORK/other.txt" && pass "a unit that is not listed is refused, and the refusal says what to write" || fail "no refusal in: $(cat "$WORK/other.txt")"
-	! grep -q "other.service" "$WORK/systemctl.log" && pass "systemctl never saw the unit that was refused" || fail "systemctl was called for a refused unit"
+	grep -q "control_plane.allow.services: \\[other.service\\]" "$WORK/other.txt" && pass "a unit that is not listed is refused, and the refusal says what to write" || fail "no refusal in: $(cat "$WORK/other.txt")"
 	for bad in "unit=sentinel.service" "unit=demo.service;id" "unit=--user.service" "unit=/etc/x.service"; do
 		if ctl run web01 service.restart "$bad" >"$WORK/bad.txt" 2>&1; then fail "the control plane queued service.restart $bad"; fi
 	done

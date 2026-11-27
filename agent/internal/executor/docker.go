@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,10 @@ import (
 )
 
 // maxDockerAnswer is how much of an answer of the Docker Engine is read.
-const maxDockerAnswer = 4 << 10
+const (
+	maxDockerAnswer  = 4 << 10
+	maxInspectAnswer = 1 << 20 // the description of a container is long: its environment is in it, and is not used
+)
 
 // dockerClient speaks HTTP to the Docker Engine over its unix socket. It follows no redirect and uses no
 // proxy, and the host in the URL is only a name: every connection goes to the socket.
@@ -30,11 +34,57 @@ func dockerClient(socket string) *http.Client {
 	}
 }
 
-// restartContainer asks Docker to restart one container of the allowlist: POST /containers/{name}/restart.
-// The name has the shape the table allows (letters, digits and _ . -), and is escaped as one path segment anyway.
+// resolveContainer asks Docker which container the name is, and gives its full id. Docker takes a name in a
+// path as an id, a name or the start of an id, whichever matches: the allowlist says a name, so the answer has to
+// be that container, not another whose id happens to start with the same letters.
+func resolveContainer(ctx context.Context, client *http.Client, name string) (id string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/containers/"+url.PathEscape(name)+"/json", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxInspectAnswer))
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return "", errNoContainer
+	default:
+		return "", fmt.Errorf("the Docker Engine answered %d: %s", resp.StatusCode, dockerMessage(body))
+	}
+	var found struct {
+		ID   string `json:"Id"`
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &found); err != nil || found.ID == "" {
+		return "", errors.New("the Docker Engine gave an answer that is not a container")
+	}
+	if found.Name != "/"+name && found.ID != name {
+		return "", fmt.Errorf("%s is not the name of a container, only the start of the id of another: the allowlist names containers", name)
+	}
+	return found.ID, nil
+}
+
+// errNoContainer is Docker saying there is no such container.
+var errNoContainer = errors.New("no such container")
+
+// restartContainer asks Docker to restart one container of the allowlist: POST /containers/{id}/restart. The
+// name has the shape the table allows (letters, digits and _ . -), and is escaped as one path segment anyway.
 func (e *Executor) restartContainer(ctx context.Context, params map[string]string, log func(string)) agentapi.TaskResult {
 	name := params["container"]
-	target := "http://docker/containers/" + url.PathEscape(name) + "/restart"
+	client := dockerClient(e.Allow.Socket())
+	log("looking for the container " + name)
+	id, err := resolveContainer(ctx, client, name)
+	switch {
+	case errors.Is(err, errNoContainer):
+		return failed(fmt.Errorf("the Docker Engine has no container named %s", name))
+	case err != nil:
+		return failed(fmt.Errorf("cannot ask Docker at %s: %w", e.Allow.Socket(), err))
+	}
+	target := "http://docker/containers/" + url.PathEscape(id) + "/restart"
 	if seconds := params["timeout_s"]; seconds != "" {
 		target += "?t=" + url.QueryEscape(seconds)
 	}
@@ -43,7 +93,7 @@ func (e *Executor) restartContainer(ctx context.Context, params map[string]strin
 	if err != nil {
 		return failed(err)
 	}
-	resp, err := dockerClient(e.Allow.Socket()).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return failed(fmt.Errorf("cannot reach Docker at %s: %w", e.Allow.Socket(), err))
 	}
