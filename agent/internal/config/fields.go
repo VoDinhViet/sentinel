@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -19,9 +18,6 @@ import (
 // each type.
 var fieldValidator = newFieldValidator()
 
-// envFileHint is added to the error for a missing API token, the one a new user is likely to hit.
-const envFileHint = ": write token: ${SENTINEL_API_TOKEN} and put the value in the env file"
-
 func newFieldValidator() *validator.Validate {
 	v := validator.New()
 	// Name a field by its YAML key, so an error reads like the file the user wrote.
@@ -33,10 +29,8 @@ func newFieldValidator() *validator.Validate {
 		return key
 	})
 	for tag, check := range map[string]validator.Func{
-		"https_url":   func(fl validator.FieldLevel) bool { return isHTTPSOrRef(fl.Field().String()) },
-		"abspath":     func(fl validator.FieldLevel) bool { return filepath.IsAbs(fl.Field().String()) },
-		"listen_addr": func(fl validator.FieldLevel) bool { return isListenAddr(fl.Field().String()) },
-		"api_token":   func(fl validator.FieldLevel) bool { return isAPIToken(fl.Field().String()) },
+		"https_url": func(fl validator.FieldLevel) bool { return isHTTPSOrRef(fl.Field().String()) },
+		"abspath":   func(fl validator.FieldLevel) bool { return filepath.IsAbs(fl.Field().String()) },
 	} {
 		if err := v.RegisterValidation(tag, check); err != nil {
 			panic(err) // the tag names above are fixed, so this is a bug in this file
@@ -50,17 +44,6 @@ func newFieldValidator() *validator.Validate {
 // often is the secret itself, so it must not travel over plain http.
 func isHTTPSOrRef(url string) bool {
 	return strings.Contains(url, "${") || strings.HasPrefix(url, "https://")
-}
-
-// isListenAddr accepts host:port, including [::1]:9311. validator's own hostname_port rejects IPv6.
-func isListenAddr(addr string) bool {
-	_, _, err := net.SplitHostPort(addr)
-	return err == nil
-}
-
-// isAPIToken accepts a token of MinTokenLength or more, or a whole ${VAR} that is checked once it has a value.
-func isAPIToken(token string) bool {
-	return wholeEnvRef.MatchString(token) || len(token) >= MinTokenLength
 }
 
 // fieldErrors runs the tag rules over the whole config and words each failure.
@@ -133,11 +116,7 @@ func fieldMessage(failure validator.FieldError) string {
 		field, value, _ := strings.Cut(param, " ")
 		return fmt.Sprintf("is required when %s is %s", strings.ToLower(field), value)
 	case "required_with":
-		text := fmt.Sprintf("is required when %s is set", yamlKeyOf(param))
-		if failure.Namespace() == "Config.api.token" {
-			text += envFileHint
-		}
-		return text
+		return fmt.Sprintf("is required when %s is set", yamlKeyOf(param))
 	case "oneof":
 		return "must be " + orList(strings.Fields(param))
 	case "gte":
@@ -156,12 +135,6 @@ func fieldMessage(failure validator.FieldError) string {
 		return "must start with https://"
 	case "abspath":
 		return fmt.Sprintf("must be an absolute path, got %q", failure.Value())
-	case "listen_addr":
-		return "must be host:port, e.g. 127.0.0.1:9311"
-	case "api_token":
-		return fmt.Sprintf("must be at least %d characters", MinTokenLength)
-	case "nefield":
-		return "must differ from " + strings.ToLower(param)
 	}
 	return fmt.Sprintf("fails the %q rule", failure.Tag())
 }

@@ -43,14 +43,6 @@ func (c *Config) applyDefaults() {
 	if c.Heartbeat.URL != "" && c.Heartbeat.Every == 0 {
 		c.Heartbeat.Every = notify.DefaultHeartbeatEvery
 	}
-	if c.Fleet.Config != "" {
-		if c.Fleet.Every == 0 {
-			c.Fleet.Every = DefaultFleetEvery
-		}
-		if c.Fleet.FailAfter == 0 {
-			c.Fleet.FailAfter = DefaultFleetFailAfter
-		}
-	}
 	if c.ShutdownWait == 0 {
 		c.ShutdownWait = 2 * time.Hour
 	}

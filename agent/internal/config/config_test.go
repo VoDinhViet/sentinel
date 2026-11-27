@@ -156,28 +156,6 @@ disk: { min_free_percent: -5 }`, "disk: min_free_percent must not be negative"},
 disk: { paths: [data] }`, "disk: paths[0] must be an absolute path"},
 		"heartbeat over http": {`
 heartbeat: { url: "http://hc.example.com/ping/x" }`, "heartbeat: url must start with https://"},
-		"api without a token": {`
-api: { listen: "127.0.0.1:9311" }`, "api: token is required"},
-		"api with a short token": {`
-api: { listen: "127.0.0.1:9311", token: short }`, "api: token must be at least 16 characters"},
-		"api read token short": {`
-api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: short }`, "api: read_token must be at least 16 characters"},
-		"api read token same as token": {`
-api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", read_token: "0123456789abcdef" }`, "api: read_token must differ from token"},
-		"api tls cert without key": {`
-api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: /etc/sentinel/cert.pem }`, "api: tls_key is required when tls_cert is set"},
-		"api tls key without cert": {`
-api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_key: /etc/sentinel/key.pem }`, "api: tls_cert is required when tls_key is set"},
-		"api tls relative path": {`
-api: { listen: "127.0.0.1:9311", token: "0123456789abcdef", tls_cert: cert.pem, tls_key: /etc/sentinel/key.pem }`, "api: tls_cert must be an absolute path"},
-		"fleet file relative": {`
-fleet: { config: fleet.yaml }`, "fleet: config must be an absolute path"},
-		"fleet too often": {`
-fleet: { config: /etc/sentinel/fleet.yaml, every: 10s }`, "fleet: every must be at least 30s"},
-		"fleet fail_after negative": {`
-fleet: { config: /etc/sentinel/fleet.yaml, fail_after: -1 }`, "fleet: fail_after must be at least 1"},
-		"api listen without a port": {`
-api: { listen: "127.0.0.1", token: "0123456789abcdef" }`, "api: listen must be host:port"},
 		"heartbeat too often": {`
 heartbeat: { url: "https://hc.example.com/ping/x", every: 10s }`, "heartbeat: every must be at least 1m"},
 		"negative default retention": {`
@@ -521,79 +499,18 @@ func TestHeartbeatIsOffWithoutAURLAndDefaultsToFiveMinutes(t *testing.T) {
 	}
 }
 
-func TestAPIIsOffUnlessItListens(t *testing.T) {
+func TestTheApiAndFleetBlocksStillLoadButAreNamedAsDeprecated(t *testing.T) {
 	cfg, err := Parse([]byte("server_name: x"))
-	if err != nil || cfg.API.Listen != "" {
-		t.Errorf("api = %+v, %v; want it off", cfg.API, err)
+	if err != nil || len(cfg.Deprecated()) != 0 {
+		t.Errorf("a config without them: deprecated %v, %v", cfg.Deprecated(), err)
 	}
-	cfg, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef' }"))
-	if err != nil || cfg.API.Listen != "127.0.0.1:9311" || !cfg.API.Loopback() {
-		t.Errorf("api = %+v, %v", cfg.API, err)
+	// Whatever they hold is not checked: they do nothing, so they must not stop an old config from loading.
+	cfg, err = Parse([]byte("api: { listen: 'nowhere', token: short, tls_cert: relative.pem }\nfleet: { config: fleet.yaml, every: 1s, fail_after: -1 }"))
+	if err != nil {
+		t.Fatalf("an old config with both blocks: %v", err)
 	}
-}
-
-func TestAPIReadTokenIsOptional(t *testing.T) {
-	cfg, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', read_token: 'fedcba9876543210' }"))
-	if err != nil || cfg.API.ReadToken != "fedcba9876543210" {
-		t.Errorf("api = %+v, %v", cfg.API, err)
-	}
-	t.Setenv("READ_TOKEN", "0123456789abcdef")
-	_, err = Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', read_token: '${READ_TOKEN}' }"))
-	if err == nil || !strings.Contains(err.Error(), "must differ from token") {
-		t.Errorf("a read token equal to the token after expansion must be refused: %v", err)
-	}
-}
-
-func TestAPIServesHTTPSOnlyWithBothFiles(t *testing.T) {
-	cfg, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '0123456789abcdef', tls_cert: /etc/sentinel/cert.pem, tls_key: /etc/sentinel/key.pem }"))
-	if err != nil || !cfg.API.TLS() {
-		t.Fatalf("api = %+v, %v", cfg.API, err)
-	}
-	if (API{TLSCert: "/c.pem"}).TLS() || (API{}).TLS() {
-		t.Error("TLS() is true without both files")
-	}
-}
-
-func TestFleetIsOffWithoutAFileAndHasDefaultsWithOne(t *testing.T) {
-	cfg, err := Parse([]byte("fleet: { config: /etc/sentinel/fleet.yaml }"))
-	if err != nil || cfg.Fleet.Every != DefaultFleetEvery || cfg.Fleet.FailAfter != DefaultFleetFailAfter {
-		t.Errorf("fleet = %+v, %v; want the defaults", cfg.Fleet, err)
-	}
-	cfg, err = Parse([]byte("fleet: { config: /etc/sentinel/fleet.yaml, every: 5m, fail_after: 2 }"))
-	if err != nil || cfg.Fleet.Every != 5*time.Minute || cfg.Fleet.FailAfter != 2 {
-		t.Errorf("fleet = %+v, %v; want what the file says", cfg.Fleet, err)
-	}
-	cfg, err = Parse([]byte("server_name: x"))
-	if err != nil || cfg.Fleet != (Fleet{}) {
-		t.Errorf("fleet without a file = %+v, %v; want it off", cfg.Fleet, err)
-	}
-}
-
-func TestAPILoopback(t *testing.T) {
-	tests := map[string]bool{
-		"127.0.0.1:9311": true, "[::1]:9311": true, "localhost:9311": true, "127.5.5.5:1": true,
-		"0.0.0.0:9311": false, ":9311": false, "[::]:9311": false, "10.0.0.5:9311": false, "example.com:9311": false,
-		"": false, "no-port": false,
-	}
-	for listen, want := range tests {
-		if got := (API{Listen: listen}).Loopback(); got != want {
-			t.Errorf("Loopback(%q) = %v, want %v", listen, got, want)
-		}
-	}
-}
-
-func TestAPITokenIsCheckedAfterTheVariableIsExpanded(t *testing.T) {
-	t.Setenv("API_TOKEN", "short")
-	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err == nil || !strings.Contains(err.Error(), "at least 16 characters") {
-		t.Errorf("a short value must be refused: %v", err)
-	}
-	t.Setenv("API_TOKEN", "short${x}")
-	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err == nil {
-		t.Error("a short value that contains ${ must be refused")
-	}
-	t.Setenv("API_TOKEN", "0123456789abcdef")
-	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err != nil {
-		t.Errorf("a long value is accepted: %v", err)
+	if got := strings.Join(cfg.Deprecated(), ","); got != "api,fleet" {
+		t.Errorf("Deprecated = %q, want api,fleet", got)
 	}
 }
 

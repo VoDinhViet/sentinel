@@ -5,8 +5,6 @@ package doctor
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -162,11 +160,8 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 	if cfg.ControlPlane.Enabled() {
 		findings = append(findings, controlPlaneFinding(ctx, cfg))
 	}
-	if cfg.API.Listen != "" {
-		findings = append(findings, apiFinding(cfg))
-	}
-	if cfg.Fleet.Config != "" {
-		findings = append(findings, fleetFinding())
+	if blocks := cfg.Deprecated(); len(blocks) > 0 {
+		findings = append(findings, deprecatedFinding(blocks))
 	}
 	return findings
 }
@@ -257,66 +252,14 @@ func dirWritable(dir string) error {
 	return errors.Join(probe.Close(), os.Remove(name))
 }
 
-// apiFinding warns when the API can be reached from other machines: the token travels in clear text.
-// With a certificate it checks the certificate instead.
-func apiFinding(cfg *config.Config) Finding {
-	if cfg.API.TLS() {
-		return apiTLSFinding(cfg.API, time.Now())
-	}
-	if cfg.API.Loopback() {
-		return Finding{Name: "api", Info: "listens on " + cfg.API.Listen + " (this machine only)"}
-	}
+// deprecatedFinding says which blocks of the config do nothing any more: the daemon listens on no port and
+// does not watch other servers, the control plane does that.
+func deprecatedFinding(blocks []string) Finding {
 	return Finding{
-		Name: "api", Warn: true,
-		Err:  fmt.Errorf("listens on %s, which other machines can reach, and the token is sent without TLS", cfg.API.Listen),
-		Hint: "listen on 127.0.0.1 and put a TLS reverse proxy or an SSH tunnel in front, or firewall the port",
+		Name: "deprecated", Warn: true,
+		Err:  fmt.Errorf("%s: ignored, the daemon no longer listens on a port or watches other servers", strings.Join(blocks, ", ")),
+		Hint: "remove those blocks from the config; the control plane (sentinelctl) shows every server and alerts when one goes silent",
 	}
-}
-
-// fleetFinding says the fleet: block of the config does nothing any more: the control plane watches
-// the other servers now.
-func fleetFinding() Finding {
-	return Finding{
-		Name: "fleet", Warn: true,
-		Err:  errors.New("fleet: is ignored: the daemon no longer watches other servers"),
-		Hint: "remove the fleet: block from the config; the control plane (sentinelctl) shows every server and alerts when one goes silent",
-	}
-}
-
-// certificateWarnDays is how long before it expires a certificate of the API is reported.
-const certificateWarnDays = 14
-
-// apiTLSFinding checks what the daemon will do at start: load the certificate and its key. It fails
-// for a pair that cannot be loaded or a certificate that has expired, and warns when the
-// certificate expires soon or its key can be read by other users (both are said when both hold).
-func apiTLSFinding(settings config.API, now time.Time) Finding {
-	pair, err := tls.LoadX509KeyPair(settings.TLSCert, settings.TLSKey)
-	if err != nil {
-		return Finding{Name: "api", Err: fmt.Errorf("tls_cert and tls_key cannot be loaded: %w", err), Hint: "give the PEM files of a certificate and its private key"}
-	}
-	leaf, err := x509.ParseCertificate(pair.Certificate[0])
-	if err != nil {
-		return Finding{Name: "api", Err: fmt.Errorf("tls_cert is not a certificate: %w", err)}
-	}
-	expiry := leaf.NotAfter.Format("2006-01-02")
-	left := leaf.NotAfter.Sub(now)
-	if left <= 0 {
-		return Finding{Name: "api", Err: fmt.Errorf("the certificate of the API expired on %s", expiry), Hint: "renew it and restart the daemon"}
-	}
-	// Every warning is shown: one must not hide the other.
-	var problems, hints []string
-	if left < certificateWarnDays*24*time.Hour {
-		problems = append(problems, "the certificate of the API expires on "+expiry)
-		hints = append(hints, "renew it and restart the daemon: it is read at start")
-	}
-	if info, err := os.Stat(settings.TLSKey); err == nil && info.Mode().Perm()&0o077 != 0 {
-		problems = append(problems, fmt.Sprintf("%s, the private key of the API, can be read by other users", settings.TLSKey))
-		hints = append(hints, "run chmod 600 on it")
-	}
-	if len(problems) > 0 {
-		return Finding{Name: "api", Warn: true, Err: errors.New(strings.Join(problems, "; ")), Hint: strings.Join(hints, "; ")}
-	}
-	return Finding{Name: "api", Info: fmt.Sprintf("HTTPS on %s, the certificate expires on %s", settings.Listen, expiry)}
 }
 
 // heartbeatFinding warns when nothing outside the server would notice the daemon stopping: its own

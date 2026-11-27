@@ -14,7 +14,7 @@ jobs:
   - { name: web, type: files, paths: [/x], repositories: [r], timeout: -1h }
 notifiers:
   discord: { webhook: "http://discord.example/x" }
-api: { listen: "127.0.0.1", token: "0123456789abcdef" }
+heartbeat: { url: "https://hc.example.com/x", every: 10s }
 `))
 	if err == nil {
 		t.Fatal("want errors")
@@ -24,26 +24,10 @@ api: { listen: "127.0.0.1", token: "0123456789abcdef" }
 		`jobs[0] "db": mysql.tls must be disabled or required`,
 		`jobs[1] "web": timeout must not be negative`,
 		"notifiers.discord: webhook must start with https://",
-		"api: listen must be host:port",
+		"heartbeat: every must be at least 1m",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
-		}
-	}
-}
-
-func TestListenAddrAcceptsIPv6(t *testing.T) {
-	for addr, want := range map[string]bool{"127.0.0.1:9311": true, "[::1]:9311": true, "localhost:80": true, "127.0.0.1": false, "": false} {
-		if got := isListenAddr(addr); got != want {
-			t.Errorf("isListenAddr(%q) = %v, want %v", addr, got, want)
-		}
-	}
-}
-
-func TestAPITokenRule(t *testing.T) {
-	for token, want := range map[string]bool{"0123456789abcdef": true, "${API_TOKEN}": true, "short": false, "short${X}": false} {
-		if got := isAPIToken(token); got != want {
-			t.Errorf("isAPIToken(%q) = %v, want %v", token, got, want)
 		}
 	}
 }

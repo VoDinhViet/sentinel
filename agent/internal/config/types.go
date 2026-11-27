@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net"
-	"net/netip"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -146,57 +144,34 @@ func (c *Config) ControlPlaneDir() string {
 	return filepath.Join(filepath.Dir(c.StorePath), ControlPlaneDirName)
 }
 
-// DefaultFleetEvery is how often the servers of the fleet are asked when the config sets no interval.
-const DefaultFleetEvery = time.Minute
-
-// DefaultFleetFailAfter is how many rounds in a row a server must fail before the daemon alerts.
-const DefaultFleetFailAfter = 3
-
-// Fleet makes the daemon watch other servers: every Every it asks the API of each server in the
-// fleet file at Config, and alerts when one cannot be reached FailAfter times in a row. It is off
-// when Config is empty. The servers are the ones `sentinel fleet` shows.
+// Fleet is the block of the config that made the daemon watch other servers. The control plane does that
+// now, so the block is still read, so that an old config keeps loading, and then ignored: Deprecated names it.
 type Fleet struct {
-	// Config is the fleet file (see package fleet); an absolute path.
-	Config    string        `yaml:"config" validate:"omitempty,abspath"`
-	Every     time.Duration `yaml:"every" validate:"omitempty,gte=30s"`
-	FailAfter int           `yaml:"fail_after" validate:"omitempty,gte=1"`
+	Config    string        `yaml:"config"`
+	Every     time.Duration `yaml:"every"`
+	FailAfter int           `yaml:"fail_after"`
 }
 
-// API is the HTTP API of the daemon (package api). It is off when Listen is empty.
+// API is the block of the config that opened the daemon's HTTP API. The daemon listens on no port now,
+// so the block is still read, so that an old config keeps loading, and then ignored: Deprecated names it.
 type API struct {
-	// Listen is the host:port to listen on, e.g. 127.0.0.1:9311.
-	Listen string `yaml:"listen" validate:"omitempty,listen_addr"`
-	// Token is the bearer token every /api/ request must carry; write it as ${SENTINEL_API_TOKEN} and
-	// keep the value in the env file.
-	Token string `yaml:"token" validate:"required_with=Listen,omitempty,api_token"`
-	// ReadToken is a second bearer token that may only read (GET): a machine that watches several
-	// servers needs no power to start or stop a backup. Write it as ${SENTINEL_API_READ_TOKEN}. Empty, the
-	// API has only Token.
-	ReadToken string `yaml:"read_token" validate:"omitempty,api_token,nefield=Token"`
-	// TLSCert and TLSKey are the PEM files of a certificate and its private key: with both set the API
-	// speaks HTTPS (TLS 1.2 or later) instead of plain HTTP. They are read when the daemon starts, so a
-	// renewed certificate needs a restart.
-	TLSCert string `yaml:"tls_cert" validate:"required_with=TLSKey,omitempty,abspath"`
-	TLSKey  string `yaml:"tls_key" validate:"required_with=TLSCert,omitempty,abspath"`
+	Listen    string `yaml:"listen"`
+	Token     string `yaml:"token"`
+	ReadToken string `yaml:"read_token"`
+	TLSCert   string `yaml:"tls_cert"`
+	TLSKey    string `yaml:"tls_key"`
 }
 
-// TLS says the API is served over HTTPS.
-func (a API) TLS() bool { return a.TLSCert != "" && a.TLSKey != "" }
-
-// MinTokenLength is the shortest API token accepted.
-const MinTokenLength = 16
-
-// Loopback says the API listens on this machine only: 127.0.0.0/8, ::1 or localhost.
-func (a API) Loopback() bool {
-	host, _, err := net.SplitHostPort(a.Listen)
-	if err != nil {
-		return false
+// Deprecated names the blocks of the config that do nothing any more but are still set, for a warning.
+func (c *Config) Deprecated() []string {
+	var blocks []string
+	if c.API != (API{}) {
+		blocks = append(blocks, "api")
 	}
-	if host == "localhost" {
-		return true
+	if c.Fleet != (Fleet{}) {
+		blocks = append(blocks, "fleet")
 	}
-	addr, err := netip.ParseAddr(host)
-	return err == nil && addr.IsLoopback()
+	return blocks
 }
 
 // DefaultMinFreePercent is the share of a file system that must stay free before the daemon raises

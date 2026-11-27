@@ -89,16 +89,6 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 #   url: ${HEARTBEAT_URL}
 #   every: 5m
 
-# HTTP API of the daemon, off by default: status, jobs, snapshots, start and stop a backup (see the README).
-# The token is required, even on 127.0.0.1; keep the value in the env file next to this config.
-# Without tls_cert, listen on 127.0.0.1 and reach it through an SSH tunnel or a TLS reverse proxy: the token is sent without TLS.
-# api:
-#   listen: 127.0.0.1:9311
-#   token: ${SENTINEL_API_TOKEN}
-#   read_token: ${SENTINEL_API_READ_TOKEN}   # optional: a second token that can only read (GET), for a machine that watches this server
-#   tls_cert: /etc/sentinel/api-cert.pem     # optional, both or neither: serve HTTPS (TLS 1.2+) instead of HTTP
-#   tls_key: /etc/sentinel/api-key.pem       # read at start, so renewing the certificate needs a restart
-
 # Report to a control plane (sentinel-server) and renew this server's certificate by itself. Run
 # `sentinel agent join ...` first (sentinelctl server add <name> prints the command). Without this block the
 # agent works alone. The key and certificate are kept in the agent/ directory next to `store`; `dir` moves it.
@@ -110,14 +100,6 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 #   allow:
 #     backup: false   # start and stop the backup of a job in this file, and list its snapshots
 #     doctor: false   # run `sentinel doctor`
-
-# Watch other Sentinel servers: every `every` the daemon asks the API of each server listed in this fleet file (the
-# one `sentinel fleet` reads, see the README) and sends an alert here when one cannot be reached `fail_after`
-# rounds in a row. A server's own alerts are not repeated: it sends those itself.
-# fleet:
-#   config: /etc/sentinel/fleet.yaml
-#   every: 1m
-#   fail_after: 3
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;
