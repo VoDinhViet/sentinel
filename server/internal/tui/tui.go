@@ -23,6 +23,8 @@ type Source interface {
 	Agents(ctx context.Context) ([]ctlapi.Agent, error)
 	Agent(ctx context.Context, name string) (ctlapi.AgentDetail, error)
 	Alerts(ctx context.Context) ([]ctlapi.Alert, error)
+	Tasks(ctx context.Context, agent string, limit int) ([]ctlapi.Task, error)
+	CreateTask(ctx context.Context, agent, action string, params map[string]string) (ctlapi.Task, error)
 }
 
 // Run shows the screen until the person leaves it. It returns an error when the session ended, so the
@@ -79,9 +81,11 @@ type (
 		at      time.Time
 	}
 	detailMsg struct {
-		name   string
-		detail ctlapi.AgentDetail
-		err    error
+		name     string
+		detail   ctlapi.AgentDetail
+		tasks    []ctlapi.Task
+		tasksErr error // the tasks could not be read, though the server could
+		err      error
 	}
 	refreshMsg struct{}
 )
@@ -114,7 +118,11 @@ func (m model) askDetail(name string) tea.Cmd {
 		askCtx, cancel := context.WithTimeout(ctx, askTimeout)
 		defer cancel()
 		detail, err := source.Agent(askCtx, name)
-		return detailMsg{name: name, detail: detail, err: err}
+		if err != nil {
+			return detailMsg{name: name, err: err}
+		}
+		tasks, tasksErr := source.Tasks(askCtx, name, tasksShown)
+		return detailMsg{name: name, detail: detail, tasks: tasks, tasksErr: tasksErr}
 	}
 }
 
@@ -128,6 +136,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterList(msg)
 	case detailMsg:
 		return m.afterDetail(msg)
+	case taskGivenMsg:
+		return m.afterTaskGiven(msg)
 	case refreshMsg:
 		return m.refresh()
 	case tea.KeyPressMsg:
@@ -165,8 +175,12 @@ func (m model) afterDetail(msg detailMsg) (tea.Model, tea.Cmd) {
 	if next, quit, over := m.fail(msg.err); over {
 		return next, quit
 	}
+	if next, quit, over := m.fail(msg.tasksErr); over {
+		return next, quit
+	}
 	if msg.err == nil {
 		m.open.detail, m.open.read = msg.detail, true
+		m.open.tasks, m.open.tasksErr = msg.tasks, msg.tasksErr
 	}
 	m.open.cursor = min(m.open.cursor, max(len(m.open.table(m.now()).lines)-1, 0))
 	return m, nil

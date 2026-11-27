@@ -33,7 +33,7 @@ func (m model) render() string {
 	case m.help:
 		body, keys = helpLines(), keyBar(m.width, "bấm phím bất kỳ", "đóng")
 	case m.opened:
-		body, keys = m.serverLines(), keyBar(m.width, "tab", "đổi mục", "↑↓", "chọn", "r", "hỏi lại", "?", "trợ giúp", "esc", "quay lại")
+		body, keys = m.serverLines(), m.serverKeys()
 	default:
 		body, keys = m.tabLines(), keyBar(m.width, "tab", "đổi tab", "↑↓", "chọn", "enter", "xem server", "r", "hỏi lại", "?", "trợ giúp", "q", "thoát")
 	}
@@ -126,7 +126,7 @@ func tabPill(open bool, number int, title string, troubled int) string {
 func (m model) serverLines() []string {
 	now := m.now()
 	screen := m.open
-	lines := []string{m.header(m.open.name, format.Status(m.open.detail.Status, m.open.detail.State), statusLevel(m.open.detail.Status)), " " + dimStyle.Render(m.serverInfo(now)), ""}
+	lines := []string{m.header(m.open.name, format.Status(m.open.detail.Status, m.open.detail.State), statusLevel(m.open.detail.Status)), " " + dimStyle.Render(m.serverInfo(now)), screen.noticeLine(m.width)}
 	if screen.err != nil {
 		lines = append(lines, levelStyle(levelBad).Render(" "+truncate("Không đọc được server này: "+screen.err.Error(), m.width-2)), "")
 	}
@@ -166,12 +166,24 @@ func keyBar(width int, pairs ...string) string {
 	return strings.TrimRight(line, " ")
 }
 
+// serverKeys is the key bar of a server: b and s show only where they work.
+func (m model) serverKeys() string {
+	switch {
+	case m.open.confirm != nil:
+		return keyBar(m.width, "y", "đồng ý", "phím khác", "bỏ qua")
+	case m.open.current == backupsPart:
+		return keyBar(m.width, "tab", "đổi mục", "↑↓", "chọn", "b", "chạy backup", "s", "dừng", "r", "hỏi lại", "?", "trợ giúp", "esc", "quay lại")
+	}
+	return keyBar(m.width, "tab", "đổi mục", "↑↓", "chọn", "r", "hỏi lại", "?", "trợ giúp", "esc", "quay lại")
+}
+
 func helpLines() []string {
 	keys := [][2]string{
-		{"tab  1 2", "chuyển giữa Server và Alert (trong một server: Máy, Backup, Uptime, Alert)"},
+		{"tab  1 2", "chuyển giữa Server và Alert (trong một server: Máy, Backup, Uptime, Alert, Việc)"},
 		{"↑ ↓  j k", "chọn một dòng"},
 		{"g  G", "về dòng đầu, dòng cuối"},
 		{"enter", "xem một server: máy, backup, uptime check và cảnh báo của chính nó"},
+		{"b  s", "ở mục Backup: chạy hoặc dừng backup của job đang chọn (hỏi y trước khi giao)"},
 		{"r", "hỏi lại control plane ngay (màn hình tự làm vậy mỗi 5 giây)"},
 		{"esc  q", "quay lại; ở màn hình chính thì thoát"},
 		{"ctrl+c", "thoát"},
@@ -180,7 +192,9 @@ func helpLines() []string {
 	for _, pair := range keys {
 		lines = append(lines, " "+keyStyle.Render(pad(pair[0], 12))+" "+pair[1])
 	}
-	return append(lines, "", " "+dimStyle.Render("Màn hình này chỉ đọc. Thêm hoặc thu hồi server: sentinelctl server add|revoke."))
+	return append(lines, "",
+		" "+dimStyle.Render("Chỉ b và s giao việc, và luôn hỏi trước; server chỉ làm khi control_plane.allow của nó cho phép."),
+		" "+dimStyle.Render("Việc khác, thêm hoặc thu hồi server: sentinelctl run|task|server."))
 }
 
 // detailRows is the most lines the text of the selected line takes, and tableMargin the rows a table

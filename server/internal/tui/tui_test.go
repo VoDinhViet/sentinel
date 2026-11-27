@@ -29,6 +29,15 @@ type fakeSource struct {
 	alerts  []ctlapi.Alert
 	err     error
 	calls   atomic.Int32
+
+	tasks     []ctlapi.Task
+	given     []givenTask // what CreateTask was asked, in order
+	createErr error
+}
+
+type givenTask struct {
+	agent, action string
+	params        map[string]string
 }
 
 func (f *fakeSource) Agents(context.Context) ([]ctlapi.Agent, error) {
@@ -44,6 +53,19 @@ func (f *fakeSource) Agent(_ context.Context, name string) (ctlapi.AgentDetail, 
 func (f *fakeSource) Alerts(context.Context) ([]ctlapi.Alert, error) {
 	f.calls.Add(1)
 	return f.alerts, f.err
+}
+
+func (f *fakeSource) Tasks(_ context.Context, _ string, _ int) ([]ctlapi.Task, error) {
+	f.calls.Add(1)
+	return f.tasks, f.err
+}
+
+func (f *fakeSource) CreateTask(_ context.Context, agent, action string, params map[string]string) (ctlapi.Task, error) {
+	if f.createErr != nil {
+		return ctlapi.Task{}, f.createErr
+	}
+	f.given = append(f.given, givenTask{agent: agent, action: action, params: params})
+	return ctlapi.Task{ID: int64(len(f.given)), Agent: agent, Action: action, Params: params, State: agentapi.TaskQueued}, nil
 }
 
 func ago(d time.Duration) *time.Time { t := now.Add(-d); return &t }
@@ -67,6 +89,7 @@ func twoServers() *fakeSource {
 		},
 		Checks: []agentapi.CheckStatus{{Name: "site", OK: false, Error: "connection refused", At: *ago(time.Minute)}},
 		Alerts: []agentapi.AlertStatus{{Key: "disk:/data", Message: "ổ /data gần đầy", Since: *ago(3 * time.Hour)}},
+		Allow:  []string{agentapi.ActionBackupStart, agentapi.ActionBackupStop, agentapi.ActionBackupSnapshots},
 	}
 	return &fakeSource{
 		servers: []ctlapi.Agent{web, db},
@@ -395,7 +418,7 @@ func TestADiskBelowTheLimitIsRedAndAFullOneIsNot(t *testing.T) {
 func TestHelpOpensWithAQuestionMarkAndAnyKeyClosesIt(t *testing.T) {
 	m := start(t, twoServers())
 	m, _ = press(t, m, "?")
-	if !strings.Contains(screenOf(m), "chỉ đọc") {
+	if !strings.Contains(screenOf(m), "luôn hỏi trước") {
 		t.Errorf("no help:\n%s", screenOf(m))
 	}
 	m, cmd := press(t, m, "q")

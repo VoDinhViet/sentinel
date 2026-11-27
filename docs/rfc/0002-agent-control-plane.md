@@ -285,8 +285,8 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 5 | Lõi server: config, store, auth, audit, enroll, `sentinel-server init\|enroll\|passwd` |
 | 6 | `httpapi`, `serve`, join, `sentinelctl login\|logout\|passwd\|server\|audit`, `deploy/server/` (`deploy/` chưa đổi thành `deploy/agent/`: đường dẫn trong release và `install.sh` mà vận hành đang dùng, làm riêng khi kiểm tra được `make dist`) |
 | 7 | Report, cảnh báo offline, gia hạn cert, `sentinelctl server show\|alert`, `control_plane` trong config agent, notifiers trong `server.yaml` (`host_samples` và `backup_runs` dời sang 14) |
-| 8 | TUI của `sentinelctl`: danh sách server và alert, màn hình một server (chỉ đọc; thêm/thu hồi vẫn bằng lệnh, tác vụ đến ở giai đoạn 9) |
-| 9 | Task engine và action `backup.*`, `doctor.run`; log qua SSE; `sentinelctl run\|task`; `control_plane.allow` |
+| 8 | TUI của `sentinelctl`: danh sách server và alert, màn hình một server (chỉ đọc; thêm/thu hồi vẫn bằng lệnh; giai đoạn 9 thêm `b`/`s` và mục Việc) |
+| 9 | Task engine và action `backup.*`, `doctor.run`; log qua SSE; `sentinelctl run\|task`; `control_plane.allow`; trong TUI phím `b`/`s` ở mục Backup (hỏi y/n, chặn trước nếu `allow` của server trong report không có action) và mục Việc |
 | 10 | Xoá mô hình pull (mục 15) |
 | 11 | Action systemd và Docker |
 | 12 | Cập nhật OS |

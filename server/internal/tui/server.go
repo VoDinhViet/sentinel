@@ -10,12 +10,13 @@ import (
 	"sentinel/server/internal/format"
 )
 
-// The parts of the screen of one server, in the order of the keys 1 to 4.
+// The parts of the screen of one server, in the order of the keys 1 to 5.
 const (
 	hostPart = iota
 	backupsPart
 	checksPart
 	alertsPart
+	tasksPart
 	partCount
 )
 
@@ -31,20 +32,25 @@ type serverScreen struct {
 	err     error
 	current int // the part on show
 	cursor  int
+
+	tasks    []ctlapi.Task // the latest tasks given to this server
+	tasksErr error
+	confirm  *confirmation // a task waiting for the person to say yes
+	notice   notice
 }
 
 // table is the part on show.
 func (s serverScreen) table(now time.Time) table { return s.parts(now)[s.current] }
 
 // parts are the tables of the screen: the machine, the backups, the uptime checks, the alerts the
-// server has open.
+// server has open, and the tasks it was given.
 func (s serverScreen) parts(now time.Time) []table {
 	report := s.detail.Report
 	if report == nil {
 		empty := s.noReportText()
-		return []table{{title: "Máy", empty: empty}, {title: "Backup", empty: empty}, {title: "Uptime", empty: empty}, {title: "Alert", empty: empty}}
+		return []table{{title: "Máy", empty: empty}, {title: "Backup", empty: empty}, {title: "Uptime", empty: empty}, {title: "Alert", empty: empty}, tasksTable(s.tasks, now, s.tasksErr)}
 	}
-	return []table{hostTable(report.Host), backupsTable(report.Backups, now), checksTable(report.Checks, now), alertsTable(report.Alerts, now)}
+	return []table{hostTable(report.Host), backupsTable(report.Backups, now), checksTable(report.Checks, now), alertsTable(report.Alerts, now), tasksTable(s.tasks, now, s.tasksErr)}
 }
 
 func (s serverScreen) noReportText() string {

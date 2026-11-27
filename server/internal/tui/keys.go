@@ -44,7 +44,12 @@ func (m model) onTabKey(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m model) onServerKey(key string) (tea.Model, tea.Cmd) {
+	if m.open.confirm != nil {
+		return m.onConfirmKey(key)
+	}
 	switch key {
+	case "b", "s":
+		return m.onBackupKey(key)
 	case "q", "esc", "backspace":
 		m.opened = false
 	case "r":
@@ -54,7 +59,7 @@ func (m model) onServerKey(key string) (tea.Model, tea.Cmd) {
 		m.open.current, m.open.cursor = (m.open.current+1)%partCount, 0
 	case "shift+tab", "left", "h":
 		m.open.current, m.open.cursor = (m.open.current+partCount-1)%partCount, 0
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		m.open.current, m.open.cursor = int(key[0]-'1'), 0
 	default:
 		m.open.cursor = moved(key, m.open.cursor, m.currentLines())
