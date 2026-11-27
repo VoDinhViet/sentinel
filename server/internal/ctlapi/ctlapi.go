@@ -187,7 +187,10 @@ type Window struct {
 
 // CreateWindowRequest opens a window: StartsAt nil means now.
 type CreateWindowRequest struct {
+	// Agent names the server; All says every server instead. One of the two is needed, never both: an empty
+	// name must not turn into a window for everything.
 	Agent    string     `json:"agent"`
+	All      bool       `json:"all"`
 	StartsAt *time.Time `json:"starts_at,omitempty"`
 	EndsAt   time.Time  `json:"ends_at"`
 	Reason   string     `json:"reason"`

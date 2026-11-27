@@ -69,7 +69,9 @@ func newMaintenanceAddCmd(c *cli) *cobra.Command {
 			}
 			agent := ""
 			if len(args) == 1 {
-				agent = args[0]
+				if agent = args[0]; agent == "" {
+					return errors.New("tên server trống (biến shell chưa đặt?): một cửa sổ cho mọi server phải ghi rõ --all")
+				}
 			}
 			api, _, err := c.connect()
 			if err != nil {

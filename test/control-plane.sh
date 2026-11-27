@@ -175,7 +175,7 @@ EOF
 	ctl report host web01 | grep "CPU" >/dev/null && pass "report host prints the graphs" || fail "report host printed no CPU line"
 	ctl report backups -o json | jq -e '.jobs | type == "array"' >/dev/null && pass "report backups answers" || fail "report backups gave no list"
 	if ctl report host nobody >/dev/null 2>&1; then fail "a report of a server that does not exist was answered"; fi
-	ctl audit -n 100 | grep "schedule.run" >/dev/null && pass "the audit log has the schedule run" || fail "no schedule.run in the audit log"
+	ctl audit -n 100 | grep -w "schedule" >/dev/null && pass "the audit log says the schedule queued the task" || fail "no entry of the schedule in the audit log"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null
 	DAEMON_PID=

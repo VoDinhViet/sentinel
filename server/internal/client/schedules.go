@@ -53,7 +53,7 @@ func (c *Client) RemoveSchedule(ctx context.Context, id int64) error {
 // AddWindow opens a maintenance window for one server, or for all with "". A nil start means now.
 func (c *Client) AddWindow(ctx context.Context, agent string, start *time.Time, end time.Time, reason string) (ctlapi.Window, error) {
 	var made ctlapi.Window
-	err := c.do(ctx, http.MethodPost, ctlapi.RouteMaintenance, ctlapi.CreateWindowRequest{Agent: agent, StartsAt: start, EndsAt: end, Reason: reason}, &made)
+	err := c.do(ctx, http.MethodPost, ctlapi.RouteMaintenance, ctlapi.CreateWindowRequest{Agent: agent, All: agent == "", StartsAt: start, EndsAt: end, Reason: reason}, &made)
 	cleanWindow(&made)
 	return made, err
 }

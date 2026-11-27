@@ -28,7 +28,7 @@ import (
 const (
 	// MaxSchedules is how many schedules there are, in all; MaxPerAgent is how many one agent has.
 	MaxSchedules = 200
-	MaxPerAgent  = 20
+	MaxPerAgent  = 10 // each schedule has one task open at most (see run), so the other half of the queue is left to people
 	// CatchUp is how late a run may be and still be queued: a control plane that was down over a run does not
 	// start it afterwards, because the task would be stale by then (the same ten minutes a task may wait).
 	CatchUp = task.QueueTTL
@@ -37,6 +37,8 @@ const (
 	// MaxWindows is how many maintenance windows are kept that have not ended; MaxWindow how long one may be.
 	MaxWindows = 200
 	MaxWindow  = 30 * 24 * time.Hour
+	// MaxAhead is how far from now a window may start.
+	MaxAhead = 366 * 24 * time.Hour
 	// MaxReason is the longest note on a window, in characters.
 	MaxReason = 200
 	// windowKeep is how long a window that has ended is kept before it is deleted.
@@ -286,11 +288,16 @@ func dueAt(cron Cron, since, now time.Time) (time.Time, bool) {
 }
 
 // Tick queues the task of every schedule that is due at now. A schedule that was due more than once since the
-// last look (the control plane was away, a run took long) is queued once. One that cannot be queued (the
-// server is gone, too many tasks wait) is not retried: the reason is kept on the schedule and the next
-// run is tried at its own time.
+// last look (the control plane was away, a run took long) is queued once. A run is claimed before its task is
+// queued, so a stop in between loses the run and never doubles it. A run is also skipped while the task the
+// schedule queued last time is still waiting or running: a server that is down does not collect a task a minute.
+// A server that has not joined or was revoked gets nothing and nothing is written about it.
 func (s *Service) Tick(ctx context.Context, now time.Time) error {
 	schedules, err := s.Schedules(ctx, "")
+	if err != nil {
+		return err
+	}
+	states, err := s.agentStates(ctx)
 	if err != nil {
 		return err
 	}
@@ -308,35 +315,78 @@ func (s *Service) Tick(ctx context.Context, now time.Time) error {
 			since = *one.LastRunAt
 		}
 		due, ok := dueAt(cron, since, now)
-		if !ok {
+		if !ok || states[one.Agent] != "active" {
 			continue
 		}
 		if err := s.run(ctx, one, due, now); err != nil {
-			slog.Error("schedule: record a run", "schedule", one.ID, "err", err)
+			slog.Error("schedule: run", "schedule", one.ID, "err", err)
 		}
 	}
 	return nil
 }
 
-// run queues the task of a schedule that is due, and keeps how that went.
-func (s *Service) run(ctx context.Context, one Schedule, due, now time.Time) error {
-	actor := audit.Actor{Name: "schedule", Session: strconv.FormatInt(one.ID, 10)}
-	queued, queueErr := s.queue.Create(audit.WithActor(ctx, actor), one.Agent, one.Action, one.Params)
-	var taskID sql.NullInt64
-	lastError, detail := "", "#"+strconv.FormatInt(one.ID, 10)
-	if queueErr != nil {
-		lastError = termtext.Shorten(termtext.Line(queueErr.Error()), 200)
-		detail += " not queued: " + lastError
-	} else {
-		taskID = sql.NullInt64{Int64: queued.ID, Valid: true}
-		detail += " queued task #" + strconv.FormatInt(queued.ID, 10)
+func (s *Service) agentStates(ctx context.Context) (map[string]string, error) {
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT name, state FROM agents`)
+	if err != nil {
+		return nil, fmt.Errorf("read agents: %w", err)
 	}
-	return s.store.InTx(audit.WithActor(ctx, actor), func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `UPDATE schedules SET last_run_at = ?, last_task = ?, last_error = ? WHERE id = ?`, due.Unix(), taskID, lastError, one.ID); err != nil {
+	defer rows.Close()
+	states := map[string]string{}
+	for rows.Next() {
+		var name, state string
+		if err := rows.Scan(&name, &state); err != nil {
+			return nil, fmt.Errorf("read agent: %w", err)
+		}
+		states[name] = state
+	}
+	return states, rows.Err()
+}
+
+// taskIsOpen says the task is still queued or sent.
+func (s *Service) taskIsOpen(ctx context.Context, id int64) (bool, error) {
+	var open int
+	err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE id = ? AND state IN ('queued', 'sent')`, id).Scan(&open)
+	return open > 0, err
+}
+
+// run claims a run that is due, queues its task and keeps how that went.
+func (s *Service) run(ctx context.Context, one Schedule, due, now time.Time) error {
+	if one.LastTask != nil {
+		if open, err := s.taskIsOpen(ctx, *one.LastTask); err != nil {
+			return err
+		} else if open {
+			_, err := s.claim(ctx, one.ID, due) // the run is passed over, not kept for later
+			return err
+		}
+	}
+	if won, err := s.claim(ctx, one.ID, due); err != nil || !won {
+		return err
+	}
+	actor := audit.Actor{Name: "schedule", Session: strconv.FormatInt(one.ID, 10)}
+	runCtx := audit.WithActor(ctx, actor)
+	queued, queueErr := s.queue.Create(runCtx, one.Agent, one.Action, one.Params)
+	if queueErr == nil {
+		_, err := s.store.DB.ExecContext(ctx, `UPDATE schedules SET last_task = ?, last_error = '' WHERE id = ?`, queued.ID, one.ID)
+		return err
+	}
+	lastError := termtext.Shorten(termtext.Line(queueErr.Error()), 200)
+	return s.store.InTx(runCtx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE schedules SET last_task = NULL, last_error = ? WHERE id = ?`, lastError, one.ID); err != nil {
 			return fmt.Errorf("update schedule: %w", err)
 		}
-		return audit.Append(audit.WithActor(ctx, actor), tx, now, audit.Entry{Action: "schedule.run", Target: one.Agent, Detail: detail})
+		return audit.Append(runCtx, tx, now, audit.Entry{Action: "schedule.run", Target: one.Agent, Detail: "#" + strconv.FormatInt(one.ID, 10) + " not queued: " + lastError})
 	})
+}
+
+// claim records that the run due at due is taken, and says whether this call took it: a run at or after it that
+// was taken already (by another control plane on the same database, or an earlier look) is not taken twice.
+func (s *Service) claim(ctx context.Context, id int64, due time.Time) (bool, error) {
+	claimed, err := s.store.DB.ExecContext(ctx, `UPDATE schedules SET last_run_at = ? WHERE id = ? AND (last_run_at IS NULL OR last_run_at < ?)`, due.Unix(), id, due.Unix())
+	if err != nil {
+		return false, fmt.Errorf("claim a run: %w", err)
+	}
+	changed, err := claimed.RowsAffected()
+	return changed > 0, err
 }
 
 // Run looks at the timetables every Every until ctx is done, and deletes windows that ended long ago.

@@ -96,7 +96,8 @@ func TestAScheduleQueuesItsTaskWhenItIsDueAndNotBefore(t *testing.T) {
 	if queued, _ = p.tasks.List(ctl, "web01", 10); len(queued) != 1 {
 		t.Errorf("%d tasks after a second look", len(queued))
 	}
-	if actions := p.auditActions(t); !strings.Contains(actions, "schedule.create") || !strings.Contains(actions, "schedule.run #1 queued task #1") {
+	// A run that queued its task is told by the task: one line in the audit log, not two.
+	if actions := p.auditActions(t); !strings.Contains(actions, "schedule.create") || !strings.Contains(actions, "task.create") || strings.Contains(actions, "schedule.run") {
 		t.Errorf("audit:\n%s", actions)
 	}
 }
@@ -107,19 +108,98 @@ func TestAScheduleThatCannotQueueKeepsTheReasonAndTriesAtTheNextRun(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.st.DB.Exec(`UPDATE agents SET state = 'revoked' WHERE name = 'web01'`); err != nil {
-		t.Fatal(err)
+	for range task.MaxOpen { // people have filled the queue of the server
+		if _, err := p.tasks.Create(ctl, "web01", agentapi.ActionDoctorRun, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	p.now = p.now.Add(61 * time.Minute)
 	if err := p.Tick(ctl, p.now); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := p.Schedule(ctl, one.ID)
-	if got.LastTask != nil || !strings.Contains(got.LastError, "revoked") || got.LastRunAt == nil {
+	if got.LastTask != nil || !strings.Contains(got.LastError, "too many") || got.LastRunAt == nil {
 		t.Errorf("%+v", got)
 	}
 	if actions := p.auditActions(t); !strings.Contains(actions, "schedule.run #1 not queued") {
 		t.Errorf("audit:\n%s", actions)
+	}
+	// The next run is tried when it is due, and the reason goes when it works.
+	if _, err := p.st.DB.Exec(`UPDATE tasks SET state = 'canceled', finished_at = 1`); err != nil {
+		t.Fatal(err)
+	}
+	p.now = p.now.Add(time.Hour)
+	if err := p.Tick(ctl, p.now); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = p.Schedule(ctl, one.ID); got.LastTask == nil || got.LastError != "" {
+		t.Errorf("after it worked: %+v", got)
+	}
+}
+
+func TestAScheduleDoesNotPileUpTasksWhileItsLastOneIsStillOpen(t *testing.T) {
+	p := newPlant(t)
+	one, _ := p.AddSchedule(ctl, "web01", "* * * * *", agentapi.ActionDoctorRun, nil)
+	for range 5 { // the server is down: nobody takes the task
+		p.now = p.now.Add(time.Minute)
+		if err := p.Tick(ctl, p.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if queued, _ := p.tasks.List(ctl, "web01", 50); len(queued) != 1 {
+		t.Fatalf("%d tasks are waiting for a server that is down", len(queued))
+	}
+	if _, err := p.st.DB.Exec(`UPDATE tasks SET state = 'succeeded', finished_at = 1`); err != nil {
+		t.Fatal(err)
+	}
+	p.now = p.now.Add(time.Minute)
+	if err := p.Tick(ctl, p.now); err != nil {
+		t.Fatal(err)
+	}
+	if queued, _ := p.tasks.List(ctl, "web01", 50); len(queued) != 2 {
+		t.Errorf("%d tasks after the first one ended", len(queued))
+	}
+	if got, _ := p.Schedule(ctl, one.ID); got.LastTask == nil || *got.LastTask != 2 {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestARunIsClaimedBeforeItsTaskIsQueuedSoItIsNeverDoubled(t *testing.T) {
+	p := newPlant(t)
+	one, _ := p.AddSchedule(ctl, "web01", "@hourly", agentapi.ActionDoctorRun, nil)
+	p.now = p.now.Add(61 * time.Minute)
+	due := p.now.Truncate(time.Hour)
+	if won, err := p.claim(ctl, one.ID, due); err != nil || !won { // something else took this run, and stopped before it queued anything
+		t.Fatalf("%v %v", won, err)
+	}
+	if err := p.Tick(ctl, p.now); err != nil {
+		t.Fatal(err)
+	}
+	if queued, _ := p.tasks.List(ctl, "web01", 10); len(queued) != 0 {
+		t.Errorf("a run that was claimed was queued again: %+v", queued)
+	}
+	if won, _ := p.claim(ctl, one.ID, due); won {
+		t.Error("a run was claimed twice")
+	}
+}
+
+func TestASchedulePassesOverAServerThatIsRevokedWithoutANoise(t *testing.T) {
+	p := newPlant(t)
+	one, _ := p.AddSchedule(ctl, "web01", "* * * * *", agentapi.ActionDoctorRun, nil)
+	if _, err := p.st.DB.Exec(`UPDATE agents SET state = 'revoked' WHERE name = 'web01'`); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		p.now = p.now.Add(time.Minute)
+		if err := p.Tick(ctl, p.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if actions := p.auditActions(t); strings.Contains(actions, "schedule.run") || strings.Contains(actions, "task.create") {
+		t.Errorf("a revoked server was written about:\n%s", actions)
+	}
+	if got, _ := p.Schedule(ctl, one.ID); got.LastRunAt != nil {
+		t.Errorf("%+v", got)
 	}
 }
 
@@ -258,6 +338,9 @@ func TestAWindowIsCheckedWhenItIsMade(t *testing.T) {
 		if _, err := p.AddWindow(ctl, tc.agent, tc.start, tc.end, ""); !errors.Is(err, tc.want) {
 			t.Errorf("%s: %v, want %v", name, err, tc.want)
 		}
+	}
+	if _, err := p.AddWindow(ctl, "web01", p.now.Add(MaxAhead+time.Hour), p.now.Add(MaxAhead+2*time.Hour), ""); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a window that starts in years: %v", err)
 	}
 	long := strings.Repeat("é", 500)
 	made, err := p.AddWindow(ctl, "web01", p.now, p.now.Add(time.Hour), long)

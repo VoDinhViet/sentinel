@@ -110,3 +110,49 @@ func TestDueAtLooksBackNoFurtherThanCatchUp(t *testing.T) {
 		t.Error("a run missed by half an hour was started late")
 	}
 }
+
+func TestCronAcrossDaylightSavingTime(t *testing.T) {
+	zone, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no time zone data here: ", err)
+	}
+	next := func(spec string, after time.Time) time.Time {
+		t.Helper()
+		cron, err := ParseCron("CRON_TZ=America/New_York " + spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, ok := cron.Next(after)
+		if !ok {
+			t.Fatalf("%q after %v: no next run", spec, after)
+		}
+		return got
+	}
+	// The clock jumps from 02:00 to 03:00 on 2026-03-08: a run at 02:30 does not exist that day and is skipped.
+	if got := next("30 2 * * *", time.Date(2026, 3, 7, 12, 0, 0, 0, zone)); !got.Equal(time.Date(2026, 3, 9, 2, 30, 0, 0, zone)) {
+		t.Errorf("a time in the gap: %v", got)
+	}
+	// A run just after the gap is on time, found from before the gap and from inside it.
+	if got := next("0 3 * * *", time.Date(2026, 3, 8, 1, 50, 0, 0, zone)); !got.Equal(time.Date(2026, 3, 8, 3, 0, 0, 0, zone)) {
+		t.Errorf("the hour after the gap: %v", got)
+	}
+	// A weekly run on the Sunday of the change.
+	if got := next("0 4 * * 0", time.Date(2026, 3, 5, 0, 0, 0, 0, zone)); !got.Equal(time.Date(2026, 3, 8, 4, 0, 0, 0, zone)) {
+		t.Errorf("a weekly run on the day of the change: %v", got)
+	}
+	// The clock goes back from 02:00 to 01:00 on 2026-11-01: 01:30 happens twice and is run once.
+	first := next("30 1 * * *", time.Date(2026, 10, 31, 12, 0, 0, 0, zone))
+	if !first.Equal(time.Date(2026, 11, 1, 1, 30, 0, 0, zone)) || first.Format("MST") != "EDT" {
+		t.Fatalf("the first 01:30: %v", first)
+	}
+	if again := next("30 1 * * *", first); !again.Equal(time.Date(2026, 11, 2, 1, 30, 0, 0, zone)) {
+		t.Errorf("01:30 ran twice: the next run is %v", again)
+	}
+	// Whatever the time asked from, the answer is after it.
+	for hours := range 24 * 3 {
+		after := time.Date(2026, 3, 7, 0, 0, 0, 0, zone).Add(time.Duration(hours) * time.Hour)
+		if got := next("*/20 * * * *", after); !got.After(after) {
+			t.Fatalf("%v is not after %v", got, after)
+		}
+	}
+}

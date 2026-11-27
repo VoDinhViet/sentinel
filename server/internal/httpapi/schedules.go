@@ -14,9 +14,9 @@ import (
 // scheduleError answers a failure of the scheduler.
 func scheduleError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, scheduler.ErrNotFound), errors.Is(err, scheduler.ErrNoAgent):
+	case errors.Is(err, scheduler.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, scheduler.ErrInvalid):
+	case errors.Is(err, scheduler.ErrInvalid), errors.Is(err, scheduler.ErrNoAgent):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, scheduler.ErrTooMany):
 		writeError(w, http.StatusConflict, err.Error())
@@ -112,6 +112,10 @@ func (s *Server) listWindows(w http.ResponseWriter, r *http.Request, _ session) 
 func (s *Server) createWindow(w http.ResponseWriter, r *http.Request, _ session) {
 	var req ctlapi.CreateWindowRequest
 	if !readJSON(w, r, maxCtlBody, &req) {
+		return
+	}
+	if req.All == (req.Agent != "") {
+		writeError(w, http.StatusBadRequest, "a window is for one server (agent) or for all of them (all: true), not both and not neither")
 		return
 	}
 	now := time.Now()

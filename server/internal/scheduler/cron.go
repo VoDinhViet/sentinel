@@ -145,23 +145,32 @@ func (c Cron) dayMatches(t time.Time) bool {
 }
 
 // Next is the first time after the given one that the timetable names, to the minute, or false when there is
-// none in the next five years (30 February).
+// none in the next five years (30 February). The search is done on the clock of the zone, as a calendar that has
+// no daylight saving, so that a gap (a clock put forward) or a repeat (put back) cannot make it loop or name
+// a time twice: a time that does not exist that day (02:30 on the day the clock jumps from 02:00 to 03:00) is
+// skipped, and one that happens twice (01:30 when the clock goes back from 02:00 to 01:00) is the first.
 func (c Cron) Next(after time.Time) (time.Time, bool) {
-	t := after.In(c.location).Truncate(time.Minute).Add(time.Minute)
-	end := t.AddDate(5, 0, 0)
-	for steps := 0; t.Before(end) && steps < 200000; steps++ { // the bound is for a time zone that moves a clock back
-		year, month, day := t.Date()
+	local := after.In(c.location)
+	year, month, day := local.Date()
+	wall := time.Date(year, month, day, local.Hour(), local.Minute()+1, 0, 0, time.UTC)
+	end := wall.AddDate(5, 0, 0)
+	for wall.Before(end) {
+		year, month, day = wall.Date()
 		switch {
 		case c.month&(1<<int(month)) == 0:
-			t = time.Date(year, month+1, 1, 0, 0, 0, 0, c.location)
-		case !c.dayMatches(t):
-			t = time.Date(year, month, day+1, 0, 0, 0, 0, c.location)
-		case c.hour&(1<<t.Hour()) == 0:
-			t = time.Date(year, month, day, t.Hour()+1, 0, 0, 0, c.location)
-		case c.minute&(1<<t.Minute()) == 0:
-			t = t.Add(time.Minute)
+			wall = time.Date(year, month+1, 1, 0, 0, 0, 0, time.UTC)
+		case !c.dayMatches(wall):
+			wall = time.Date(year, month, day+1, 0, 0, 0, 0, time.UTC)
+		case c.hour&(1<<wall.Hour()) == 0:
+			wall = time.Date(year, month, day, wall.Hour()+1, 0, 0, 0, time.UTC)
+		case c.minute&(1<<wall.Minute()) == 0:
+			wall = wall.Add(time.Minute)
 		default:
-			return t, true
+			at := time.Date(year, month, day, wall.Hour(), wall.Minute(), 0, 0, c.location)
+			if at.Hour() == wall.Hour() && at.Minute() == wall.Minute() && at.After(after) { // not in a gap, and not before
+				return at, true
+			}
+			wall = wall.Add(time.Minute)
 		}
 	}
 	return time.Time{}, false

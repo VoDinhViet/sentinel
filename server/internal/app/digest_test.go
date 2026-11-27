@@ -9,6 +9,7 @@ import (
 
 	"sentinel/pkg/agentapi"
 	"sentinel/pkg/notify"
+	"sentinel/server/internal/config"
 )
 
 type mailbox struct {
@@ -62,5 +63,22 @@ func TestTheDigestSaysHowTheServersAndTheBackupsStand(t *testing.T) {
 	}
 	if message.Level != notify.Warning || message.Server != "sentinel-server" {
 		t.Errorf("%+v", message)
+	}
+}
+
+// serve ends when any of its parts returns, so a digest that is off must stay until it is told to stop.
+func TestTheDigestThatIsOffWaitsForTheEndOfTheServer(t *testing.T) {
+	a := &App{Config: &config.Config{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.RunDigest(ctx) }()
+	select {
+	case err := <-done:
+		t.Fatalf("RunDigest returned at once: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("%v", err)
 	}
 }

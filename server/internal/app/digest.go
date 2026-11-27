@@ -12,9 +12,11 @@ import (
 	"sentinel/server/internal/report"
 )
 
-// RunDigest sends the daily report at digest_at until ctx is done. It does nothing when digest_at is empty.
+// RunDigest sends the daily report at digest_at until ctx is done. With digest_at empty it only waits for ctx:
+// serve stops when any of its parts returns, so a part that has nothing to do must not return.
 func (a *App) RunDigest(ctx context.Context) error {
 	if a.Config.DigestAt == "" {
+		<-ctx.Done()
 		return nil
 	}
 	hour, minute, err := report.ParseDigestTime(a.Config.DigestAt)

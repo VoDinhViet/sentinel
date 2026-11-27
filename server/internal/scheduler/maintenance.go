@@ -52,6 +52,8 @@ func (s *Service) AddWindow(ctx context.Context, agent string, start, end time.T
 		return Window{}, invalid{errors.New("a window must end after it starts")}
 	case !end.After(now):
 		return Window{}, invalid{errors.New("the window is over already")}
+	case start.After(now.Add(MaxAhead)):
+		return Window{}, invalid{errors.New("a window may start at most a year from now")}
 	case end.Sub(start) > MaxWindow:
 		return Window{}, invalid{fmt.Errorf("a window is at most %d days", int(MaxWindow/(24*time.Hour)))}
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"sentinel/pkg/agentapi"
 	"sentinel/server/internal/ctlapi"
@@ -128,12 +129,15 @@ func TestAMaintenanceWindowIsCheckedWhenItIsAsked(t *testing.T) {
 		"a start that is no time": {"maintenance", "add", "web01", "--for", "1h", "--from", "tomorrow"},
 		"too long":                {"maintenance", "add", "web01", "--for", "1000h"},
 		"a server not there":      {"maintenance", "add", "nobody", "--for", "1h"},
+		"an empty name":           {"maintenance", "add", "", "--for", "1h"},
+		"a start in years":        {"maintenance", "add", "web01", "--for", "1h", "--from", "2099-01-01 02:00"},
 	} {
 		if out, err := p.run("", args...); err == nil {
 			t.Errorf("%s: %s", name, out)
 		}
 	}
-	if out, err := p.run("", "maintenance", "add", "web01", "--for", "1h", "--from", "2099-01-01 02:00"); err != nil {
+	soon := time.Now().Add(48 * time.Hour).Format("2006-01-02 15:04")
+	if out, err := p.run("", "maintenance", "add", "web01", "--for", "1h", "--from", soon); err != nil {
 		t.Errorf("a window in the future: %v %s", err, out)
 	}
 	if out, _ := p.run("", "maintenance", "ls"); !strings.Contains(out, "sắp tới") {
