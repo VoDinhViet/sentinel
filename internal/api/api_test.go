@@ -287,21 +287,21 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 		MinFreePercent: 10,
 	}}
 	rec := call(t, backend, "GET", "/api/v1/host", testToken)
-	var entry hostEntry
-	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil || rec.Code != http.StatusOK {
+	var got hostStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("code %d, err %v, body %s", rec.Code, err, rec.Body)
 	}
-	if entry.Hostname != "web-01" || entry.UptimeSeconds != 5400 || entry.CPUs != 4 || entry.CPUPercent != 12.5 || entry.Load[1] != 0.4 {
-		t.Errorf("entry = %+v", entry)
+	if got.Hostname != "web-01" || got.UptimeSeconds != 5400 || got.CPUs != 4 || got.CPUPercent != 12.5 || got.Load[1] != 0.4 {
+		t.Errorf("got = %+v", got)
 	}
-	if entry.Memory.TotalBytes != 8<<30 || len(entry.Disks) != 1 || entry.Disks[0].FSType != "ext4" || entry.MinFreePercent != 10 {
-		t.Errorf("memory, disks or threshold wrong: %+v", entry)
+	if got.Memory.TotalBytes != 8<<30 || len(got.Disks) != 1 || got.Disks[0].FSType != "ext4" || got.MinFreePercent != 10 {
+		t.Errorf("memory, disks or threshold wrong: %+v", got)
 	}
-	if entry.Sentinel == nil || entry.Sentinel.Active != "active" || len(entry.FailedUnits) != 1 || entry.FailedUnits[0].Name != "nginx.service" {
-		t.Errorf("units wrong: %+v", entry)
+	if got.Sentinel == nil || got.Sentinel.Active != "active" || len(got.FailedServices) != 1 || got.FailedServices[0].Name != "nginx.service" {
+		t.Errorf("units wrong: %+v", got)
 	}
-	if len(entry.Errors) != 1 || entry.Errors[0] != "reading swap: unavailable" {
-		t.Errorf("errors = %v", entry.Errors)
+	if len(got.Errors) != 1 || got.Errors[0] != "reading swap: unavailable" {
+		t.Errorf("errors = %v", got.Errors)
 	}
 	if strings.Contains(rec.Body.String(), "\x1b") || strings.Contains(rec.Body.String(), `\u001b`) { // the byte, or its JSON escape
 		t.Errorf("a control character of a unit description reached the response: %s", rec.Body)
