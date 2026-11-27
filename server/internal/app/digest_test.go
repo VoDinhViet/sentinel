@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -80,5 +81,44 @@ func TestTheDigestThatIsOffWaitsForTheEndOfTheServer(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Errorf("%v", err)
+	}
+}
+
+type flaky struct {
+	mu       sync.Mutex
+	failures int
+	sent     int
+}
+
+func (f *flaky) Name() string { return "flaky" }
+func (f *flaky) Send(context.Context, notify.Message) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("unreachable")
+	}
+	f.sent++
+	return nil
+}
+
+func TestADigestThatCannotBeSentIsTriedAgain(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	if _, err := Init(ctx, cfg, "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	old := digestRetryEvery
+	digestRetryEvery = time.Millisecond
+	t.Cleanup(func() { digestRetryEvery = old })
+	notifier := &flaky{failures: 2}
+	a.sendDigestWithRetries(ctx, &notify.Multi{Notifiers: []notify.Notifier{notifier}, Attempts: 1, Backoff: time.Millisecond})
+	if notifier.sent != 1 || notifier.failures != 0 {
+		t.Errorf("sent %d, failures left %d", notifier.sent, notifier.failures)
 	}
 }

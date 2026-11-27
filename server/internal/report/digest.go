@@ -39,8 +39,12 @@ type DigestInput struct {
 	Servers []ServerLine
 	Jobs    []JobSummary // the last 24 hours
 	Failed  []Run
-	Alerts  []string // the open alerts of the control plane, one line each
+	Stale   []StaleJob // jobs with no successful run for StaleAfter
+	Alerts  []string   // the open alerts of the control plane, one line each
 }
+
+// StaleAfter is how long a job may go without a successful run before the digest names it.
+const StaleAfter = 48 * time.Hour
 
 const (
 	maxDigestLines = 15
@@ -76,8 +80,17 @@ func Digest(in DigestInput, now time.Time) notify.Message {
 	}
 	lines(&body, "Open alerts:", in.Alerts) // before the failures: a message that is too long is cut at the end
 	lines(&body, "Failed backups:", failed)
+	var stale []string
+	for _, job := range in.Stale {
+		since := "never succeeded"
+		if job.LastSuccessAt != nil {
+			since = "last success " + job.LastSuccessAt.Format("2006-01-02 15:04")
+		}
+		stale = append(stale, fmt.Sprintf("%s %s/%s: %s", job.Agent, job.Job, job.Repository, since))
+	}
+	lines(&body, "No successful backup for "+StaleAfter.String()+":", stale)
 	level := notify.Info
-	if len(notWell) > 0 || failures > 0 {
+	if len(notWell) > 0 || failures > 0 || len(stale) > 0 {
 		level = notify.Warning
 	}
 	return notify.Message{Level: level, Title: "Daily report " + now.Format("2006-01-02"), Body: strings.TrimRight(body.String(), "\n")}

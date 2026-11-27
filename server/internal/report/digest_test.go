@@ -57,3 +57,11 @@ func TestTheDigestComesAtTheNextTimeOfDay(t *testing.T) {
 		}
 	}
 }
+
+func TestAJobWithNoRecentSuccessMakesTheDigestAWarning(t *testing.T) {
+	last := base.Add(-72 * time.Hour)
+	message := Digest(DigestInput{Servers: []ServerLine{{"web01", "ONLINE"}}, Stale: []StaleJob{{Agent: "web01", Job: "db", Repository: "s3", LastSuccessAt: &last}, {Agent: "web01", Job: "files", Repository: "s3"}}}, base)
+	if message.Level != notify.Warning || !strings.Contains(message.Body, "No successful backup for 48h0m0s:") || !strings.Contains(message.Body, "web01 files/s3: never succeeded") || !strings.Contains(message.Body, "last success 2026-11-24") {
+		t.Errorf("%+v", message)
+	}
+}

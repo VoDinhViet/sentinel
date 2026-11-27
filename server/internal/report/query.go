@@ -121,6 +121,39 @@ func (s *Service) Backups(ctx context.Context, agent string, hours int, now time
 	return jobs, failed, err
 }
 
+// StaleJob is a job whose last good run is older than a span, or that has never had one.
+type StaleJob struct {
+	Agent, Job, Repository string
+	LastSuccessAt          *time.Time
+}
+
+// Stale lists the jobs of active agents with no successful run in the last age, from all the runs kept. A job an
+// agent no longer reports is not here for ever: its runs leave the history after RunKeep.
+func (s *Service) Stale(ctx context.Context, age time.Duration, now time.Time) ([]StaleJob, error) {
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT r.agent, r.job, r.repository, MAX(CASE WHEN r.success = 1 THEN r.finished_at END) AS last_ok
+		FROM backup_runs r JOIN agents a ON a.name = r.agent WHERE a.state = 'active' AND r.finished_at <= ?
+		GROUP BY r.agent, r.job, r.repository HAVING last_ok IS NULL OR last_ok < ? ORDER BY r.agent, r.job, r.repository LIMIT ?`,
+		now.Unix(), now.Add(-age).Unix(), maxFailures*5)
+	if err != nil {
+		return nil, fmt.Errorf("read stale jobs: %w", err)
+	}
+	defer rows.Close()
+	var stale []StaleJob
+	for rows.Next() {
+		var one StaleJob
+		var last sql.NullInt64
+		if err := rows.Scan(&one.Agent, &one.Job, &one.Repository, &last); err != nil {
+			return nil, fmt.Errorf("read stale job: %w", err)
+		}
+		if last.Valid {
+			at := time.Unix(last.Int64, 0)
+			one.LastSuccessAt = &at
+		}
+		stale = append(stale, one)
+	}
+	return stale, rows.Err()
+}
+
 func (s *Service) failedRuns(ctx context.Context, agent string, since, until int64) ([]Run, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT agent, job, repository, finished_at, result, bytes_added FROM backup_runs
 		WHERE success = 0 AND finished_at >= ? AND finished_at <= ? AND (? = '' OR agent = ?) ORDER BY finished_at DESC LIMIT ?`, since, until, agent, agent, maxFailures)

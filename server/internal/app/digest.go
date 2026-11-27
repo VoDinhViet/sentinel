@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"sentinel/pkg/notify"
@@ -40,8 +41,30 @@ func (a *App) RunDigest(ctx context.Context) error {
 		case <-timer.C:
 		}
 		sent = next
-		if err := a.SendDigest(ctx, notifier, time.Now()); err != nil && ctx.Err() == nil {
-			slog.Error("send the daily report", "err", err)
+		a.sendDigestWithRetries(ctx, notifier)
+	}
+}
+
+// digestRetries is how often, and how long apart, a report that could not be sent is tried again.
+const digestRetries = 6
+
+var digestRetryEvery = 10 * time.Minute // a variable so that a test need not wait
+
+func (a *App) sendDigestWithRetries(ctx context.Context, notifier *notify.Multi) {
+	for attempt := 1; ; attempt++ {
+		err := a.SendDigest(ctx, notifier, time.Now())
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+		if attempt > digestRetries {
+			slog.Error("send the daily report: given up", "attempts", attempt, "err", err)
+			return
+		}
+		slog.Warn("send the daily report: it is tried again", "in", digestRetryEvery, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(digestRetryEvery):
 		}
 	}
 }
@@ -65,6 +88,16 @@ func (a *App) SendDigest(ctx context.Context, notifier *notify.Multi, now time.T
 		input.Servers = append(input.Servers, report.ServerLine{Name: agent.Name, Status: string(status)})
 	}
 	if input.Jobs, input.Failed, err = a.Report.Backups(ctx, "", 24, now); err != nil {
+		return err
+	}
+	// The servers listed are the active ones: the runs of a revoked or pending agent are not in the digest.
+	listed := map[string]bool{}
+	for _, server := range input.Servers {
+		listed[server.Name] = true
+	}
+	input.Jobs = slices.DeleteFunc(input.Jobs, func(job report.JobSummary) bool { return !listed[job.Agent] })
+	input.Failed = slices.DeleteFunc(input.Failed, func(run report.Run) bool { return !listed[run.Agent] })
+	if input.Stale, err = a.Report.Stale(ctx, report.StaleAfter, now); err != nil {
 		return err
 	}
 	open, err := a.AlertStore.Alerts(ctx, true)

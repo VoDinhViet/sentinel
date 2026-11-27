@@ -261,3 +261,26 @@ func TestTheLastSuccessIsFoundBeyondTheSpan(t *testing.T) {
 		t.Errorf("jobs = %+v, %v", jobs, err)
 	}
 }
+
+func TestStaleListsTheJobsWithNoRecentSuccessOfActiveAgentsOnly(t *testing.T) {
+	st := newService(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	record := func(agent, job string, at time.Duration, ok bool) {
+		t.Helper()
+		if err := st.Record(ctx, agent, agentapi.Report{Backups: []agentapi.BackupStatus{{Job: job, Repository: "r", FinishedAt: now.Add(-at), Success: ok, Result: "x"}}}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("web01", "fresh", time.Hour, true)
+	record("web01", "old", 5*24*time.Hour, true)
+	record("web01", "never", time.Hour, false)
+	record("db01", "gone", 5*24*time.Hour, true)
+	if _, err := st.store.DB.Exec(`UPDATE agents SET state = 'revoked' WHERE name = 'db01'`); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := st.Stale(ctx, 48*time.Hour, now)
+	if err != nil || len(stale) != 2 || stale[0].Job != "never" || stale[0].LastSuccessAt != nil || stale[1].Job != "old" || stale[1].LastSuccessAt == nil {
+		t.Errorf("stale = %+v, %v", stale, err)
+	}
+}
