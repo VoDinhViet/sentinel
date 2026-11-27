@@ -22,7 +22,7 @@ func (p *plant) reported(name string) {
 				Memory: agentapi.MemoryStatus{TotalBytes: 100, AvailableBytes: 40},
 				Disks:  []agentapi.DiskStatus{{Mount: "/", TotalBytes: 100, FreeBytes: 20}},
 			},
-			Backups: []agentapi.BackupStatus{{Job: "db", Repository: "s3", FinishedAt: now.Add(-time.Duration(step) * time.Hour), Success: step != 2, Result: map[bool]string{true: "ok", false: "FAILED: disk full"}[step != 2], BytesAdded: 1 << 20}},
+			Backups: []agentapi.BackupStatus{{Job: "db", Repository: "s3", FinishedAt: now.Add(-time.Duration(5-step) * time.Hour), Success: step != 3, Result: map[bool]string{true: "ok", false: "FAILED: disk full"}[step != 3], BytesAdded: 1 << 20}},
 		}
 		if err := p.app.Report.Record(context.Background(), name, report, now.Add(-time.Duration(5-step)*10*time.Minute)); err != nil {
 			p.t.Fatal(err)

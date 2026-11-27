@@ -141,9 +141,15 @@ func TestOfflineAfterIsAtLeastThreeReportingPeriods(t *testing.T) {
 	}
 }
 
+func TestDigestAtNeedsANotifierToSendTo(t *testing.T) {
+	if _, err := Parse([]byte("hosts: [cp.example.com]\ndigest_at: \"08:00\"\n")); err == nil || !strings.Contains(err.Error(), "no notifier") {
+		t.Errorf("digest_at with no notifier: %v", err)
+	}
+}
+
 func TestDigestAtIsATimeOfDayOrEmpty(t *testing.T) {
 	for _, good := range []string{"", "08:00", "23:59", "00:00"} {
-		cfg, err := Parse([]byte("hosts: [cp.example.com]\ndigest_at: \"" + good + "\"\n"))
+		cfg, err := Parse([]byte("hosts: [cp.example.com]\ndigest_at: \"" + good + "\"\nnotifiers:\n  slack: {webhook: \"https://hooks.slack.com/x\"}\n"))
 		if err != nil || cfg.DigestAt != good {
 			t.Errorf("%q: %v", good, err)
 		}

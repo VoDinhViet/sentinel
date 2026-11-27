@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"testing"
@@ -175,5 +176,88 @@ func TestOldHistoryIsDeleted(t *testing.T) {
 	_ = s.store.DB.QueryRow(`SELECT COUNT(*) FROM backup_runs`).Scan(&runs)
 	if samples != 1 || runs != 0 {
 		t.Errorf("%d samples and %d runs left", samples, runs)
+	}
+}
+
+func TestAHostileReportDoesNotBreakTheReadsOrFillTheDatabase(t *testing.T) {
+	st := newService(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		report := agentapi.Report{Host: agentapi.HostStatus{Load: [3]float64{1.7e308, 0, 0}, Memory: agentapi.MemoryStatus{TotalBytes: 100, AvailableBytes: 50}}}
+		for j := range 200 {
+			report.Backups = append(report.Backups, agentapi.BackupStatus{Job: fmt.Sprintf("job%d-%d", i, j), Repository: "r", FinishedAt: now.Add(-time.Duration(j) * time.Minute), Success: true, Result: "ok", BytesAdded: math.MaxInt64})
+			report.Backups = append(report.Backups, agentapi.BackupStatus{Job: "same", Repository: "r", FinishedAt: now.Add(-time.Duration(i*1000+j) * time.Minute), Success: false, Result: "x", BytesAdded: math.MaxInt64})
+		}
+		if err := st.Record(ctx, "web01", report, now.Add(time.Duration(i)*10*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, _, err := st.HostHistory(ctx, "web01", 24, now.Add(time.Hour)); err != nil {
+		t.Errorf("host history: %v", err)
+	}
+	jobs, _, err := st.Backups(ctx, "", 24, now)
+	if err != nil {
+		t.Fatalf("backups: %v", err)
+	}
+	if len(jobs) == 0 {
+		t.Error("no jobs")
+	}
+	var same int
+	if err := st.store.DB.QueryRow(`SELECT COUNT(*) FROM backup_runs WHERE job = 'same'`).Scan(&same); err != nil || same != 1 {
+		t.Errorf("the runs of one job: %d, %v (only a newer run than the ones kept is taken)", same, err)
+	}
+}
+
+func TestOneAgentKeepsAtMostMaxRunsPerAgent(t *testing.T) {
+	st := newService(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	for batch := range MaxRunsPerAgent/200 + 3 {
+		var report agentapi.Report
+		for j := range 200 {
+			report.Backups = append(report.Backups, agentapi.BackupStatus{Job: fmt.Sprintf("job%d", batch*200+j), Repository: "r", FinishedAt: now.Add(-time.Duration(batch*200+j) * time.Second), Success: true, Result: "ok"})
+		}
+		if err := st.Record(ctx, "web01", report, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var kept int
+	if err := st.store.DB.QueryRow(`SELECT COUNT(*) FROM backup_runs WHERE agent = 'web01'`).Scan(&kept); err != nil || kept > MaxRunsPerAgent {
+		t.Errorf("kept %d runs, %v", kept, err)
+	}
+}
+
+func TestAFailureDatedInTheFutureDoesNotCrowdOutTheRealOnes(t *testing.T) {
+	st := newService(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	if err := st.Record(ctx, "web01", agentapi.Report{Backups: []agentapi.BackupStatus{{Job: "db", Repository: "r", FinishedAt: now.Add(-time.Hour), Result: "FAILED: real"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Record(ctx, "db01", agentapi.Report{Backups: []agentapi.BackupStatus{{Job: "x", Repository: "r", FinishedAt: now.Add(4 * time.Minute), Result: "FAILED: fake"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	_, failed, err := st.Backups(ctx, "", 24, now)
+	if err != nil || len(failed) != 1 || failed[0].Agent != "web01" {
+		t.Errorf("failed = %+v, %v", failed, err)
+	}
+}
+
+func TestTheLastSuccessIsFoundBeyondTheSpan(t *testing.T) {
+	st := newService(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	for _, run := range []agentapi.BackupStatus{
+		{Job: "db", Repository: "r", FinishedAt: now.Add(-48 * time.Hour), Success: true, Result: "ok"},
+		{Job: "db", Repository: "r", FinishedAt: now.Add(-time.Hour), Result: "FAILED"},
+	} {
+		if err := st.Record(ctx, "web01", agentapi.Report{Backups: []agentapi.BackupStatus{run}}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jobs, _, err := st.Backups(ctx, "", 24, now)
+	if err != nil || len(jobs) != 1 || jobs[0].LastSuccessAt == nil {
+		t.Errorf("jobs = %+v, %v", jobs, err)
 	}
 }

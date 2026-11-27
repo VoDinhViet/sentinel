@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"sentinel/pkg/notify"
+	"sentinel/pkg/termtext"
 )
 
 // DigestTime is the hour and minute a digest is sent, as written in server.yaml.
@@ -41,7 +42,10 @@ type DigestInput struct {
 	Alerts  []string // the open alerts of the control plane, one line each
 }
 
-const maxDigestLines = 15
+const (
+	maxDigestLines = 15
+	maxDigestLine  = 160
+)
 
 // Digest is the message of the day: how many servers are in each state, the backups that failed, and the alerts that are
 // open. It is Info when all is well, Warning when a server is not online or a backup failed.
@@ -70,8 +74,8 @@ func Digest(in DigestInput, now time.Time) notify.Message {
 	for _, run := range in.Failed {
 		failed = append(failed, fmt.Sprintf("%s %s/%s at %s: %s", run.Agent, run.Job, run.Repository, run.FinishedAt.Format("15:04"), run.Result))
 	}
+	lines(&body, "Open alerts:", in.Alerts) // before the failures: a message that is too long is cut at the end
 	lines(&body, "Failed backups:", failed)
-	lines(&body, "Open alerts:", in.Alerts)
 	level := notify.Info
 	if len(notWell) > 0 || failures > 0 {
 		level = notify.Warning
@@ -85,7 +89,7 @@ func lines(body *strings.Builder, title string, items []string) {
 	}
 	body.WriteString(title + "\n")
 	for _, item := range items[:min(len(items), maxDigestLines)] {
-		body.WriteString("  " + item + "\n")
+		body.WriteString("  " + termtext.Shorten(termtext.Line(item), maxDigestLine) + "\n")
 	}
 	if len(items) > maxDigestLines {
 		fmt.Fprintf(body, "  … and %d more\n", len(items)-maxDigestLines)

@@ -98,7 +98,7 @@ func Sparkline(values []float64, top float64) string {
 	for _, value := range values {
 		index := 0
 		if top > 0 && value > 0 {
-			index = min(int(value/top*float64(len(blocks))), len(blocks)-1)
+			index = int(min(value/top*float64(len(blocks)), float64(len(blocks)-1)))
 		}
 		line = append(line, blocks[index])
 	}

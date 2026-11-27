@@ -81,9 +81,13 @@ type JobSummary struct {
 // newest first. A job whose runs are all older than the span is not in it.
 func (s *Service) Backups(ctx context.Context, agent string, hours int, now time.Time) ([]JobSummary, []Run, error) {
 	since := now.Add(-time.Duration(hours) * time.Hour).Unix()
+	until := now.Unix() // a run that says it ended later than now is not believed
+	// The last success is looked up in all the runs kept, not only in the span: a job whose last good run is older than
+	// the span did succeed, and "never" would say it did not.
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT agent, job, repository, COUNT(*), COALESCE(SUM(1 - success), 0), MAX(finished_at),
-		MAX(CASE WHEN success = 1 THEN finished_at END), COALESCE(SUM(bytes_added), 0)
-		FROM backup_runs WHERE finished_at >= ? AND (? = '' OR agent = ?) GROUP BY agent, job, repository ORDER BY agent, job, repository`, since, agent, agent)
+		(SELECT MAX(ok.finished_at) FROM backup_runs ok WHERE ok.agent = r.agent AND ok.job = r.job AND ok.repository = r.repository AND ok.success = 1 AND ok.finished_at <= ?),
+		COALESCE(SUM(bytes_added), 0)
+		FROM backup_runs r WHERE finished_at >= ? AND finished_at <= ? AND (? = '' OR agent = ?) GROUP BY agent, job, repository ORDER BY agent, job, repository`, until, since, until, agent, agent)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read backup runs: %w", err)
 	}
@@ -107,19 +111,19 @@ func (s *Service) Backups(ctx context.Context, agent string, hours int, now time
 		return nil, nil, fmt.Errorf("read backup runs: %w", err)
 	}
 	for i := range jobs {
-		err := s.store.DB.QueryRowContext(ctx, `SELECT result FROM backup_runs WHERE agent = ? AND job = ? AND repository = ? ORDER BY finished_at DESC LIMIT 1`,
-			jobs[i].Agent, jobs[i].Job, jobs[i].Repository).Scan(&jobs[i].LastResult)
+		err := s.store.DB.QueryRowContext(ctx, `SELECT result FROM backup_runs WHERE agent = ? AND job = ? AND repository = ? AND finished_at <= ? ORDER BY finished_at DESC LIMIT 1`,
+			jobs[i].Agent, jobs[i].Job, jobs[i].Repository, until).Scan(&jobs[i].LastResult)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read the last result: %w", err)
 		}
 	}
-	failed, err := s.failedRuns(ctx, agent, since)
+	failed, err := s.failedRuns(ctx, agent, since, until)
 	return jobs, failed, err
 }
 
-func (s *Service) failedRuns(ctx context.Context, agent string, since int64) ([]Run, error) {
+func (s *Service) failedRuns(ctx context.Context, agent string, since, until int64) ([]Run, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT agent, job, repository, finished_at, result, bytes_added FROM backup_runs
-		WHERE success = 0 AND finished_at >= ? AND (? = '' OR agent = ?) ORDER BY finished_at DESC LIMIT ?`, since, agent, agent, maxFailures)
+		WHERE success = 0 AND finished_at >= ? AND finished_at <= ? AND (? = '' OR agent = ?) ORDER BY finished_at DESC LIMIT ?`, since, until, agent, agent, maxFailures)
 	if err != nil {
 		return nil, fmt.Errorf("read failed runs: %w", err)
 	}

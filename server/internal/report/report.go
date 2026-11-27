@@ -25,7 +25,14 @@ const (
 	// MaxHours is the longest span a report may ask for: the longest history there is.
 	MaxHours = int(SampleKeep / time.Hour)
 	// maxFuture is how far ahead of the control plane's clock the end of a backup may be and still be believed.
-	maxFuture = time.Hour
+	maxFuture = 5 * time.Minute
+	// MaxRunsPerAgent is the most backup runs kept for one agent: an honest agent has a few per job per day, and a
+	// wrong or hostile one must not fill the database. Past it the oldest are dropped.
+	MaxRunsPerAgent = 5000
+	// maxBytes and maxLoad are what a number of bytes or a load is held to: they came from another machine, and a
+	// sum or an average of absurd values would make every report that includes them fail.
+	maxBytes = int64(1) << 50
+	maxLoad  = 1e6
 	// MaxPoints is the most points a host history has: a longer span is averaged into steps.
 	MaxPoints = 300
 	// maxFailures is how many failed runs a backup report lists.
@@ -57,7 +64,7 @@ func (s *Service) Record(ctx context.Context, agent string, report agentapi.Repo
 		if memory := report.Host.Memory; memory.TotalBytes > 0 {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO host_samples (agent, at, cpu_percent, load1, mem_percent, disk_percent)
 				SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM host_samples WHERE agent = ? AND at > ?)`,
-				agent, now.Unix(), clamp(report.Host.CPUPercent), report.Host.Load[0], clamp(used(memory.TotalBytes, memory.AvailableBytes)), diskPercent(report.Host.Disks),
+				agent, now.Unix(), clamp(report.Host.CPUPercent), clampLoad(report.Host.Load[0]), clamp(used(memory.TotalBytes, memory.AvailableBytes)), diskPercent(report.Host.Disks),
 				agent, now.Add(-SampleEvery).Unix()); err != nil {
 				return fmt.Errorf("record host sample: %w", err)
 			}
@@ -70,10 +77,18 @@ func (s *Service) Record(ctx context.Context, agent string, report agentapi.Repo
 			if run.Success {
 				success = 1
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO backup_runs (agent, job, repository, finished_at, success, result, bytes_added)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`, agent, run.Job, run.Repository, run.FinishedAt.Unix(), success, run.Result, max(run.BytesAdded, 0)); err != nil {
+			// Only a run newer than the ones kept for the same job and repository: an agent says its latest run in every
+			// report, so this is one row per real run, and a made-up past does not pile up.
+			if _, err := tx.ExecContext(ctx, `INSERT INTO backup_runs (agent, job, repository, finished_at, success, result, bytes_added)
+				SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM backup_runs WHERE agent = ? AND job = ? AND repository = ? AND finished_at >= ?)`,
+				agent, run.Job, run.Repository, run.FinishedAt.Unix(), success, run.Result, min(max(run.BytesAdded, 0), maxBytes),
+				agent, run.Job, run.Repository, run.FinishedAt.Unix()); err != nil {
 				return fmt.Errorf("record backup run: %w", err)
 			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM backup_runs WHERE agent = ? AND finished_at < (
+			SELECT finished_at FROM backup_runs WHERE agent = ? ORDER BY finished_at DESC LIMIT 1 OFFSET ?)`, agent, agent, MaxRunsPerAgent-1); err != nil {
+			return fmt.Errorf("trim backup runs: %w", err)
 		}
 		return nil
 	})
@@ -102,6 +117,14 @@ func clamp(percent float64) float64 {
 		return 0
 	}
 	return min(max(percent, 0), 100)
+}
+
+// clampLoad keeps a load average a number from 0 to maxLoad.
+func clampLoad(load float64) float64 {
+	if load != load { // NaN
+		return 0
+	}
+	return min(max(load, 0), maxLoad)
 }
 
 // Prune deletes the history that is older than it is kept.

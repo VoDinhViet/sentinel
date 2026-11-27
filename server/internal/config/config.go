@@ -115,6 +115,8 @@ func (c Config) Validate() error {
 	if c.DigestAt != "" {
 		if _, err := time.Parse("15:04", c.DigestAt); err != nil {
 			errs = append(errs, fmt.Errorf("digest_at: %q is not a time of day like 08:00", c.DigestAt))
+		} else if len(notify.FromConfig(c.Notifiers)) == 0 {
+			errs = append(errs, errors.New("digest_at: there is no notifier to send the report to"))
 		}
 	}
 	if err := c.Notifiers.Validate(); err != nil {

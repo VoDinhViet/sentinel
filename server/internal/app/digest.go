@@ -24,14 +24,22 @@ func (a *App) RunDigest(ctx context.Context) error {
 		return fmt.Errorf("digest_at: %w", err)
 	}
 	notifier := notify.NewMulti(a.Config.Notifiers)
+	var sent time.Time
 	for {
-		timer := time.NewTimer(time.Until(report.NextDigest(time.Now(), hour, minute)))
+		// From the later of now and the last send: a clock that was stepped back must not make the same time come twice.
+		from := time.Now()
+		if sent.After(from) {
+			from = sent
+		}
+		next := report.NextDigest(from, hour, minute)
+		timer := time.NewTimer(time.Until(next))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return nil
 		case <-timer.C:
 		}
+		sent = next
 		if err := a.SendDigest(ctx, notifier, time.Now()); err != nil && ctx.Err() == nil {
 			slog.Error("send the daily report", "err", err)
 		}
