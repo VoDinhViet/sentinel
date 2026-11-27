@@ -151,6 +151,10 @@ func serverTabOf(report app.HostReport) manageTab {
 	addResourceLines(report, add)
 	addDiskLines(report, add)
 	addReadErrorLines(report, add)
+	section("MẠNG", "tổng từ lúc máy khởi động", []string{"CARD", "NHẬN / GỬI", "LỖI"})
+	addNetworkLines(report, add)
+	section("TIẾN TRÌNH", "dùng nhiều CPU và RAM nhất", []string{"TIẾN TRÌNH", "ĐANG DÙNG", "KÈM THEO"})
+	addProcessLines(report, add)
 	if report.Systemd {
 		section("DỊCH VỤ", "systemd", []string{"UNIT", "TRẠNG THÁI", "MÔ TẢ"})
 		addServiceLines(report, add)

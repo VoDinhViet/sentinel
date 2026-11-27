@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"sentinel/agent/internal/status"
+
+	"sentinel/pkg/agentapi"
 )
 
 // DefaultParallel is how many servers are asked at once when the caller has no preference.
@@ -68,10 +70,10 @@ func fetchOne(ctx context.Context, server Server) ServerStatus {
 // ReadHost asks one server how its machine is doing. It is a call of its own, not part of Fetch:
 // reading a machine runs systemctl there, which is fine for the one server somebody is looking
 // at and too much for the whole list every few seconds.
-func ReadHost(ctx context.Context, server Server) (HostStatus, error) {
+func ReadHost(ctx context.Context, server Server) (agentapi.HostStatus, error) {
 	client, err := NewClient(server)
 	if err != nil {
-		return HostStatus{}, err
+		return agentapi.HostStatus{}, err
 	}
 	defer client.Close()
 	return client.Host(ctx)

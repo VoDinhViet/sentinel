@@ -10,12 +10,14 @@ import (
 	"sentinel/agent/internal/app"
 	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/host"
+
+	"sentinel/pkg/agentapi"
 )
 
 // fleetHostReadMsg carries the reading of one server's machine started by startFleetHost.
 type fleetHostReadMsg struct {
 	server string
-	host   fleet.HostStatus
+	host   agentapi.HostStatus
 	err    error
 }
 
@@ -24,7 +26,7 @@ type fleetHostReadMsg struct {
 type fleetHostState struct {
 	server  string // whose machine this is; a reading of another server is dropped
 	reading bool
-	status  fleet.HostStatus
+	status  agentapi.HostStatus
 	read    bool // status holds a reading
 	err     error
 }
@@ -105,7 +107,7 @@ func (m manageModel) fleetHostWaitText(name string) string {
 }
 
 // hostReportOf turns what a server sent into the reading the Server tab is built from.
-func hostReportOf(status fleet.HostStatus) app.HostReport {
+func hostReportOf(status agentapi.HostStatus) app.HostReport {
 	state := host.State{
 		Hostname: status.Hostname, OS: status.OS, Kernel: status.Kernel,
 		Uptime: time.Duration(status.UptimeSeconds) * time.Second, Load: status.Load, CPUs: status.CPUs, CPUPercent: status.CPUPercent,
@@ -118,6 +120,13 @@ func hostReportOf(status fleet.HostStatus) app.HostReport {
 	for _, disk := range status.Disks {
 		state.Disks = append(state.Disks, host.Disk{Mount: disk.Mount, Device: disk.Device, FSType: disk.FSType, FreeBytes: disk.FreeBytes, TotalBytes: disk.TotalBytes})
 	}
+	for _, found := range status.Interfaces {
+		state.Interfaces = append(state.Interfaces, host.Interface{
+			Name: found.Name, RxBytes: found.RxBytes, TxBytes: found.TxBytes, RxErrors: found.RxErrors, TxErrors: found.TxErrors,
+			RxDropped: found.RxDropped, TxDropped: found.TxDropped,
+		})
+	}
+	state.TopCPU, state.TopMemory = processesOf(status.TopProcesses.ByCPU), processesOf(status.TopProcesses.ByMemory)
 	if status.Sentinel != nil {
 		state.Sentinel = unitOf(*status.Sentinel)
 	}
@@ -127,7 +136,7 @@ func hostReportOf(status fleet.HostStatus) app.HostReport {
 	return app.HostReport{State: state, MinFreePercent: status.MinFreePercent}
 }
 
-func unitsOf(services []fleet.ServiceStatus) []host.Unit {
+func unitsOf(services []agentapi.ServiceStatus) []host.Unit {
 	var units []host.Unit
 	for _, service := range services {
 		units = append(units, unitOf(service))
@@ -135,6 +144,14 @@ func unitsOf(services []fleet.ServiceStatus) []host.Unit {
 	return units
 }
 
-func unitOf(service fleet.ServiceStatus) host.Unit {
+func unitOf(service agentapi.ServiceStatus) host.Unit {
 	return host.Unit{Name: service.Name, Active: service.Active, Description: service.Description}
+}
+
+func processesOf(processes []agentapi.Process) []host.Process {
+	var found []host.Process
+	for _, proc := range processes {
+		found = append(found, host.Process{PID: proc.PID, Name: proc.Name, CPUPercent: proc.CPUPercent, MemoryBytes: proc.MemoryBytes})
+	}
+	return found
 }

@@ -9,6 +9,8 @@ import (
 	"sentinel/agent/internal/doctor"
 	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/restic"
+
+	"sentinel/pkg/agentapi"
 )
 
 // jobRepository is one backup the manager can act on: a job and one of its repositories.
@@ -53,7 +55,7 @@ type manageActions struct {
 	// fleet asks the servers of the fleet file for their reports (the Fleet tab).
 	fleet func(ctx context.Context) ([]fleet.ServerStatus, error)
 	// fleetHost reads the machine of one server of the fleet (the screen of that server).
-	fleetHost func(ctx context.Context, server fleet.Server) (fleet.HostStatus, error)
+	fleetHost func(ctx context.Context, server fleet.Server) (agentapi.HostStatus, error)
 	// initialize writes a first config file (`sentinel init`).
 	initialize func(initial configedit.Initial) error
 }

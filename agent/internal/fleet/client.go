@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"sentinel/agent/internal/status"
+
+	"sentinel/pkg/agentapi"
 )
 
 const (
@@ -93,10 +95,10 @@ func (c *Client) Status(ctx context.Context) (status.Report, error) {
 }
 
 // Host is how the machine of the server is doing (GET /api/v1/host), its text cleaned too.
-func (c *Client) Host(ctx context.Context) (HostStatus, error) {
-	var host HostStatus
+func (c *Client) Host(ctx context.Context) (agentapi.HostStatus, error) {
+	var host agentapi.HostStatus
 	err := c.get(ctx, "/api/v1/host", &host)
-	return cleanHost(host), err
+	return host.Clean(), err
 }
 
 // get reads one JSON answer into target. No error carries the token.

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -204,6 +205,49 @@ func TestUptimeText(t *testing.T) {
 		}
 		if got := uptimeText(duration); got != want {
 			t.Errorf("uptimeText(%s) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestServerTabListsTheNetworkAndTheBusiestProcesses(t *testing.T) {
+	report := healthyHost()
+	report.Interfaces = []host.Interface{{Name: "eth0", RxBytes: 3 * gib, TxBytes: gib, RxErrors: 4, RxDropped: 2}}
+	report.TopCPU = []host.Process{{PID: 812, Name: "postgres", CPUPercent: 88, MemoryBytes: 2 * gib}}
+	report.TopMemory = []host.Process{{PID: 99, Name: "java", CPUPercent: 3, MemoryBytes: 4 * gib}}
+	tab := serverTabOf(report)
+
+	var titles, cells []string
+	for _, section := range tab.sections {
+		titles = append(titles, section.title)
+	}
+	for _, line := range tab.lines {
+		cells = append(cells, strings.Join(line.cells, " | "))
+	}
+	text := strings.Join(cells, "\n")
+	for _, want := range []string{"MẠNG", "TIẾN TRÌNH"} {
+		if !slices.Contains(titles, want) {
+			t.Errorf("no section %q in %v", want, titles)
+		}
+	}
+	for _, want := range []string{"eth0", "↓ 3.0 GiB", "lỗi 4 · rớt gói 2", "CPU postgres (812) | 88%", "RAM java (99) | 4.0 GiB"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the tab lacks %q:\n%s", want, text)
+		}
+	}
+	// Counters since boot and a busy process are facts, not trouble: they must not turn the tab yellow.
+	if tab.alarm || tab.count != 0 {
+		t.Errorf("alarm = %v, count = %d, want a quiet tab", tab.alarm, tab.count)
+	}
+}
+
+func TestServerTabSaysWhenNetworkAndProcessesCouldNotBeRead(t *testing.T) {
+	text := ""
+	for _, line := range serverTabOf(healthyHost()).lines {
+		text += strings.Join(line.cells, " | ") + "\n"
+	}
+	for _, want := range []string{"Không có card mạng nào", "Không đọc được tiến trình"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the tab lacks %q:\n%s", want, text)
 		}
 	}
 }

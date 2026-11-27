@@ -50,30 +50,3 @@ func cleanJob(job status.Job) status.Job {
 	}
 	return job
 }
-
-// cleanHost is cleanReport for the state of a machine.
-func cleanHost(host HostStatus) HostStatus {
-	host.Hostname, host.OS, host.Kernel = termtext.Clean(host.Hostname), termtext.Clean(host.OS), termtext.Clean(host.Kernel)
-	host.Disks = slices.Clone(host.Disks)
-	for i, disk := range host.Disks {
-		host.Disks[i].Mount, host.Disks[i].Device, host.Disks[i].FSType = termtext.Clean(disk.Mount), termtext.Clean(disk.Device), termtext.Clean(disk.FSType)
-	}
-	if host.Sentinel != nil {
-		service := cleanService(*host.Sentinel)
-		host.Sentinel = &service
-	}
-	host.FailedServices = slices.Clone(host.FailedServices)
-	for i, service := range host.FailedServices {
-		host.FailedServices[i] = cleanService(service)
-	}
-	host.Errors = slices.Clone(host.Errors)
-	for i, message := range host.Errors {
-		host.Errors[i] = termtext.Clean(message)
-	}
-	return host
-}
-
-func cleanService(service ServiceStatus) ServiceStatus {
-	service.Name, service.Active, service.Description = termtext.Clean(service.Name), termtext.Clean(service.Active), termtext.Clean(service.Description)
-	return service
-}

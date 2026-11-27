@@ -15,10 +15,11 @@ import (
 	"sentinel/agent/internal/app"
 	"sentinel/agent/internal/backup"
 	"sentinel/agent/internal/doctor"
-	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/host"
 	"sentinel/agent/internal/restic"
 	"sentinel/agent/internal/status"
+
+	"sentinel/pkg/agentapi"
 )
 
 const (
@@ -351,6 +352,8 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 			Hostname: "web-01", OS: "ubuntu 24.04", Kernel: "6.8.0", Uptime: 90 * time.Minute, Load: [3]float64{0.5, 0.4, 0.3}, CPUs: 4, CPUPercent: 12.5,
 			Memory:      host.Memory{TotalBytes: 8 << 30, AvailableBytes: 3 << 30, SwapTotalBytes: 2 << 30, SwapFreeBytes: 2 << 30},
 			Disks:       []host.Disk{{Mount: "/", Device: "/dev/sda1", FSType: "ext4", FreeBytes: 10 << 30, TotalBytes: 40 << 30}},
+			Interfaces:  []host.Interface{{Name: "eth0", RxBytes: 100, TxBytes: 200}},
+			TopCPU:      []host.Process{{PID: 42, Name: "postgres", CPUPercent: 80, MemoryBytes: 1 << 30}},
 			Systemd:     true,
 			Sentinel:    host.Unit{Name: "sentinel.service", Active: "active", Description: "Sentinel"},
 			FailedUnits: []host.Unit{{Name: "nginx.service", Active: "failed", Description: "web \x1b[31mserver"}},
@@ -359,7 +362,7 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 		MinFreePercent: 10,
 	}}
 	rec := call(t, backend, "GET", "/api/v1/host", testToken)
-	var got hostStatus
+	var got agentapi.HostStatus
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("code %d, err %v, body %s", rec.Code, err, rec.Body)
 	}
@@ -368,6 +371,10 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 	}
 	if got.Memory.TotalBytes != 8<<30 || len(got.Disks) != 1 || got.Disks[0].FSType != "ext4" || got.MinFreePercent != 10 {
 		t.Errorf("memory, disks or threshold wrong: %+v", got)
+	}
+	if len(got.Interfaces) != 1 || got.Interfaces[0].Name != "eth0" || got.Interfaces[0].TxBytes != 200 ||
+		len(got.TopProcesses.ByCPU) != 1 || got.TopProcesses.ByCPU[0].Name != "postgres" || got.TopProcesses.ByMemory == nil {
+		t.Errorf("network or processes wrong: %+v", got)
 	}
 	if got.Sentinel == nil || got.Sentinel.Active != "active" || len(got.FailedServices) != 1 || got.FailedServices[0].Name != "nginx.service" {
 		t.Errorf("units wrong: %+v", got)
@@ -380,40 +387,10 @@ func TestHostIsTheStateOfTheMachineInPlainJSON(t *testing.T) {
 	}
 }
 
-// The fleet client reads this route into its own type. Whatever the route says, that type must
-// have a place for it, and the other way round, or the two ends have drifted apart.
-func TestTheFleetClientReadsEveryFieldOfHost(t *testing.T) {
-	backend := &fakeBackend{hostReport: app.HostReport{State: host.State{
-		Systemd: true, Sentinel: host.Unit{Name: "sentinel.service"}, Errs: []error{errors.New("x")},
-		Disks: []host.Disk{{Mount: "/"}}, FailedUnits: []host.Unit{{Name: "nginx.service"}},
-	}}}
-	body := call(t, backend, "GET", "/api/v1/host", testToken).Body.Bytes()
-
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.DisallowUnknownFields()
-	var read fleet.HostStatus
-	if err := decoder.Decode(&read); err != nil {
-		t.Fatalf("the fleet type cannot hold what the route sends: %v", err)
-	}
-	again, err := json.Marshal(read)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sent, kept map[string]any
-	if json.Unmarshal(body, &sent) != nil || json.Unmarshal(again, &kept) != nil {
-		t.Fatal("not JSON")
-	}
-	for key := range sent {
-		if _, ok := kept[key]; !ok {
-			t.Errorf("the route sends %q and the fleet type drops it", key)
-		}
-	}
-}
-
 func TestHostListsAreEmptyNotNullAndSentinelNeedsSystemd(t *testing.T) {
 	rec := call(t, &fakeBackend{}, "GET", "/api/v1/host", testToken)
 	body := rec.Body.String()
-	for _, want := range []string{`"disks":[]`, `"failed_units":[]`, `"errors":[]`} {
+	for _, want := range []string{`"disks":[]`, `"interfaces":[]`, `"by_cpu":[]`, `"by_memory":[]`, `"failed_units":[]`, `"errors":[]`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the response lacks %s: %s", want, body)
 		}

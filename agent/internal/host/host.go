@@ -1,5 +1,5 @@
-// Package host reads how the machine Sentinel runs on is doing: load, CPU, memory, disks and the
-// systemd units that failed. It only reads; nothing here changes the machine. The numbers come from
+// Package host reads how the machine Sentinel runs on is doing: load, CPU, memory, disks, network,
+// the busiest processes and the systemd units that failed. It only reads; nothing here changes the machine. The numbers come from
 // gopsutil; systemd is asked through systemctl.
 package host
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,9 @@ type State struct {
 	CPUPercent float64
 	Memory     Memory
 	Disks      []Disk
+	Interfaces []Interface
+	// TopCPU and TopMemory are the processes that use the most of each, the busiest first.
+	TopCPU, TopMemory []Process
 	// Systemd says systemctl runs here; Sentinel and FailedUnits mean nothing without it.
 	Systemd     bool
 	Sentinel    Unit // sentinel.service
@@ -83,6 +87,10 @@ func Read(ctx context.Context) State {
 	var diskErrs []error
 	state.Disks, diskErrs = readDisks(ctx)
 	state.Errs = append(state.Errs, diskErrs...)
+	var netErr, procErr error
+	state.Interfaces, netErr = readInterfaces(ctx)
+	state.TopCPU, state.TopMemory, procErr = readProcesses(ctx)
+	state.Errs = append(state.Errs, slices.DeleteFunc([]error{netErr, procErr}, func(err error) bool { return err == nil })...)
 	var unitErr error
 	state.Systemd, state.Sentinel, state.FailedUnits, unitErr = readUnits(ctx)
 	if unitErr != nil {
