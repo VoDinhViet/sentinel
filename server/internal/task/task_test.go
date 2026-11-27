@@ -389,3 +389,16 @@ func ids(tasks []Task) []int64 {
 	}
 	return found
 }
+
+func TestAPieceOfLogWithSeveralLinesIsKeptAsOneRowPerLine(t *testing.T) {
+	q := newQueue(t)
+	created := q.create(t, "web01", agentapi.ActionDoctorRun, nil)
+	_, _ = q.Poll(ctl, "web01", time.Second)
+	if err := q.AppendLog(ctl, "web01", created.ID, "one\n\ntwo\nthree\n"); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := q.Log(ctl, created.ID, 0)
+	if err != nil || len(lines) != 3 || lines[0].Text != "one" || lines[1].Text != "two" || lines[2].Text != "three" || lines[2].Seq != 3 {
+		t.Fatalf("lines = %+v, err %v", lines, err)
+	}
+}

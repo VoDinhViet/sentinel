@@ -137,14 +137,16 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 | `GET /v1/agent/whoami` | → `{name, cert_not_after}`: control plane đọc tên từ cert; dùng để kiểm tra cert hoạt động |
 | `POST /v1/agent/report` | `{version, sent_at, host, backups, checks, alerts}` → `{server_time, report_every_s}`; body tối đa 512 KiB, mỗi danh sách tối đa 200 phần tử, mọi chuỗi qua `termtext.Clean` và bị cắt; trường lạ được bỏ qua (agent mới hơn server vẫn báo được) |
 | `POST /v1/agent/renew` | `{csr}` → `{cert, not_after}`; chỉ khi cert hiện tại còn dưới 45 ngày và agent chưa được cấp cert nào trong giờ qua (429 nếu có: chặn vòng lặp làm đầy bảng `certs` và audit); cert cũ vẫn dùng được cho đến khi agent đưa cert mới ra lần đầu, lúc đó các cert cũ hơn của nó bị thu hồi (bản sao khoá cũ hết tác dụng, và `server ls` hiện hạn của cert đang dùng chứ không phải của cert đã cấp mà agent chưa nhận) |
-| `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]` |
-| `POST /v1/agent/tasks/{id}/result` | `{state, started_at, finished_at, output, error}` → 204 |
-| `POST /v1/agent/tasks/{id}/log` | một đoạn log của task (có giới hạn kích thước) |
+| `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]`; việc `queued` chuyển sang `sent` trong một transaction |
+| `POST /v1/agent/tasks/{id}/result` | `{state, started_at, finished_at, output, error}` → 204; chỉ nhận một lần, chỉ từ agent được giao việc (agent khác nhận 404), thời điểm bắt đầu bị kẹp giữa `sent_at` và bây giờ |
+| `POST /v1/agent/tasks/{id}/log` | một đoạn log (tối đa 16 KiB; nhiều dòng thì mỗi dòng một bản ghi), mỗi task tối đa 256 KiB |
+
+Phía `sentinelctl`: `GET|POST /v1/ctl/tasks`, `GET|DELETE /v1/ctl/tasks/{id}` (DELETE huỷ việc còn `queued`) và `GET /v1/ctl/tasks/{id}/events` (SSE: `state`, `log`, `done`; `Last-Event-ID` nối lại từ dòng log đã nhận).
 
 - `backups` là lần chạy mới nhất của từng job vào từng repository. Lịch sử các lần chạy (`backup_runs` với cursor) và `host_samples` thuộc giai đoạn 14, vì khi đó agent gửi lại từ cursor 0 nên không mất gì.
-- `allow` (action agent cho phép) sẽ vào report cùng `control_plane.allow` ở giai đoạn 9.
+- `allow` trong report là các action mà `control_plane.allow` của agent đang cho phép; `sentinelctl server show` in ra, để biết trước việc nào sẽ bị `refused`. Control plane không chặn trước: agent mới là nơi quyết định.
 - `report_every_s` là nhịp server muốn (agent giữ trong 15 giây đến 10 phút, lệch ±10%); `server_time` để agent báo khi đồng hồ lệch quá 2 phút.
-- Mỗi agent bị giới hạn tần suất gọi (0,2 lần/giây, burst 5) sau khi cert được kiểm tra. Chuỗi trong report là một dòng (`termtext.Line`: xuống dòng và tab thành dấu cách) và bị cắt; danh sách phần máy cũng giới hạn 200 phần tử.
+- Mỗi agent bị giới hạn tần suất gọi (1 lần/giây, burst 10) sau khi cert được kiểm tra. Chuỗi trong report là một dòng (`termtext.Line`: xuống dòng và tab thành dấu cách) và bị cắt; danh sách phần máy cũng giới hạn 200 phần tử.
 - Agent gia hạn khi cert còn dưới 30 ngày, thử lại sau một giờ nếu hỏng; khoá mới được ghi vào `key.next.pem` trước khi hỏi control plane, nên thư mục không ghi được thì không cấp cert vô ích (`sentinel doctor` cũng kiểm tra). Sau khi bị từ chối (401) agent đọc lại file danh tính trước lần thử kế, nên `agent join --force` có hiệu lực không cần khởi động lại; `agent join` xoá `*.next.pem` còn sót.
 - Report trượt thì thử lại sau 20 giây chứ không đợi cả nhịp; không dựng được report (database bận) thì agent chỉ gọi whoami để vẫn hiện là còn sống. Khoá mới được sinh mỗi lần; khoá và cert mới ghi thành `key.next.pem`, `cert.next.pem` rồi `rename` đè, và `LoadIdentity` chọn cặp khớp nhau, nên mất điện giữa chừng không khoá agent ra ngoài.
 - Một lần poll mới của cùng agent huỷ lần poll trước.
@@ -171,9 +173,9 @@ Bảng action cố định trong `pkg/agentapi`; tham số được decode bằn
 
 | Action | Tham số | Ghi chú |
 | --- | --- | --- |
-| `backup.start` / `backup.stop` | `job` | `job` phải có trong config local |
-| `backup.snapshots` | `job` | chỉ đọc |
-| `doctor.run` | — | kết quả đã `restic.Redact` |
+| `backup.start` / `backup.stop` | `job` (+ `repository` tuỳ chọn cho `backup.start`) | `job` phải có trong config local; `backup.start` xong khi backup đã *bắt đầu* (kết quả là pid), còn kết quả backup đến ở report kế tiếp |
+| `backup.snapshots` | `job`, `repository` tuỳ chọn | chỉ đọc; 50 snapshot mới nhất; bỏ `repository` thì dùng repository duy nhất của job |
+| `doctor.run` | — | kết quả đã `restic.Redact`; có check lỗi thì task `failed` ("N of M checks failed") |
 | `service.start\|stop\|restart` | `unit` | regex `.service\|.timer`, khớp chính xác trong `allow.services`; không đụng `sentinel.service` |
 | `container.restart` | `container`, `timeout_s` | khớp chính xác trong `allow.containers`; Docker Engine API qua unix socket |
 | `os.check_updates` | — | `apt-get -s upgrade` hoặc `dnf check-update` |
@@ -188,7 +190,8 @@ Allowlist nằm trong `config.yaml` của agent, **mặc định tắt hết**:
 control_plane:
   url: https://cp.example.vn:9320
   allow:
-    backup: false
+    backup: false              # backup.start|stop|snapshots
+    doctor: false              # doctor.run
     services: []
     containers: []
     docker_socket: /var/run/docker.sock
@@ -196,7 +199,9 @@ control_plane:
     self_update: {}            # public_key để bật
 ```
 
-Agent kiểm tra lại mọi task theo allowlist này, trả `refused` nếu không đạt, giới hạn tần suất theo action, và ghi log local mỗi task, thứ mà control plane không xoá được.
+Agent kiểm tra lại mọi task theo thứ tự: bảng action (`agentapi.ValidateTask`), allowlist này, giới hạn tần suất (burst 3, 1 lần/5 giây cho mỗi action), rồi áp timeout (2 phút cho `backup.start`, 1 phút cho `backup.stop`, 3 phút cho `backup.snapshots` và `doctor.run`). Không đạt thì trả `refused` kèm khoá cần bật (`control_plane.allow.backup`). Log gửi lên được cắt qua `restic.Redact` (tối đa 200 dòng mỗi task, gom lô mỗi giây), và mỗi task được ghi log local, thứ mà control plane không xoá được. Allowlist đọc lúc daemon khởi động: đổi thì phải khởi động lại.
+
+Việc ở server: `queued` quá 10 phút thì `expired`; `sent` mà quá `result_by` (hạn của action + 30 giây) cũng `expired`; mỗi agent tối đa 20 việc đang mở; việc đã xong giữ 30 ngày. Mỗi bước (`task.create|send|result|cancel|expire`) ghi audit. Agent gửi kết quả lại với backoff cho đến `result_by`; gặp 404 hoặc 409 thì bỏ, gặp 401 thì im một giờ.
 
 `os.apply_updates` chạy qua `systemd-run --wait --pipe --collect --unit=sentinel-os-update -- /usr/bin/apt-get -y … upgrade` (argv cố định), vì `ProtectSystem=full` chặn daemon ghi `/usr`. Đây là lối ra khỏi sandbox có chủ ý, chỉ mở khi `os_updates: apply`.
 
@@ -281,7 +286,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 6 | `httpapi`, `serve`, join, `sentinelctl login\|logout\|passwd\|server\|audit`, `deploy/server/` (`deploy/` chưa đổi thành `deploy/agent/`: đường dẫn trong release và `install.sh` mà vận hành đang dùng, làm riêng khi kiểm tra được `make dist`) |
 | 7 | Report, cảnh báo offline, gia hạn cert, `sentinelctl server show\|alert`, `control_plane` trong config agent, notifiers trong `server.yaml` (`host_samples` và `backup_runs` dời sang 14) |
 | 8 | TUI của `sentinelctl`: danh sách server và alert, màn hình một server (chỉ đọc; thêm/thu hồi vẫn bằng lệnh, tác vụ đến ở giai đoạn 9) |
-| 9 | Task engine và action backup, log qua SSE |
+| 9 | Task engine và action `backup.*`, `doctor.run`; log qua SSE; `sentinelctl run\|task`; `control_plane.allow` |
 | 10 | Xoá mô hình pull (mục 15) |
 | 11 | Action systemd và Docker |
 | 12 | Cập nhật OS |

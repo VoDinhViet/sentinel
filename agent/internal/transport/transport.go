@@ -59,7 +59,7 @@ func newHTTPClient(config *tls.Config) *http.Client {
 }
 
 // call sends a request with a JSON body (when body is not nil) and decodes a JSON answer into out. A
-// status that is not 200 is returned as a *statusError.
+// status that is not a success (2xx) is returned as a *statusError.
 func call(ctx context.Context, client *http.Client, method, target string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -92,8 +92,11 @@ func call(ctx context.Context, client *http.Client, method, target string, body,
 	if len(answer) > maxAnswer {
 		return errors.New("the answer is larger than 1 MiB")
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return newStatusError(resp.StatusCode, answer)
+	}
+	if out == nil || len(answer) == 0 { // a 204, or an answer nobody reads
+		return nil
 	}
 	if err := json.Unmarshal(answer, out); err != nil {
 		return fmt.Errorf("the answer is not what a control plane sends: %w", err)

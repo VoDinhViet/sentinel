@@ -104,6 +104,12 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 # agent works alone. The key and certificate are kept in the agent/ directory next to `store`; `dir` moves it.
 # control_plane:
 #   url: "https://ctl.example.com:9320"
+#   # What the control plane may ask this server to do. Everything is off until you turn it on here, the control
+#   # plane cannot change it, and a change needs a restart of the daemon. Every task is also written to this
+#   # machine's log.
+#   allow:
+#     backup: false   # start and stop the backup of a job in this file, and list its snapshots
+#     doctor: false   # run `sentinel doctor`
 
 # Watch other Sentinel servers: every `every` the daemon asks the API of each server listed in this fleet file (the
 # one `sentinel fleet` reads, see the README) and sends an alert here when one cannot be reached `fail_after`

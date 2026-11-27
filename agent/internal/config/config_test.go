@@ -637,3 +637,26 @@ func TestTheIdentityDirectoryIsTheOneJoinWrites(t *testing.T) {
 		t.Errorf("config says %q, join writes %q", ControlPlaneDirName, transport.DirName)
 	}
 }
+
+func TestControlPlaneAllowsNothingUntilTheConfigSaysSo(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	cfg, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\" }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ControlPlane.Allow.Actions(); len(got) != 0 || got == nil {
+		t.Errorf("a config with no allow: Actions = %#v, want an empty list", got)
+	}
+	cfg, err = Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { backup: true } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ControlPlane.Allow.Permits("backup.start") || cfg.ControlPlane.Allow.Permits("doctor.run") {
+		t.Errorf("allow = %+v", cfg.ControlPlane.Allow)
+	}
+	// A key for an action that does not exist yet is a typo until it does: the file does not load.
+	if _, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { shell: true } }\n")); err == nil {
+		t.Error("allow: shell was accepted")
+	}
+}

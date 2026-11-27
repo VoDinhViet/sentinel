@@ -29,6 +29,7 @@ type Client struct {
 	where address
 	dir   string
 	http  *http.Client
+	poll  *http.Client // the same connection settings, with time for a long poll
 	cert  atomic.Pointer[tls.Certificate]
 }
 
@@ -48,6 +49,7 @@ func NewClient(dir, rawURL string) (*Client, error) {
 	config.ServerName = where.host
 	config.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return client.cert.Load(), nil }
 	client.http = newHTTPClient(config)
+	client.poll = &http.Client{Timeout: PollWait + 20*time.Second, Transport: client.http.Transport, CheckRedirect: client.http.CheckRedirect}
 	return client, nil
 }
 

@@ -268,25 +268,25 @@ func TestTheEventsOfAFinishedTaskAreItsStateItsLogAndDone(t *testing.T) {
 	for _, e := range events {
 		names = append(names, e.name)
 	}
-	if got := strings.Join(names, " "); got != "state log log log done" {
+	if got := strings.Join(names, " "); got != "state log log log log done" {
 		t.Fatalf("events = %q", got)
 	}
 	var line ctlapi.TaskLine
-	if err := json.Unmarshal([]byte(events[2].data), &line); err != nil || line.Text != "two\nlines" || events[2].id != "2" {
-		t.Errorf("second line = %+v (id %q), err %v: a line break must stay inside one data line", line, events[2].id, err)
+	if err := json.Unmarshal([]byte(events[2].data), &line); err != nil || line.Text != "two" || events[2].id != "2" {
+		t.Errorf("second line = %+v (id %q), err %v: a piece with a line break is one line each", line, events[2].id, err)
 	}
 	var done ctlapi.Task
-	if err := json.Unmarshal([]byte(events[4].data), &done); err != nil || done.State != agentapi.TaskFailed || done.Error != "boom" || done.Output != "out" {
+	if err := json.Unmarshal([]byte(events[5].data), &done); err != nil || done.State != agentapi.TaskFailed || done.Error != "boom" || done.Output != "out" {
 		t.Errorf("done = %+v, err %v", done, err)
 	}
 
-	resumed := readEvents(t, p, token, route, "2")
+	resumed := readEvents(t, p, token, route, "3")
 	names = nil
 	for _, e := range resumed {
 		names = append(names, e.name+":"+e.id)
 	}
-	if got := strings.Join(names, " "); got != "state: log:3 done:" {
-		t.Errorf("after Last-Event-ID 2 the events are %q", got)
+	if got := strings.Join(names, " "); got != "state: log:4 done:" {
+		t.Errorf("after Last-Event-ID 3 the events are %q", got)
 	}
 	if status, _ := call(t, p.client(nil), "GET", p.ctl.URL+"/v1/ctl/tasks/999/events", token, nil, nil); status != http.StatusNotFound {
 		t.Errorf("events of a task that does not exist: status %d", status)

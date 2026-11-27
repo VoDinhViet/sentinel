@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"sentinel/pkg/agentapi"
 	"sentinel/pkg/notify"
 )
 
@@ -86,6 +87,48 @@ type ControlPlane struct {
 	// Dir holds the key, certificate and CA that `sentinel agent join` wrote. Empty means the agent
 	// directory next to the store.
 	Dir string `yaml:"dir" validate:"omitempty,abspath"`
+	// Allow is what the control plane may ask this agent to do. Everything is off until it is turned on here:
+	// the control plane cannot widen it, and a change needs a restart of the daemon.
+	Allow Allow `yaml:"allow"`
+}
+
+// Allow is the local allowlist of the actions of agentapi. A task whose action is not allowed is refused,
+// whoever asked.
+type Allow struct {
+	// Backup lets the control plane start and stop the backups of the jobs in this file and list their snapshots.
+	Backup bool `yaml:"backup"`
+	// Doctor lets it run `sentinel doctor`.
+	Doctor bool `yaml:"doctor"`
+}
+
+// Permits says the action is allowed.
+func (a Allow) Permits(action string) bool {
+	switch action {
+	case agentapi.ActionBackupStart, agentapi.ActionBackupStop, agentapi.ActionBackupSnapshots:
+		return a.Backup
+	case agentapi.ActionDoctorRun:
+		return a.Doctor
+	}
+	return false
+}
+
+// Actions are the actions that are allowed, in order.
+func (a Allow) Actions() []string {
+	allowed := []string{}
+	for _, action := range agentapi.Actions() {
+		if a.Permits(action) {
+			allowed = append(allowed, action)
+		}
+	}
+	return allowed
+}
+
+// Hint says which key of the config allows the action, for the message of a refusal.
+func (Allow) Hint(action string) string {
+	if action == agentapi.ActionDoctorRun {
+		return "control_plane.allow.doctor"
+	}
+	return "control_plane.allow.backup"
 }
 
 // Enabled says the daemon reports to a control plane.

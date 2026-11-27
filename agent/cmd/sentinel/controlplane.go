@@ -3,17 +3,19 @@ package main
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"sentinel/agent/internal/app"
 	"sentinel/agent/internal/config"
+	"sentinel/agent/internal/executor"
 	"sentinel/agent/internal/store"
 	"sentinel/agent/internal/transport"
 	"sentinel/pkg/agentapi"
 )
 
-// startReporter makes the daemon report to the control plane, when the config names one, until ctx is done
-// or the returned function is called, which waits for the reporter to stop. A control plane that cannot be
+// startReporter makes the daemon report to the control plane and take its tasks, when the config names one,
+// until ctx is done or the returned function is called, which waits for both to stop. A control plane that cannot be
 // used (no identity yet, a bad address) is logged and the daemon goes on alone: a backup must not wait for
 // the thing that watches it. `sentinel doctor` says what is wrong.
 func (a *cliApp) startReporter(ctx context.Context, cfg *config.Config, st *store.Store) (stop func()) {
@@ -32,12 +34,12 @@ func (a *cliApp) startReporter(ctx context.Context, cfg *config.Config, st *stor
 			return service.ControlPlaneReport(ctx, version, time.Now())
 		},
 	}
+	worker := &transport.Worker{Client: client, Runner: executor.New(service, cfg.ControlPlane.Allow)}
 	reportCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		reporter.Loop(reportCtx)
-	}()
-	slog.Info("control plane: reporting", "url", cfg.ControlPlane.URL, "certificate_ends", client.NotAfter().Format("2006-01-02"))
-	return func() { cancel(); <-done }
+	var running sync.WaitGroup
+	running.Go(func() { reporter.Loop(reportCtx) })
+	running.Go(func() { worker.Loop(reportCtx) })
+	slog.Info("control plane: reporting", "url", cfg.ControlPlane.URL, "certificate_ends", client.NotAfter().Format("2006-01-02"),
+		"tasks_allowed", cfg.ControlPlane.Allow.Actions())
+	return func() { cancel(); running.Wait() }
 }

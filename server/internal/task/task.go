@@ -338,9 +338,14 @@ func (s *Service) AppendLog(ctx context.Context, agent string, id int64, text st
 		if logged+length > agentapi.MaxTaskLog {
 			return ErrLogFull
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO task_logs (task, seq, at, text)
-			VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_logs WHERE task = ?), ?, ?)`, id, id, now.Unix(), text); err != nil {
-			return fmt.Errorf("save log: %w", err)
+		for _, line := range strings.Split(text, "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO task_logs (task, seq, at, text)
+				VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM task_logs WHERE task = ?), ?, ?)`, id, id, now.Unix(), line); err != nil {
+				return fmt.Errorf("save log: %w", err)
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET log_chars = log_chars + ? WHERE id = ?`, length, id); err != nil {
 			return fmt.Errorf("count log: %w", err)

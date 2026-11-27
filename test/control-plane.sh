@@ -102,6 +102,8 @@ store: $WORK/agentstate/state.db
 control_plane:
   url: "https://127.0.0.1:$AGENT_PORT"
   dir: "$WORK/agent"
+  allow:
+    doctor: true
 EOF
 	"$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
@@ -113,6 +115,19 @@ EOF
 		{ sed 's/^/    daemon: /' "$WORK/daemon.log" >&2; fail "the daemon's report did not arrive"; }
 	ctl server show web01 | grep -q "Máy:" && pass "sentinelctl server show prints the host" || fail "server show printed no host"
 	[ "$(ctl alert -o json | jq length)" = 0 ] && pass "no alert while the server reports" || fail "an alert is open for a reporting server"
+	ctl server show web01 | grep -q "Cho phép:          doctor.run" && pass "server show says which actions the server allows" || fail "server show does not list the allowed actions"
+
+	echo "== task"
+	if ctl run web01 backup.start job=nothing --wait >"$WORK/refused.txt" 2>&1; then fail "a backup was started on a server that does not allow it"; fi
+	grep -q "not allowed" "$WORK/refused.txt" && pass "the agent refuses an action its allowlist does not have" || fail "no refusal in: $(cat "$WORK/refused.txt")"
+	DOCTOR_STATE=$(ctl run web01 doctor.run --wait -o json | jq -r .state)
+	case "$DOCTOR_STATE" in succeeded | failed) pass "doctor.run ran on the server ($DOCTOR_STATE)" ;; *) fail "doctor.run ended as: $DOCTOR_STATE" ;; esac
+	ctl run web01 doctor.run --follow >"$WORK/follow.txt" 2>&1
+	grep -q "running the checks" "$WORK/follow.txt" && grep -q "succeeded" "$WORK/follow.txt" && pass "run --follow streams the log and the result" || fail "no log from doctor.run --follow: $(cat "$WORK/follow.txt")"
+	ctl task ls --server web01 | grep -q "doctor.run" && pass "task ls lists the tasks" || fail "task ls shows no task"
+	if ctl run web01 shell.run cmd=id >/dev/null 2>&1; then fail "an action that is not in the table was queued"; fi
+	pass "an action that is not in the table is refused by the control plane"
+	ctl audit -n 50 | grep -q task.result && pass "the audit log has the results" || fail "no task.result in the audit log"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null
 	DAEMON_PID=
