@@ -11,6 +11,7 @@ import (
 	"sentinel/internal/backup"
 	"sentinel/internal/configedit"
 	"sentinel/internal/schedule"
+	"sentinel/internal/status"
 )
 
 // The tabs of the manager; doctorTab, configTab and serverTab are declared next to their code.
@@ -22,70 +23,149 @@ const (
 
 // tabs turns the report into the six manager tabs.
 func (m manageModel) tabs() []manageTab {
-	now := m.report.GeneratedAt
-	// Columns are ordered by importance: a narrow screen drops the last ones.
-	backups := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LẦN CUỐI", "KẾT QUẢ", "LỊCH SỬ", "SNAPSHOT", "THÊM", "TỔNG", "LẦN TỚI"}, statusCol: 3, historyCol: 4}
-	for _, latestRun := range m.report.Jobs {
-		nextRun, _ := m.nextRun(latestRun.Job)
-		line := manageLine{
-			cells:   []string{latestRun.Job, latestRun.Repository, relativeAgo(latestRun.FinishedAt, now), "ok", "", shortID(latestRun.SnapshotID), backup.HumanBytes(latestRun.BytesAdded), backup.HumanBytes(latestRun.TotalBytes), nextRun},
-			detail:  latestRun.Job + " → " + latestRun.Repository + ": " + latestRun.Result,
-			job:     latestRun.Job,
-			history: latestRun.Recent, repository: latestRun.Repository,
-		}
-		switch {
-		case !latestRun.Success:
-			line.severity, line.cells[3], line.cells[5], line.cells[6], line.cells[7] = sevBad, "LỖI", "", "", ""
-			line.sub = firstLine(latestRun.Error)
-		case latestRun.Warning != "":
-			line.severity, line.cells[3] = sevWarn, "cảnh báo"
-			line.sub = firstLine(latestRun.Warning)
-		}
-		line.fields = m.backupFields(line, latestRun.SnapshotID, latestRun.FinishedAt)
-		if running, ok := m.runningFor(latestRun.Job, latestRun.Repository); ok {
-			line.severity, line.cells[3], line.detail, line.running, line.sub = sevRun, runningResult(running), runningDetail(running, now), true, runningBrief(running, now)
-		}
-		backups.lines = append(backups.lines, line)
+	return []manageTab{m.backupsTab(), checksTabOf(m.report), alertsTabOf(m.report), m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab()}
+}
+
+// backupsTab is the Backups tab of this machine: the report, with the schedules and settings of its config.
+func (m manageModel) backupsTab() manageTab {
+	return backupsTabOf(m.report, backupKnowledge{
+		nextRun: func(job string) string {
+			text, _ := m.nextRun(job)
+			return text
+		},
+		fields:          m.backupFields,
+		jobRepositories: m.jobRepositories,
+	})
+}
+
+// backupKnowledge is what the Backups tab knows besides the report. A machine seen from far away
+// has none of it, and the tab then shows what the report says.
+type backupKnowledge struct {
+	nextRun func(job string) string // when the job runs next; nil when the schedule is not known
+	// fields are the label/value pairs of the detail panel; nil for the plain ones.
+	fields func(line manageLine, snapshotID string, finishedAt time.Time) [][2]string
+	// jobRepositories are the backups the config describes, to show the ones that never ran.
+	jobRepositories []jobRepository
+}
+
+func (known backupKnowledge) nextRunOf(job string) string {
+	if known.nextRun == nil {
+		return ""
 	}
-	for _, jobRepo := range m.jobRepositories {
-		if !m.hasBackupLine(jobRepo) {
-			nextRun, _ := m.nextRun(jobRepo.job)
-			line := manageLine{
-				cells:    []string{jobRepo.job, jobRepo.repository, "chưa có", cellNeverRun, "", "", "", "", nextRun},
-				severity: sevWarn,
-				detail:   jobRepo.job + " → " + jobRepo.repository + ": chưa chạy lần nào. Bấm b để backup ngay.",
-				job:      jobRepo.job, repository: jobRepo.repository,
-			}
-			line.fields = m.backupFields(line, "", time.Time{})
-			if running, ok := m.runningFor(jobRepo.job, jobRepo.repository); ok {
-				line.severity, line.cells[3], line.detail, line.running, line.sub = sevRun, runningResult(running), runningDetail(running, now), true, runningBrief(running, now)
-			}
-			backups.lines = append(backups.lines, line)
+	return known.nextRun(job)
+}
+
+func (known backupKnowledge) fieldsOf(report status.Report, line manageLine, snapshotID string, finishedAt time.Time) [][2]string {
+	if known.fields != nil {
+		return known.fields(line, snapshotID, finishedAt)
+	}
+	return plainBackupFields(line, snapshotID, finishedAt, report.GeneratedAt)
+}
+
+// plainBackupFields are the pairs the detail panel shows for a backup when only the report is known.
+func plainBackupFields(line manageLine, snapshotID string, finishedAt, now time.Time) [][2]string {
+	fields := [][2]string{{"Repository", line.repository}}
+	if snapshotID != "" {
+		fields = append(fields, [2]string{"Snapshot", shortID(snapshotID) + " · " + relativeAgo(finishedAt, now)})
+	}
+	return fields
+}
+
+// backupsTabOf is a line for the latest run of each job and repository, then one for each backup
+// the config describes that has not run yet.
+func backupsTabOf(report status.Report, known backupKnowledge) manageTab {
+	tab := manageTab{title: "Backups", headers: []string{"JOB", "REPOSITORY", "LẦN CUỐI", "KẾT QUẢ", "LỊCH SỬ", "SNAPSHOT", "THÊM", "TỔNG", "LẦN TỚI"}, statusCol: 3, historyCol: 4}
+	for _, latestRun := range report.Jobs {
+		tab.lines = append(tab.lines, backupLineOf(report, known, latestRun))
+	}
+	for _, jobRepo := range known.jobRepositories {
+		if !hasBackupLine(report.Jobs, jobRepo) {
+			tab.lines = append(tab.lines, neverRunLineOf(report, known, jobRepo))
 		}
 	}
-	backups.count, backups.alarm = len(backups.lines), hasSeverity(backups.lines, sevBad)
-	checks := manageTab{title: "Uptime", headers: []string{"CHECK", "TRẠNG THÁI", "ĐỘ TRỄ", "LẦN CUỐI"}, statusCol: 1, historyCol: -1}
-	for _, check := range m.report.Checks {
+	tab.count, tab.alarm = len(tab.lines), hasSeverity(tab.lines, sevBad)
+	return tab
+}
+
+// backupLineOf is the line of the latest run of one job into one repository.
+func backupLineOf(report status.Report, known backupKnowledge, latestRun status.Job) manageLine {
+	now := report.GeneratedAt
+	line := manageLine{
+		cells: []string{latestRun.Job, latestRun.Repository, relativeAgo(latestRun.FinishedAt, now), "ok", "", shortID(latestRun.SnapshotID),
+			backup.HumanBytes(latestRun.BytesAdded), backup.HumanBytes(latestRun.TotalBytes), known.nextRunOf(latestRun.Job)},
+		detail:  latestRun.Job + " → " + latestRun.Repository + ": " + latestRun.Result,
+		job:     latestRun.Job,
+		history: latestRun.Recent, repository: latestRun.Repository,
+	}
+	switch {
+	case !latestRun.Success:
+		line.severity, line.cells[3], line.cells[5], line.cells[6], line.cells[7] = sevBad, "LỖI", "", "", ""
+		line.sub = firstLine(latestRun.Error)
+	case latestRun.Warning != "":
+		line.severity, line.cells[3] = sevWarn, "cảnh báo"
+		line.sub = firstLine(latestRun.Warning)
+	}
+	line.fields = known.fieldsOf(report, line, latestRun.SnapshotID, latestRun.FinishedAt)
+	return showRunning(report, line)
+}
+
+// neverRunLineOf is the line of a backup the config describes that has no run yet.
+func neverRunLineOf(report status.Report, known backupKnowledge, jobRepo jobRepository) manageLine {
+	line := manageLine{
+		cells:    []string{jobRepo.job, jobRepo.repository, "chưa có", cellNeverRun, "", "", "", "", known.nextRunOf(jobRepo.job)},
+		severity: sevWarn,
+		detail:   jobRepo.job + " → " + jobRepo.repository + ": chưa chạy lần nào. Bấm b để backup ngay.",
+		job:      jobRepo.job, repository: jobRepo.repository,
+	}
+	line.fields = known.fieldsOf(report, line, "", time.Time{})
+	return showRunning(report, line)
+}
+
+// showRunning marks a line whose backup is in progress, with its progress in place of the result.
+func showRunning(report status.Report, line manageLine) manageLine {
+	if running, ok := runningIn(report, line.job, line.repository); ok {
+		now := report.GeneratedAt
+		line.severity, line.cells[3], line.detail, line.running, line.sub = sevRun, runningResult(running), runningDetail(running, now), true, runningBrief(running, now)
+	}
+	return line
+}
+
+// checksTabOf is a line for the latest result of each uptime check.
+func checksTabOf(report status.Report) manageTab {
+	tab := manageTab{title: "Uptime", headers: []string{"CHECK", "TRẠNG THÁI", "ĐỘ TRỄ", "LẦN CUỐI"}, statusCol: 1, historyCol: -1}
+	for _, check := range report.Checks {
 		line := manageLine{
-			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), relativeAgo(check.At, now)},
+			cells:  []string{check.Name, "UP", (time.Duration(check.LatencyMs) * time.Millisecond).String(), relativeAgo(check.At, report.GeneratedAt)},
 			detail: check.Name + ": up",
 		}
 		if !check.OK {
 			line.severity, line.cells[1], line.detail, line.sub = sevBad, "DOWN", check.Name+": "+check.Error, firstLine(check.Error)
 		}
-		checks.lines = append(checks.lines, line)
+		tab.lines = append(tab.lines, line)
 	}
-	checks.count, checks.alarm = len(checks.lines), hasSeverity(checks.lines, sevBad)
-	alerts := manageTab{title: "Alerts", headers: []string{"ALERT", "TỪ", "NỘI DUNG"}, statusCol: -1, historyCol: -1}
-	for _, alert := range m.report.Alerts {
-		alerts.lines = append(alerts.lines, manageLine{
-			cells:    []string{alert.Key, relativeAgo(alert.Since, now), alert.Message},
+	tab.count, tab.alarm = len(tab.lines), hasSeverity(tab.lines, sevBad)
+	return tab
+}
+
+// alertsTabOf is a line for each open alert.
+func alertsTabOf(report status.Report) manageTab {
+	tab := manageTab{title: "Alerts", headers: []string{"ALERT", "TỪ", "NỘI DUNG"}, statusCol: -1, historyCol: -1}
+	for _, alert := range report.Alerts {
+		tab.lines = append(tab.lines, manageLine{
+			cells:    []string{alert.Key, relativeAgo(alert.Since, report.GeneratedAt), alert.Message},
 			severity: sevBad,
 			detail:   alert.Key + ": " + alert.Message,
 		})
 	}
-	alerts.count, alerts.alarm = len(alerts.lines), len(alerts.lines) > 0
-	return []manageTab{backups, checks, alerts, m.buildDoctorTab(), m.buildConfigTab(), m.buildServerTab()}
+	tab.count, tab.alarm = len(tab.lines), len(tab.lines) > 0
+	return tab
+}
+
+// hasBackupLine says the report has a run of that job into that repository.
+func hasBackupLine(jobs []status.Job, jobRepo jobRepository) bool {
+	return slices.ContainsFunc(jobs, func(latestRun status.Job) bool {
+		return latestRun.Job == jobRepo.job && latestRun.Repository == jobRepo.repository
+	})
 }
 
 // hasSeverity says some line has that severity.
@@ -217,15 +297,6 @@ func (m manageModel) summary() string {
 		rendered[i] = severityStyle(part.level).Render(part.text)
 	}
 	return strings.Join(rendered, dimStyle.Render(separator))
-}
-
-func (m manageModel) hasBackupLine(jobRepo jobRepository) bool {
-	for _, latestRun := range m.report.Jobs {
-		if latestRun.Job == jobRepo.job && latestRun.Repository == jobRepo.repository {
-			return true
-		}
-	}
-	return false
 }
 
 func shortID(id string) string {

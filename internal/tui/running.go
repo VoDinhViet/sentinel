@@ -8,9 +8,9 @@ import (
 	"sentinel/internal/status"
 )
 
-// runningFor is the backup in progress for a job and repository, if there is one.
-func (m manageModel) runningFor(job, repository string) (status.Running, bool) {
-	for _, running := range m.report.Running {
+// runningIn is the backup in progress for a job and repository, if the report has one.
+func runningIn(report status.Report, job, repository string) (status.Running, bool) {
+	for _, running := range report.Running {
 		if running.Job == job && running.Repository == repository {
 			return running, true
 		}
