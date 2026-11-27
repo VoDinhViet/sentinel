@@ -58,7 +58,7 @@ func MissingVars(raw []byte) ([]string, error) {
 // rejectUnknownKeys fails when the document has a key Sentinel does not know. Other decoding problems
 // are left for Parse: before the variables are set, a ${VAR} in a number or a duration does not decode.
 func rejectUnknownKeys(raw []byte) error {
-	err := decodeStrict(raw, &Config{}, false)
+	err := DecodeStrict(raw, &Config{}, false)
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
 		return err
@@ -147,7 +147,7 @@ type ParseOptions struct {
 func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	var cfg Config
 	var err error
-	if err = decodeStrict(raw, &cfg, opts.ExpandEnv); err != nil {
+	if err = DecodeStrict(raw, &cfg, opts.ExpandEnv); err != nil {
 		return nil, err
 	}
 	cfg.applyDefaults()
@@ -160,9 +160,10 @@ func ParseWith(raw []byte, opts ParseOptions) (*Config, error) {
 	return &cfg, nil
 }
 
-// decodeStrict decodes YAML into target, optionally expanding ${VAR} in values,
+// DecodeStrict decodes YAML into target (the config of Sentinel, or another file of the same
+// conventions such as the fleet file), optionally expanding ${VAR} in values,
 // and rejects unknown fields.
-func decodeStrict(raw []byte, target any, expandVars bool) error {
+func DecodeStrict(raw []byte, target any, expandVars bool) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("parse config: %w", err)
