@@ -11,7 +11,7 @@
 
 Sentinel hiện chạy độc lập trên từng server: mỗi daemon tự backup, tự kiểm tra uptime và tự gửi alert. Khi có 5 đến 20 server, muốn biết "server nào đang có vấn đề" phải mở từng máy.
 
-RFC này đề xuất một máy xem (laptop của admin hoặc một server bất kỳ) **kéo** trạng thái từ API của daemon trên từng server, rồi hiện chung trong một lệnh `sentinel fleet` và một tab `Fleet` của `sentinel manage`. Không có server trung tâm, không database trung tâm, không web UI. Các daemon vẫn tự chạy backup và tự gửi alert, nên máy xem tắt thì không có gì mất.
+RFC này đề xuất một máy xem (laptop của admin hoặc một server bất kỳ) **kéo** trạng thái từ API của daemon trên từng server, rồi hiện chung trong lệnh `sentinel fleet` và trong một tab `Fleet`. Máy xem không cần cài Sentinel để backup: `sentinel fleet` chạy được khi không có `config.yaml`. Trên server đã có config thì `sentinel manage` cũng có tab `Fleet`. Không có server trung tâm, không database trung tâm, không web UI. Các daemon vẫn tự chạy backup và tự gửi alert, nên máy xem tắt thì không có gì mất.
 
 ## 2. Bối cảnh và mục tiêu
 
@@ -40,7 +40,7 @@ Thiết kế đẩy (agent đẩy dữ liệu về server trung tâm có web UI)
 | Biết server chết | Gọi không được là biết ngay | Phải đặt hạn "không thấy báo cáo" |
 | Cần mở cổng | Mỗi server mở cổng API | Chỉ server trung tâm mở cổng |
 
-Mặt hạn chế của pull: máy xem phải với tới được từng server (xem mục 9, cách nối mạng). Prometheus cũng chọn pull với các lý do tương tự: phát hiện target chết dễ hơn vì lần scrape thất bại là tín hiệu, và không bị dồn tải khi nhiều target cùng đẩy (xem [tài liệu tham khảo](#12-tài-liệu-tham-khảo)). Prometheus cũng thừa nhận có những tình huống khó dùng pull, như job ngắn hạn; backup của Sentinel không phải trường hợp đó vì daemon sống liên tục.
+Mặt hạn chế của pull: máy xem phải với tới được từng server (xem mục 5, cách nối mạng). Prometheus cũng chọn pull với các lý do tương tự: phát hiện target chết dễ hơn vì lần scrape thất bại là tín hiệu, và không bị dồn tải khi nhiều target cùng đẩy (xem [tài liệu tham khảo](#12-tài-liệu-tham-khảo)). Prometheus cũng thừa nhận có những tình huống khó dùng pull, như job ngắn hạn; backup của Sentinel không phải trường hợp đó vì daemon sống liên tục.
 
 ## 4. Những gì đã có
 
@@ -53,7 +53,7 @@ Mặt hạn chế của pull: máy xem phải với tới được từng server
 
 ## 5. Làm được ngay, chưa cần code
 
-Hai việc dưới đây dùng được với bản hiện tại.
+Ba việc dưới đây dùng được với bản hiện tại.
 
 1. **Báo khi daemon dừng.** Đặt `heartbeat.url` trên từng server. Đây là cách hiện có để biết daemon chết; `sentinel doctor` đã nhắc nếu chưa đặt. Fleet (RFC này) không thay thế heartbeat mà bổ sung một góc nhìn thứ hai từ máy xem.
 2. **Một server gọi `/healthz` của server khác** bằng uptime check có sẵn (`UptimeCheck`, [internal/config/types.go:282](../../internal/config/types.go#L282)):
@@ -82,7 +82,8 @@ Hai việc dưới đây dùng được với bản hiện tại.
 | F3 | Số liệu máy (CPU, RAM, ổ đĩa, systemd unit lỗi) của `host.State` ([internal/host/host.go:27](../../internal/host/host.go#L27)) chỉ hiện trong tab `Server` của TUI, API chưa trả | Tổng hợp nhiều server không thấy ổ đĩa đầy hay unit lỗi |
 | F4 | Chỉ có một token và nó cho phép bắt đầu, dừng backup | Máy chỉ để xem không nên mang quyền ghi |
 | F5 | API không có TLS | Phải nhờ tunnel hoặc reverse proxy; `doctor` luôn cảnh báo khi nghe ngoài loopback |
-| F6 | `tui.RunManage` nhận thẳng `*app.Service` ([internal/tui/manage.go:22](../../internal/tui/manage.go#L22)) | Tab `Fleet` phải đọc từ client HTTP chứ không phải service nội bộ |
+| F6 | `sentinel manage` bắt buộc có `config.yaml` và state DB của chính máy đó ([cmd/sentinel/manage.go](../../cmd/sentinel/manage.go)) | Laptop không chạy backup sẽ không mở được tab `Fleet` trong `manage`; cần một đường vào không cần config |
+| F7 | Daemon không biết gì về các server khác | Không ai canh chừng server nào không truy cập được khi máy xem tắt |
 
 ## 7. Thiết kế đề xuất
 
@@ -91,11 +92,12 @@ Hai việc dưới đây dùng được với bản hiện tại.
 | Thành phần | Tên |
 | --- | --- |
 | Package | `internal/fleet` |
-| Lệnh | `sentinel fleet status`, `sentinel fleet alerts`, `sentinel fleet watch` (đều có `--output json`) |
+| Lệnh | `sentinel fleet status`, `sentinel fleet alerts` (đều có `--output json`); `sentinel fleet` không kèm lệnh con mở TUI chỉ có tab `Fleet` |
 | Config của máy xem | `~/.config/sentinel/fleet.yaml`, khoá gốc `servers:` |
-| Tab của TUI | `Fleet` |
+| Tab của TUI | `Fleet` (tab thứ 7 của `sentinel manage`, và tab duy nhất của `sentinel fleet`) |
+| Canh chừng | khối `fleet:` trong `config.yaml` của daemon, task `fleet:<server>`, alert key `fleet:<server>` |
 | Khoá config mới của daemon | `api.read_token`, `api.tls_cert`, `api.tls_key` |
-| Route mới | `GET /api/v1/host`; thêm trường `version` vào `/api/v1/status` và `/healthz` |
+| Route mới | `GET /api/v1/host`; thêm trường `version` vào `/api/v1/status` (không vào `/healthz`, vì route đó không cần token) |
 | Kiểu | `fleet.Config`, `fleet.Server`, `fleet.Client`, `fleet.ServerStatus` |
 
 `fleet.ServerStatus` là một lần đọc một server (`Report`, `Err`, `FetchedAt`). Không dùng tên `Snapshot` để khỏi nhầm với snapshot của restic.
@@ -114,40 +116,52 @@ servers:
     token: ${SENTINEL_FLEET_TOKEN_DB01}
 ```
 
-Token đọc từ biến môi trường, theo cách config của daemon đã làm. File này phải có mode `0600`; lệnh từ chối chạy nếu rộng hơn. `tls_ca` và `tls_fingerprint` loại trừ nhau.
+Token đọc từ biến môi trường hoặc từ file `fleet.env` nằm cạnh `fleet.yaml`, theo cách `config.yaml` đọc `sentinel.env` (`config.LoadEnvFile`, `config.CheckEnvFile`). Lệnh từ chối chạy nếu `fleet.env` có quyền rộng hơn chủ file. Server dùng cert tự ký thì đặt chính cert đó làm `tls_ca`; không có tuỳ chọn bỏ qua kiểm tra cert hay ghim fingerprint, vì cách đó buộc phải bật `InsecureSkipVerify`.
 
 ### 7.3. Package `internal/fleet`
 
-- `fleet.Client`: client `net/http` cho một server, có timeout, đặt header `Authorization`, giải mã JSON vào `status.Report`. `fleet.Client` cài đặt interface mục 8, nên TUI dùng nó như dùng `app.Service`.
-- `fleet.Fetch(ctx, servers)`: gọi song song có giới hạn (mặc định 8), trả `map[string]ServerStatus` theo tên server (`statusesByServer`). Mỗi server có kết quả riêng. Server không truy cập được cho `Err` khác nil và hiện là "không truy cập được"; nó không làm hỏng danh sách của server khác.
-- Song song giới hạn bằng channel làm semaphore và `sync.WaitGroup`, không thêm `golang.org/x/sync/errgroup` (xem mục 8 và 12).
+- `fleet.Client`: client `net/http` cho một server, có timeout, đặt header `Authorization`, giải mã JSON vào `status.Report`. Các thao tác ở giai đoạn 5 (snapshot, bắt đầu và dừng backup) cũng là method của client này.
+- `fleet.Fetch(ctx, servers, limit)`: gọi song song có giới hạn (mặc định 8), trả `[]ServerStatus` đúng thứ tự trong `fleet.yaml`, để bảng không nhảy dòng giữa các lần đọc. Mỗi server có kết quả riêng. Server không truy cập được cho `Err` khác nil và hiện là "không truy cập được"; nó không làm hỏng danh sách của server khác.
+- Song song giới hạn bằng channel làm semaphore và `sync.WaitGroup`, không thêm `golang.org/x/sync/errgroup` (xem mục 7.8 và 12).
 
 ### 7.4. Lệnh và TUI
 
 - `cmd/sentinel/fleet.go` là lệnh cobra mỏng, chỉ gọi `internal/fleet`. Mô tả lệnh và cờ bằng tiếng Việt, theo quy ước của dự án.
 - `sentinel fleet status`: một dòng mỗi server (tên, daemon chạy hay không, số alert mở, job quá hạn, backup đang chạy, tuổi của dữ liệu). `sentinel fleet alerts`: mọi alert đang mở, có cột server.
-- Tab `Fleet` trong `sentinel manage`. Enter trên một dòng mở một `screen` chỉ đọc (cơ chế ngăn xếp trong [internal/tui/screen.go](../../internal/tui/screen.go)), hiện `status.Report` của server đó.
+- Tab `Fleet` trong `sentinel manage`, và `sentinel fleet` không kèm lệnh con mở TUI chỉ có tab này (trên terminal; không phải terminal thì in help). Enter trên một dòng mở một `screen` chỉ đọc (cơ chế ngăn xếp trong [internal/tui/screen.go](../../internal/tui/screen.go)), hiện `status.Report` của server đó.
 
 ### 7.5. Thay đổi API của daemon
 
 - `GET /api/v1/host`: số liệu của `host.State` (mục F3). Handler chỉ gọi `internal/app`, theo quy ước của `internal/api`.
-- Trường `version` trong `/api/v1/status` và `/healthz`, lấy từ `main.version` ([cmd/sentinel/main.go:21](../../cmd/sentinel/main.go#L21)).
+- Trường `version` trong `status.Report`, lấy từ `main.version` ([cmd/sentinel/main.go:21](../../cmd/sentinel/main.go#L21)). `sentinel status -o json` có cùng trường này. Không đưa vào `/healthz`: route đó mở, không cần token, nên không nên cho biết phiên bản.
 - `api.read_token`: token thứ hai chỉ gọi được các route `GET`. `api.token` giữ toàn quyền. Với `read_token` rỗng thì chỉ có một token như hiện nay.
-- `api.tls_cert` và `api.tls_key`: nếu có, daemon phục vụ HTTPS bằng `crypto/tls` của thư viện chuẩn với `MinVersion` là TLS 1.2. Khi có TLS, `doctor` không cảnh báo nữa.
+- `api.tls_cert` và `api.tls_key`: nếu có, daemon phục vụ HTTPS bằng `crypto/tls` của thư viện chuẩn với `MinVersion` là TLS 1.2. Khi có TLS, `doctor` không cảnh báo nữa. Cert và key được nạp lúc daemon khởi động, nên lỗi lộ ra ngay.
 
 ### 7.6. Tương thích giữa client và server khác version
 
 Các thay đổi trên chỉ **thêm**: route mới, field mới, khoá config mới. Client bỏ qua field lạ, và khi nhận 404 ở `/api/v1/host` thì hiện "server chưa nâng cấp" thay vì báo lỗi. Theo hướng dẫn của Google (AIP-180) thêm field vào response là thay đổi tương thích; không đổi nghĩa hay xoá field của `/api/v1`.
 
-### 7.7. `sentinel fleet watch` (giai đoạn 4)
+### 7.7. Canh chừng trong daemon (giai đoạn 4)
 
-Chạy liên tục trên máy xem hoặc một server cố định, gọi từng server theo chu kỳ và chỉ báo khi:
+Daemon của một server đọc thêm khối `fleet:` trong `config.yaml`, trỏ tới một `fleet.yaml`, rồi chạy mỗi server trong file đó như một task `fleet:<server>` cùng loại với task uptime (`Task`, [internal/daemon/daemon.go](../../internal/daemon/daemon.go)):
 
-- server không truy cập được trong N lần liên tiếp;
+```yaml
+fleet:
+  config: /etc/sentinel/fleet.yaml
+  every: 1m
+  fail_after: 3        # số lần liên tiếp không truy cập được trước khi báo
+  stale_after: 10m     # generated_at cũ hơn mức này thì coi là dữ liệu đứng yên
+```
+
+Task mở alert `fleet:<server>` khi:
+
+- server không truy cập được `fail_after` lần liên tiếp;
 - `daemon_running` là `false`;
-- `generated_at` cũ hơn ngưỡng (dữ liệu đứng yên).
+- `generated_at` cũ hơn `stale_after`.
 
-Nó **không** gửi lại các alert mà từng server đã tự gửi, để khỏi báo trùng. Kênh gửi dùng lại `internal/notify`.
+Hết lỗi thì đóng alert. Làm trong daemon thay vì một lệnh `fleet watch` riêng vì `alert.Manager` đã lo sẵn: lưu trạng thái vào SQLite nên restart không báo lặp, nhắc lại theo cooldown, gửi lại tin lỗi (`RetryPending`) và đóng alert của server đã bỏ khỏi file (`ResolveMissing`). Một lệnh riêng sẽ phải tự viết lại các phần đó và cần thêm một systemd unit.
+
+Task **không** gửi lại các alert mà từng server đã tự gửi, để khỏi báo trùng; nó chỉ báo chuyện mà server kia không tự báo được. Kênh gửi là `notifiers:` của chính daemon.
 
 ### 7.8. Thư viện
 
@@ -157,28 +171,28 @@ RFC này **không thêm dependency nào**. Mọi phần dùng thứ đã có tro
 | --- | --- |
 | Client và TLS | `net/http`, `crypto/tls`, `crypto/x509` (thư viện chuẩn) |
 | Gọi song song có giới hạn | channel và `sync.WaitGroup` (thư viện chuẩn) |
-| Đọc `fleet.yaml` | `go.yaml.in/yaml/v3` và `go-playground/validator/v10`, như `internal/config` |
-| Mở rộng `${VAR}` | `expandEnv` của `internal/config` ([load.go:23](../../internal/config/load.go#L23)); đang là hàm không export, cần export hoặc tách ra để `internal/fleet` dùng chung |
+| Đọc `fleet.yaml` | `go.yaml.in/yaml/v3`; kiểm tra bằng code thường vì file chỉ có vài trường |
+| Đọc YAML và mở rộng `${VAR}` | `decodeStrict` của `internal/config` ([load.go:165](../../internal/config/load.go#L165)) làm cả hai, nhận `target any`; đang không export, giai đoạn 2 export thành `config.DecodeStrict` |
 | Lệnh và TUI | `cobra`, `bubbletea` và `lipgloss`, như hiện nay |
 | Thử lại khi lỗi mạng (nếu cần) | `cenkalti/backoff/v5`, đã dùng trong `internal/notify` |
 
 Nếu khi làm thật thấy cần thêm thư viện, ví dụ `x/sync/errgroup` khi logic huỷ hàng loạt phức tạp hơn dự kiến, thì dừng lại, ghi vào RFC này lý do và phiên bản, và chờ xác nhận trước khi chạy `go get`.
 
-## 8. Refactor cần làm trước tab `Fleet`
+## 8. Refactor cần làm trước
 
-Dùng hướng branch by abstraction: tạo lớp trừu tượng trước, rồi chuyển dần từng chỗ dùng sang nó, mỗi bước build và test xanh.
+Làm theo hướng branch by abstraction: mỗi bước giữ nguyên hành vi, build và test xanh, rồi mới thêm tính năng lên trên. Mỗi bước là một commit riêng.
 
-1. Chuyển interface `api.Backend` về `internal/app` (hoặc khai báo một interface cùng bộ phương thức ở phía TUI). Ghi chú `var _ Backend = (*app.Service)(nil)` vẫn giữ.
-2. Đổi `tui.RunManage(ctx, *app.Service)` sang nhận interface đó. `manageActions` và hàm `jobRepositoriesOfService` đi theo.
-3. Viết `fleet.Client` cài đặt cùng interface. Khi đó TUI không cần biết dữ liệu đến từ máy này hay máy khác.
+1. `api.New(backend, token)` thành `api.New(backend, api.Options{...})`, để thêm version và token chỉ đọc mà không đổi chữ ký hàm nhiều lần (giai đoạn 1).
+2. Export `decodeStrict` thành `config.DecodeStrict`, để `internal/fleet` dùng chung cách đọc YAML (giai đoạn 2).
+3. Tách phần dựng dòng của các tab Backups, Uptime và Alerts trong `tabs()` ([internal/tui/tabs.go:24](../../internal/tui/tabs.go#L24)) thành hàm nhận `status.Report`, để màn hình một server của fleet dùng lại (giai đoạn 3).
 
-Bước 1 và 2 giữ nguyên hành vi, có test kèm, và là một commit riêng trước giai đoạn 3. Không dùng strangler fig: không có hệ thống cũ nào phải thay dần, chỉ có một interface cần nới chỗ dùng.
+Không cần đổi `tui.RunManage` sang nhận interface: TUI đi qua struct `manageActions` ([internal/tui/actions.go:18](../../internal/tui/actions.go#L18)), chỉ có `RunManage` và `newManageActions` chạm tới `*app.Service`. Tab `Fleet` thêm một field vào struct đó, theo mẫu tab Server. Cũng không cần chuyển `api.Backend` sang `internal/app`, vì `fleet.Client` không phải cài đặt của nó. Không dùng strangler fig: không có hệ thống cũ nào phải thay dần.
 
 ## 9. Rủi ro và cách giảm
 
 | Rủi ro | Cách giảm |
 | --- | --- |
-| Lộ token (token đi qua mạng) | Mỗi server một token, đọc từ biến môi trường, không ghi vào log; dùng tunnel hoặc TLS (7.5); `fleet.yaml` mode `0600` |
+| Lộ token (token đi qua mạng) | Mỗi server một token, đọc từ biến môi trường, không ghi vào log; dùng tunnel hoặc TLS (7.5); `fleet.env` bị từ chối nếu quyền rộng hơn chủ file |
 | Máy xem bị chiếm thì điều khiển được mọi server | Máy xem dùng `read_token`; token ghi chỉ cấp khi tới giai đoạn 5 |
 | Đồng hồ các máy lệch nhau làm `generated_at` sai | So `generated_at` với giờ máy xem có dung sai, và hiện tuổi dữ liệu thay vì giờ tuyệt đối |
 | Endpoint chậm (snapshots, doctor tới 100 giây, `slowCallTimeout` ở [internal/api/handlers.go:13](../../internal/api/handlers.go#L13)) | `fleet status` chỉ gọi `/api/v1/status` (nhanh); snapshots và doctor chỉ gọi khi người dùng mở xem |
@@ -192,11 +206,11 @@ Mỗi giai đoạn nhỏ, có test riêng và `make test` xanh.
 
 | Giai đoạn | Nội dung |
 | --- | --- |
-| 0 | Chỉ cấu hình, không code: heartbeat, uptime check `/healthz`, SSH tunnel (mục 5) |
-| 1 | API: `GET /api/v1/host`, `version`, `api.read_token` |
+| 0 | Tài liệu, không code: sửa RFC cho khớp code, README hướng dẫn chạy nhiều server bằng heartbeat, uptime check `/healthz` và SSH tunnel (mục 5) |
+| 1 | API của daemon: `version`, `api.read_token`, `GET /api/v1/host` |
 | 2 | `internal/fleet`, `sentinel fleet status`, `sentinel fleet alerts` |
-| 3 | Refactor mục 8, rồi tab `Fleet` trong TUI |
-| 4 | `sentinel fleet watch`, `api.tls_cert` và `api.tls_key` |
+| 3 | Tab `Fleet` trong `sentinel manage`, màn hình một server, `sentinel fleet` mở TUI riêng |
+| 4 | HTTPS cho API (`api.tls_cert`, `api.tls_key`), canh chừng trong daemon (mục 7.7) |
 | 5 | Thao tác từ xa trong TUI (xem snapshot, bắt đầu và dừng backup) với token có quyền ghi |
 
 Giai đoạn 1 và 2 đủ để dùng được; từ giai đoạn 3 trở đi là tiện dụng thêm.
