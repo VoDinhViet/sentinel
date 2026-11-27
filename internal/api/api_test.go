@@ -109,6 +109,24 @@ func TestStatusIsTheJSONOfTheStatusCommand(t *testing.T) {
 	}
 }
 
+func TestStatusCarriesTheVersionOfTheBinary(t *testing.T) {
+	for _, version := range []string{"v1.2.3", ""} {
+		t.Run("version "+version, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/v1/status", nil)
+			req.Header.Set("Authorization", "Bearer "+testToken)
+			rec := httptest.NewRecorder()
+			New(&fakeBackend{}, Options{Token: testToken, Version: version}).Handler().ServeHTTP(rec, req)
+			var report status.Report
+			if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil || report.Version != version {
+				t.Errorf("version = %q, err %v, want %q (body %s)", report.Version, err, version, rec.Body)
+			}
+			if version == "" && strings.Contains(rec.Body.String(), `"version"`) {
+				t.Errorf("an unset version is in the report: %s", rec.Body)
+			}
+		})
+	}
+}
+
 func TestAlertsAreAnEmptyListNotNull(t *testing.T) {
 	rec := call(t, &quietBackend{}, "GET", "/api/v1/alerts", testToken)
 	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {

@@ -13,6 +13,9 @@ import (
 )
 
 type Report struct {
+	// Version is the Sentinel release that built the report: the API and `sentinel status` fill it,
+	// status.Build does not know it. A client uses it to tell which server runs an older binary.
+	Version     string    `json:"version,omitempty"`
 	Server      string    `json:"server"`
 	GeneratedAt time.Time `json:"generated_at"`
 	// DaemonRunning says whether `sentinel run` holds the state directory's lock; absent when it

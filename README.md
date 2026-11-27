@@ -163,7 +163,7 @@ Token bắt buộc, kể cả khi chỉ nghe trên `127.0.0.1`. Mọi route `/ap
 | Route | Việc |
 |---|---|
 | `GET /healthz` | daemon còn sống |
-| `GET /api/v1/status` | cùng JSON với `sentinel status --output json` |
+| `GET /api/v1/status` | cùng JSON với `sentinel status --output json`; trường `version` cho biết bản Sentinel đang chạy (`dev` nếu build không đặt version) |
 | `GET /api/v1/alerts` | các cảnh báo đang mở |
 | `GET /api/v1/jobs` | các cặp job và repository trong config |
 | `GET /api/v1/jobs/{job}/snapshots?repository=<tên>` | snapshot của job, mới nhất trước |

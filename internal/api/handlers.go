@@ -23,6 +23,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	report.Version = s.opts.Version
 	writeJSON(w, http.StatusOK, report)
 }
 

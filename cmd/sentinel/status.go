@@ -35,6 +35,7 @@ func (a *cliApp) statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			report.Version = version
 			if running, err := (&backup.Runner{Config: cfg}).DaemonRunning(); err == nil {
 				report.DaemonRunning = &running
 			}
