@@ -57,6 +57,7 @@ func fetchOne(ctx context.Context, server Server) ServerStatus {
 	answer := ServerStatus{Server: server}
 	client, err := NewClient(server)
 	if err == nil {
+		defer client.Close()
 		answer.Report, err = client.Status(ctx)
 	}
 	answer.Err = err
@@ -72,5 +73,6 @@ func ReadHost(ctx context.Context, server Server) (HostStatus, error) {
 	if err != nil {
 		return HostStatus{}, err
 	}
+	defer client.Close()
 	return client.Host(ctx)
 }

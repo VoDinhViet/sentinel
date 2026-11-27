@@ -30,7 +30,7 @@ func TestStatusAsksWithTheTokenAndReadsTheReport(t *testing.T) {
 	var sent string
 	client := newClientOf(t, func(w http.ResponseWriter, r *http.Request) {
 		sent = r.Method + " " + r.URL.Path + " " + r.Header.Get("Authorization")
-		w.Write([]byte(`{"version":"v1.2.3","server":"web-01","alerts":[{"key":"stale:shop","message":"no backup"}],"jobs":[],"checks":[],"running":[]}`))
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","version":"v1.2.3","server":"web-01","alerts":[{"key":"stale:shop","message":"no backup"}],"jobs":[],"checks":[],"running":[]}`))
 	})
 	report, err := client.Status(context.Background())
 	if err != nil {
@@ -111,9 +111,12 @@ func TestAnAnswerThatIsNotAReportIsAnError(t *testing.T) {
 	huge := strings.Repeat("x", maxBody+1)
 	tests := map[string]string{
 		"not json":         "<html>login</html>",
-		"too large":        `{"server":"` + huge + `"}`,
+		"too large":        `{"generated_at":"2026-11-27T10:00:00Z","server":"` + huge + `"}`,
 		"wrong shape":      `["a"]`,
-		"truncated report": `{"server":"web-01"`,
+		"empty object":     `{}`,
+		"null":             `null`,
+		"other json":       `{"status":"ok"}`,
+		"truncated report": `{"generated_at":"2026-11-27T10:00:00Z","server":"web-01"`,
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -122,6 +125,19 @@ func TestAnAnswerThatIsNotAReportIsAnError(t *testing.T) {
 				t.Error("no error")
 			}
 		})
+	}
+}
+
+func TestAVersionThatIsTooLongIsCut(t *testing.T) {
+	client := newClientOf(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","version":"` + strings.Repeat("v", 100_000) + `","server":"web-01"}`))
+	})
+	report, err := client.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len([]rune(report.Version)); got != maxNameRunes {
+		t.Errorf("version has %d runes, want %d", got, maxNameRunes)
 	}
 }
 
@@ -155,7 +171,7 @@ func TestTheAddressMayHaveAPathAndATrailingSlash(t *testing.T) {
 	var path string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
-		w.Write([]byte(`{}`))
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z"}`))
 	}))
 	defer srv.Close()
 	client, err := NewClient(Server{Name: "web-01", URL: srv.URL + "/sentinel/", Token: goodToken})
@@ -179,7 +195,9 @@ func writeCertificateOf(t *testing.T, srv *httptest.Server) string {
 }
 
 func TestHTTPSNeedsTheAuthorityOfTheServer(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{"server":"web-01"}`)) }))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","server":"web-01"}`))
+	}))
 	defer srv.Close()
 
 	trusted, err := NewClient(Server{Name: "web-01", URL: srv.URL, Token: goodToken, TLSCA: writeCertificateOf(t, srv)})
@@ -219,7 +237,7 @@ func TestWhatAServerSaysIsCleanedOfEscapeSequences(t *testing.T) {
 			w.Write([]byte(`{"hostname":"web\u001b[2J-01","disks":[{"mount":"/\u001b]0;x\u0007"}],"sentinel":{"name":"s\u001b[31m"},"failed_units":[{"description":"d\u001b[0m"}],"errors":["e\u001b[1m"]}`))
 			return
 		}
-		w.Write([]byte(`{"version":"v1\u001b[2J","server":"a\u001b[31mb","alerts":[{"key":"k\u001b[0m","message":"m\u001b]52;c;x\u0007"}],` +
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","version":"v1\u001b[2J","server":"a\u001b[31mb","alerts":[{"key":"k\u001b[0m","message":"m\u001b]52;c;x\u0007"}],` +
 			`"jobs":[{"job":"j\u001b[1m","repository":"r","result":"FAILED\u001b[2J","error":"e\u0007","recent":["ok\u001b[0m"]}],` +
 			`"checks":[{"name":"c\u001b[1m","error":"x\u001b[2J"}],"running":[{"job":"j\u001b[1m","summary":"s\u001b[0m"}]}`))
 	})

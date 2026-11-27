@@ -10,9 +10,17 @@ import (
 // What a server sends is text from outside this machine, and the screens print it. The client
 // cleans it once, here, so no screen has to remember to.
 
+// maxNameRunes is the most of a server's own name or version that is kept: they end up in alerts.
+const maxNameRunes = 64
+
+// cleanName cleans a short word that a server names itself by, and cuts it to maxNameRunes.
+func cleanName(text string) string {
+	return termtext.Shorten(termtext.Clean(text), maxNameRunes)
+}
+
 // cleanReport returns the report with the control characters and escape sequences of its text removed.
 func cleanReport(report status.Report) status.Report {
-	report.Version, report.Server = termtext.Clean(report.Version), termtext.Clean(report.Server)
+	report.Version, report.Server = cleanName(report.Version), cleanName(report.Server)
 	report.Alerts = slices.Clone(report.Alerts)
 	for i, alert := range report.Alerts {
 		report.Alerts[i].Key, report.Alerts[i].Message = termtext.Clean(alert.Key), termtext.Clean(alert.Message)

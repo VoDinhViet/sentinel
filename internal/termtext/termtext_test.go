@@ -38,3 +38,25 @@ func TestClean(t *testing.T) {
 		})
 	}
 }
+
+func TestShortenCutsTextToTheLimit(t *testing.T) {
+	tests := map[string]struct {
+		text  string
+		limit int
+		want  string
+	}{
+		"short enough":  {"abc", 3, "abc"},
+		"one over":      {"abcd", 3, "ab…"},
+		"counts runes":  {"Việt Nam", 5, "Việt…"},
+		"empty":         {"", 3, ""},
+		"limit of zero": {"abc", 0, "…"},
+		"limit of one":  {"abc", 1, "…"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := Shorten(tc.text, tc.limit); got != tc.want {
+				t.Errorf("Shorten(%q, %d) = %q, want %q", tc.text, tc.limit, got, tc.want)
+			}
+		})
+	}
+}

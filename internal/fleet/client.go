@@ -21,7 +21,7 @@ const (
 	// requestTimeout ends a call to one server, whatever it is doing.
 	requestTimeout = 15 * time.Second
 	// maxBody is the most a server may answer: a report is a few KiB, so more is a fault or an attack.
-	maxBody = 8 << 20
+	maxBody = 1 << 20
 )
 
 var (
@@ -29,6 +29,8 @@ var (
 	ErrUnauthorized = errors.New("the token was refused")
 	// ErrNotSupported is a server that has no such route: it runs an older Sentinel.
 	ErrNotSupported = errors.New("the server does not have this route (an older Sentinel?)")
+	// ErrNotSentinel is an answer that is valid JSON but no report: a proxy, or another service, answers at that address.
+	ErrNotSentinel = errors.New("the answer is not a Sentinel report")
 )
 
 // Client calls the API of one server.
@@ -75,10 +77,18 @@ func transportFor(server Server) (*http.Transport, error) {
 	return transport, nil
 }
 
+// Close lets go of the connections kept open for the next call. A client is made for one round of
+// calls, so nothing waits for the idle timeout.
+func (c *Client) Close() { c.http.CloseIdleConnections() }
+
 // Status is the report of the server (GET /api/v1/status), its text cleaned of control characters.
+// An answer that has no time of its own ({} or null, which any 200 JSON would be) is not a report.
 func (c *Client) Status(ctx context.Context) (status.Report, error) {
 	var report status.Report
 	err := c.get(ctx, "/api/v1/status", &report)
+	if err == nil && report.GeneratedAt.IsZero() {
+		err = fmt.Errorf("server %s: %w", c.server.Name, ErrNotSentinel)
+	}
 	return cleanReport(report), err
 }
 
@@ -141,7 +151,7 @@ func decodeBody(serverName string, body io.Reader, target any) error {
 		return fmt.Errorf("server %s: the answer is larger than %d MiB", serverName, maxBody>>20)
 	}
 	if err := json.Unmarshal(answer, target); err != nil {
-		return fmt.Errorf("server %s: the answer is not a Sentinel report: %w", serverName, err)
+		return fmt.Errorf("server %s: %w: %w", serverName, ErrNotSentinel, err)
 	}
 	return nil
 }

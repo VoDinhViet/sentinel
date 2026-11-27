@@ -44,8 +44,8 @@ func writeFleetConfig(t *testing.T, servers ...[2]string) string {
 }
 
 const (
-	healthyReport  = `{"version":"v1.2.0","server":"web-01","alerts":[],"jobs":[{"job":"appdb","repository":"s3","success":true}],"checks":[{"name":"site","ok":true}],"running":[]}`
-	troubledReport = `{"version":"v1.1.0","server":"db-01","alerts":[{"key":"stale:shop","message":"no backup for 3 days \u001b[31mred","since":"2026-11-24T10:00:00Z"}],` +
+	healthyReport  = `{"generated_at":"2026-11-27T10:00:00Z","version":"v1.2.0","server":"web-01","alerts":[],"jobs":[{"job":"appdb","repository":"s3","success":true}],"checks":[{"name":"site","ok":true}],"running":[]}`
+	troubledReport = `{"generated_at":"2026-11-27T10:00:00Z","version":"v1.1.0","server":"db-01","alerts":[{"key":"stale:shop","message":"no backup for 3 days \u001b[31mred","since":"2026-11-24T10:00:00Z"}],` +
 		`"jobs":[{"job":"shop","repository":"s3","success":false}],"checks":[{"name":"db-port","ok":false}],"running":[{"job":"x"}]}`
 )
 

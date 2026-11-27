@@ -33,6 +33,16 @@ func Clean(text string) string {
 	return cleaned.String()
 }
 
+// Shorten returns text cut to at most limit runes, with … in place of what was cut. Text that a remote
+// server chooses (a version, an error) would otherwise let it fill a chat message or the alert store.
+func Shorten(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:max(limit-1, 0)]) + "…"
+}
+
 // endOfEscape returns the index of the last rune of the escape sequence that starts with the ESC at runes[start].
 func endOfEscape(runes []rune, start int) int {
 	if start+1 >= len(runes) {

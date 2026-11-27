@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,10 +17,39 @@ func serverReporting(t *testing.T, name string, delay time.Duration) Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(delay)
-		w.Write([]byte(`{"server":"` + name + `"}`))
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","server":"` + name + `"}`))
 	}))
 	t.Cleanup(srv.Close)
 	return Server{Name: name, URL: srv.URL, Token: goodToken}
+}
+
+// A round of calls is made every minute for as long as the daemon runs: it must not leave a
+// connection open per server that waits for the idle timeout.
+func TestFetchClosesTheConnectionsItOpened(t *testing.T) {
+	var open atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z","server":"a"}`))
+	}))
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			open.Add(1)
+		case http.StateClosed:
+			open.Add(-1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	statuses := Fetch(context.Background(), []Server{{Name: "a", URL: srv.URL, Token: goodToken}}, 0)
+	if statuses[0].Err != nil {
+		t.Fatal(statuses[0].Err)
+	}
+	for deadline := time.Now().Add(2 * time.Second); open.Load() != 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if open.Load() != 0 {
+		t.Errorf("%d connections are still open after the round", open.Load())
+	}
 }
 
 func TestFetchAnswersInTheOrderOfTheServers(t *testing.T) {
@@ -47,7 +77,7 @@ func TestFetchAsksNoMoreThanTheLimitAtOnce(t *testing.T) {
 		for most := mostInFlight.Load(); now > most && !mostInFlight.CompareAndSwap(most, now); most = mostInFlight.Load() {
 		}
 		time.Sleep(40 * time.Millisecond)
-		w.Write([]byte(`{}`))
+		w.Write([]byte(`{"generated_at":"2026-11-27T10:00:00Z"}`))
 	}))
 	defer srv.Close()
 	var servers []Server
