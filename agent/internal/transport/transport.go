@@ -6,19 +6,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"time"
 
 	"sentinel/pkg/agentapi"
-	"sentinel/pkg/pki"
 )
 
 // Files of the identity of the agent, in its directory. They are under the state directory, not /etc,
@@ -124,30 +120,18 @@ func newStatusError(status int, answer []byte) *statusError {
 
 func (e *statusError) Error() string { return fmt.Sprintf("%s (%d)", e.message, e.status) }
 
+// IsStatus says whether err is the control plane answering with this HTTP status.
+func IsStatus(err error, status int) bool {
+	var answer *statusError
+	return errors.As(err, &answer) && answer.status == status
+}
+
 // WhoAmI asks the control plane who it takes this agent for, with the certificate in dir. It proves the
 // certificate works end to end: signed by the CA the control plane has, and not revoked.
 func WhoAmI(ctx context.Context, dir, rawURL string) (agentapi.WhoAmI, error) {
-	where, err := parseAddress(rawURL)
+	client, err := NewClient(dir, rawURL)
 	if err != nil {
 		return agentapi.WhoAmI{}, err
 	}
-	cert, err := tls.LoadX509KeyPair(filepath.Join(dir, CertFile), filepath.Join(dir, KeyFile))
-	if err != nil {
-		return agentapi.WhoAmI{}, fmt.Errorf("the agent's certificate in %s: %w", dir, err)
-	}
-	caPEM, err := os.ReadFile(filepath.Join(dir, CAFile))
-	if err != nil {
-		return agentapi.WhoAmI{}, err
-	}
-	ca, err := pki.ParseCert(caPEM)
-	if err != nil {
-		return agentapi.WhoAmI{}, err
-	}
-	pool := x509.NewCertPool()
-	pool.AddCert(ca)
-	config := pki.ClientTLSConfig(pool, &cert)
-	config.ServerName = where.host
-	var who agentapi.WhoAmI
-	err = call(ctx, newHTTPClient(config), http.MethodGet, where.base+agentapi.RouteWhoAmI, nil, &who)
-	return who, err
+	return client.WhoAmI(ctx)
 }

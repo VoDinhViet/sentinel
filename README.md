@@ -254,7 +254,7 @@ Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
 
 ## Control plane
 
-Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl`, chỉ có dòng lệnh, không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit. Báo cáo tình trạng, tác vụ từ xa và TUI sẽ đến ở các bước sau. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
+Control plane là `sentinel-server`: các server chủ động kết nối ra nó (mutual TLS, TLS 1.3), nên **server của bạn không mở cổng nào cho nó**. Bạn điều khiển bằng `sentinelctl`, chỉ có dòng lệnh, không có web. Thiết kế nằm ở [RFC 0002](docs/rfc/0002-agent-control-plane.md). Hiện đã có: thêm và thu hồi server, đăng nhập, nhật ký audit, báo cáo tình trạng từng server, cảnh báo khi server mất liên lạc, tự gia hạn chứng chỉ. Tác vụ từ xa và TUI sẽ đến ở các bước sau. Cách xem nhiều server bằng `sentinel fleet` ở trên vẫn chạy, và sẽ được control plane thay thế.
 
 ### Cài control plane
 
@@ -290,18 +290,31 @@ sudo sentinel agent join --url https://ctl.example.com:9320 --token <join token>
 
 Join token dùng một lần và hết hạn sau 24 giờ. Khoá riêng được tạo trên máy này và không rời khỏi nó; control plane đặt tên theo token chứ không theo lời khai của máy. Máy chỉ tin control plane có CA khớp fingerprint nên không phải chép file CA. Khoá, chứng chỉ (hạn 90 ngày) và CA nằm trong thư mục `agent/` cạnh file store (mặc định `/var/lib/sentinel/agent`). Muốn tránh token hiện trong `ps`, dùng `--token-stdin`.
 
+Join xong, lệnh in đoạn cần thêm vào `/etc/sentinel/config.yaml` rồi khởi động lại `sentinel`:
+
+```yaml
+control_plane:
+  url: "https://ctl.example.com:9320"
+```
+
+Từ đó daemon báo cáo cho control plane mỗi phút (máy, kết quả backup, uptime check, cảnh báo đang mở) và tự xin chứng chỉ mới khi còn dưới 30 ngày, không cần ai làm gì. Control plane không chạy thì daemon vẫn backup và tự cảnh báo như cũ; `sentinel doctor` có dòng `control_plane` cho biết danh tính và kết nối có ổn không.
+
 ### Dùng hằng ngày
 
 | Lệnh | Việc |
 |---|---|
 | `sentinelctl login` / `logout` | Đăng nhập (phiên 12 giờ, hoặc 1 giờ không dùng) / kết thúc phiên |
 | `sentinelctl passwd` | Đổi mật khẩu đăng nhập; mọi phiên kết thúc |
-| `sentinelctl server ls [-o json]` | Các server và trạng thái: chờ join, hoạt động, đã thu hồi |
+| `sentinelctl server ls [-o json]` | Các server: trạng thái (PENDING, ONLINE, OFFLINE, REVOKED), lần cuối báo cáo, phiên bản, hạn chứng chỉ |
+| `sentinelctl server show <tên> [-o json]` | Một server: máy (CPU, RAM, ổ đĩa), backup từng job, uptime check, cảnh báo đang mở trên nó |
+| `sentinelctl alert [-o json]` | Cảnh báo của chính control plane đang mở |
 | `sentinelctl server add <tên>` | Tạo join token |
 | `sentinelctl server revoke <tên> [--yes]` | Thu hồi: chứng chỉ bị từ chối từ request kế tiếp. Hỏi gõ lại tên |
 | `sentinelctl audit [-n 50] [-o json]` / `audit verify` | Ai đã làm gì từ đâu / kiểm tra chuỗi hash |
 
 Chỉ có một mật khẩu đăng nhập, không có người dùng hay vai trò: đã đăng nhập là có toàn quyền trên control plane; quyền thật sự trên mỗi server nằm ở allowlist local của agent. Sai mật khẩu 5 lần liên tiếp thì địa chỉ đó bị chặn 15 phút; toàn server quá 30 lần sai trong một giờ thì mỗi địa chỉ chỉ được thử một lần. Phiên lưu trong `~/.config/sentinel/session` (mode 0600; file mà người khác đọc được bị từ chối). Nhật ký audit chỉ ghi thêm và nối hash, nên sửa hay xoá một dòng đều bị `audit verify` báo; mỗi dòng cũng được ghi ra journal của service.
+
+Control plane tự cảnh báo hai việc mà từng server không tự báo được: **server mất liên lạc** (`agent:<tên>`, Critical, sau `offline_after` — mặc định 2 phút — không nghe gì; trong vài phút đầu sau khi control plane khởi động thì chưa báo, vì các server cần thời gian tìm lại nó) và **chứng chỉ sắp hết hạn** (`agent-cert:<tên>`, Warning, còn dưới 14 ngày, tức là gia hạn tự động đã hỏng từ lâu). Cảnh báo gửi qua `notifiers` trong `server.yaml` (cùng kiểu với agent: telegram, smtp, discord, slack), nhắc lại sau mỗi `cooldown` nếu chưa xử lý, và đóng khi server báo lại. Backup lỗi hay đầy ổ đĩa trên một server thì chính server đó gửi, control plane không gửi lại. Để biết khi chính control plane chết, đặt `heartbeat` trong `server.yaml` trỏ tới healthchecks.io hoặc Uptime Kuma.
 
 ## Khôi phục dữ liệu
 

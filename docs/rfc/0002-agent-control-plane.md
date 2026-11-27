@@ -135,16 +135,18 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 | --- | --- |
 | `POST /v1/enroll/join` | `{token, csr}` → `{name, cert, ca, not_after}`; không cần client cert; giới hạn tần suất theo IP, body tối đa 16 KiB |
 | `GET /v1/agent/whoami` | → `{name, cert_not_after}`: control plane đọc tên từ cert; dùng để kiểm tra cert hoạt động |
-| `POST /v1/agent/report` | `{version, sent_at, status, host, backup_runs, allow}` → `{server_time, report_every_s, backup_run_cursor, renew}` |
-| `POST /v1/agent/renew` | `{csr_pem}` → `{cert_pem, not_after}` |
+| `POST /v1/agent/report` | `{version, sent_at, host, backups, checks, alerts}` → `{server_time, report_every_s}`; body tối đa 512 KiB, mỗi danh sách tối đa 200 phần tử, mọi chuỗi qua `termtext.Clean` và bị cắt; trường lạ được bỏ qua (agent mới hơn server vẫn báo được) |
+| `POST /v1/agent/renew` | `{csr}` → `{cert, not_after}`; chỉ khi cert hiện tại còn dưới 45 ngày; cert cũ vẫn dùng được đến hết hạn |
 | `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]` |
 | `POST /v1/agent/tasks/{id}/result` | `{state, started_at, finished_at, output, error}` → 204 |
 | `POST /v1/agent/tasks/{id}/log` | một đoạn log của task (có giới hạn kích thước) |
 
-- `backup_runs` là các dòng có `id` lớn hơn cursor, tối đa 500; cần `store.BackupRunsAfter` trên agent.
-- `allow` là danh sách action mà agent đang cho phép; server từ chối sớm task không nằm trong đó.
+- `backups` là lần chạy mới nhất của từng job vào từng repository. Lịch sử các lần chạy (`backup_runs` với cursor) và `host_samples` thuộc giai đoạn 14, vì khi đó agent gửi lại từ cursor 0 nên không mất gì.
+- `allow` (action agent cho phép) sẽ vào report cùng `control_plane.allow` ở giai đoạn 9.
+- `report_every_s` là nhịp server muốn (agent giữ trong 15 giây đến 10 phút, lệch ±10%); `server_time` để agent báo khi đồng hồ lệch quá 2 phút.
+- Agent gia hạn khi cert còn dưới 30 ngày. Khoá mới được sinh mỗi lần; khoá và cert mới ghi thành `key.next.pem`, `cert.next.pem` rồi `rename` đè, và `LoadIdentity` chọn cặp khớp nhau, nên mất điện giữa chừng không khoá agent ra ngoài.
 - Một lần poll mới của cùng agent huỷ lần poll trước.
-- Agent report mỗi 60 giây (lệch ±10%), poll liên tục. Gặp 401 thì dừng và ghi log, không lặp nóng.
+- Agent report mỗi 60 giây (lệch ±10%), poll liên tục. Gặp 401 thì ghi log lỗi rồi im một giờ mới hỏi lại (không lặp nóng, nhưng cũng không bỏ hẳn: một agent được đặt lại sẽ tự về).
 
 ## 9. Đăng nhập
 
@@ -203,9 +205,9 @@ SQLite (`modernc.org/sqlite`), migration nhúng bằng `embed` ở `server/inter
 | Migration | Bảng |
 | --- | --- |
 | 1, 2 | `agents`, `join_tokens`, `certs`, `login` (một dòng; migration 2 đổi tên từ `admin`: `password_hash`, `changed_at`), `sessions`, `login_failures`, `audit_log` (trigger chặn UPDATE/DELETE, chuỗi hash), `alerts` |
-| 2 | `agent_reports`, `host_samples`, `backup_runs` |
-| 3 | `tasks` (queued/sent/succeeded/failed/refused/canceled/expired), `task_logs` |
-| 4 | `schedules`, `maintenance` |
+| 3 | `agent_reports` (báo cáo mới nhất của mỗi agent) |
+| 4 | `tasks` (queued/sent/succeeded/failed/refused/canceled/expired), `task_logs` |
+| 5 | `schedules`, `maintenance` |
 
 Audit: mỗi dòng có `hash = sha256(prev_hash ‖ nội dung chuẩn hoá)`; `sentinel-server audit verify` kiểm tra chuỗi. Mỗi entry cũng ghi `slog` để journald giữ bản thứ hai.
 
@@ -226,6 +228,7 @@ Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `al
 - Cửa sổ bảo trì tắt `agent:` và đặt trạng thái `MAINTENANCE`.
 - Control plane **không** chuyển tiếp alert mà agent đã tự gửi; nó chỉ báo điều agent không tự báo được.
 - Đặt `heartbeat.url` cho chính control plane để biết khi nó chết.
+- `server.yaml` có `notifiers`, `cooldown` (mặc định 1 giờ) và `heartbeat`, cùng kiểu với config của agent. Server không dùng thư viện validator của agent nên `notify.Settings.Validate` và `HeartbeatSettings.Validate` (trong `pkg/notify`) kiểm tra các trường bắt buộc và URL https. Alert lưu trong bảng `alerts`, sống qua lần khởi động lại.
 
 ## 14. CLI và TUI
 
@@ -273,7 +276,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 4 | `pkg/pki` |
 | 5 | Lõi server: config, store, auth, audit, enroll, `sentinel-server init\|enroll\|passwd` |
 | 6 | `httpapi`, `serve`, join, `sentinelctl login\|logout\|passwd\|server\|audit`, `deploy/server/` (`deploy/` chưa đổi thành `deploy/agent/`: đường dẫn trong release và `install.sh` mà vận hành đang dùng, làm riêng khi kiểm tra được `make dist`) |
-| 7 | Report, cảnh báo offline, gia hạn cert |
+| 7 | Report, cảnh báo offline, gia hạn cert, `sentinelctl server show\|alert`, `control_plane` trong config agent, notifiers trong `server.yaml` (`host_samples` và `backup_runs` dời sang 14) |
 | 8 | TUI của `sentinelctl` |
 | 9 | Task engine và action backup, log qua SSE |
 | 10 | Xoá mô hình pull (mục 15) |

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type Config struct {
 	Alert          AlertSettings            `yaml:"alert"`
 	Disk           DiskSettings             `yaml:"disk"`
 	Heartbeat      notify.HeartbeatSettings `yaml:"heartbeat"`
+	ControlPlane   ControlPlane             `yaml:"control_plane"`
 	Fleet          Fleet                    `yaml:"fleet"`
 	API            API                      `yaml:"api"`
 	Repositories   map[string]Repository    `yaml:"repositories" validate:"dive"`
@@ -73,6 +75,32 @@ type AlertSettings struct {
 	Cooldown time.Duration `yaml:"cooldown"`
 	// NotifySuccess sends a message after every successful backup.
 	NotifySuccess bool `yaml:"notify_success"`
+}
+
+// ControlPlane connects this agent to a control plane (sentinel-server): the daemon reports to it every
+// minute or so and renews its certificate. It is off when URL is empty, and the agent then works alone.
+// The key, certificate and CA come from `sentinel agent join`; they are not in this file.
+type ControlPlane struct {
+	// URL is the address of the agents' port of the control plane, https://host:9320.
+	URL string `yaml:"url" validate:"omitempty,https_url"`
+	// Dir holds the key, certificate and CA that `sentinel agent join` wrote. Empty means the agent
+	// directory next to the store.
+	Dir string `yaml:"dir" validate:"omitempty,abspath"`
+}
+
+// Enabled says the daemon reports to a control plane.
+func (c ControlPlane) Enabled() bool { return c.URL != "" }
+
+// ControlPlaneDirName is the directory of the identity, inside the one the store is in. It is not under
+// /etc: the unit's ProtectSystem=full makes /etc read-only, and a renewed certificate has to be written.
+const ControlPlaneDirName = "agent"
+
+// ControlPlaneDir is where the identity of this agent is kept.
+func (c *Config) ControlPlaneDir() string {
+	if c.ControlPlane.Dir != "" {
+		return c.ControlPlane.Dir
+	}
+	return filepath.Join(filepath.Dir(c.StorePath), ControlPlaneDirName)
 }
 
 // DefaultFleetEvery is how often the servers of the fleet are asked when the config sets no interval.

@@ -86,6 +86,9 @@ func TestAgentJoinTakesTheTokenFromStdinAndSavesTheIdentity(t *testing.T) {
 	if strings.Contains(out, "good-token") {
 		t.Errorf("the token was printed:\n%s", out)
 	}
+	if !strings.Contains(out, "control_plane:") || !strings.Contains(out, url) {
+		t.Errorf("the output does not say what to add to the config:\n%s", out)
+	}
 	for _, file := range []string{transport.KeyFile, transport.CertFile, transport.CAFile} {
 		if _, err := os.Stat(filepath.Join(dir, file)); err != nil {
 			t.Errorf("%s: %v", file, err)

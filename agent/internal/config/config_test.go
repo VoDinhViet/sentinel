@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"sentinel/agent/internal/transport"
 	"sentinel/pkg/notify"
 )
 
@@ -593,5 +594,46 @@ func TestAPITokenIsCheckedAfterTheVariableIsExpanded(t *testing.T) {
 	t.Setenv("API_TOKEN", "0123456789abcdef")
 	if _, err := Parse([]byte("api: { listen: '127.0.0.1:9311', token: '${API_TOKEN}' }")); err != nil {
 		t.Errorf("a long value is accepted: %v", err)
+	}
+}
+
+func TestControlPlaneIsOffByDefaultAndKeepsItsIdentityBesideTheStore(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	cfg, err := Parse([]byte(validYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ControlPlane.Enabled() {
+		t.Error("the control plane is on without a url")
+	}
+	if got, want := cfg.ControlPlaneDir(), "/tmp/agent"; got != want {
+		t.Errorf("ControlPlaneDir = %q, want %q (next to the store)", got, want)
+	}
+	with, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", dir: /srv/id }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !with.ControlPlane.Enabled() || with.ControlPlaneDir() != "/srv/id" {
+		t.Errorf("control plane = %+v, dir %q", with.ControlPlane, with.ControlPlaneDir())
+	}
+}
+
+func TestControlPlaneNeedsAnHTTPSURLAndAnAbsoluteDir(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	for name, extra := range map[string]string{
+		"http url":     "control_plane: { url: \"http://cp.example.com:9320\" }\n",
+		"relative dir": "control_plane: { url: \"https://cp.example.com:9320\", dir: id }\n",
+	} {
+		if _, err := Parse([]byte(validYAML + extra)); err == nil || !strings.Contains(err.Error(), "control_plane") {
+			t.Errorf("%s: err = %v, want a complaint about control_plane", name, err)
+		}
+	}
+}
+
+func TestTheIdentityDirectoryIsTheOneJoinWrites(t *testing.T) {
+	if ControlPlaneDirName != transport.DirName {
+		t.Errorf("config says %q, join writes %q", ControlPlaneDirName, transport.DirName)
 	}
 }

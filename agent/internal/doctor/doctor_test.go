@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,9 @@ import (
 
 	"sentinel/agent/internal/config"
 	"sentinel/agent/internal/store"
+	"sentinel/agent/internal/transport"
 	"sentinel/pkg/notify"
+	"sentinel/pkg/pki"
 )
 
 func TestRunReportsProblemsWithHints(t *testing.T) {
@@ -267,5 +270,45 @@ func TestFleetFindingWarnsOfATokenSentOverPlainHTTPToAnotherMachine(t *testing.T
 				t.Errorf("the warning must name the server: %v", finding.Err)
 			}
 		})
+	}
+}
+
+// identityFor writes the files `sentinel agent join` would, for an agent called web01, and returns the CA.
+func identityFor(t *testing.T, dir string) *pki.CA {
+	t.Helper()
+	ca, err := pki.NewCA(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, request, err := pki.NewKeyAndCSR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := ca.SignAgent(request, "web01", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for file, data := range map[string][]byte{transport.CAFile: ca.CertPEM(), transport.KeyFile: key, transport.CertFile: issued.CertPEM} {
+		if err := os.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ca
+}
+
+func TestControlPlaneFindingFailsWithoutAnIdentityAndWarnsWhenTheControlPlaneIsOutOfReach(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0") // a port nobody listens on any more answers at once
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedURL := "https://" + ln.Addr().String()
+	ln.Close()
+	cfg := &config.Config{ControlPlane: config.ControlPlane{URL: closedURL, Dir: t.TempDir()}}
+	if finding := controlPlaneFinding(t.Context(), cfg); finding.Err == nil || finding.Warn || finding.Hint == "" {
+		t.Errorf("without an identity: %+v, want a failure with a hint", finding)
+	}
+	identityFor(t, cfg.ControlPlane.Dir)
+	if finding := controlPlaneFinding(t.Context(), cfg); finding.Err == nil || !finding.Warn {
+		t.Errorf("an unreachable control plane: %+v, want a warning", finding)
 	}
 }

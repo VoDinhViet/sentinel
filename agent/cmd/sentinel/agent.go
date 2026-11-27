@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -68,6 +67,7 @@ trên máy nhiều người dùng thì dùng --token-stdin hoặc để trống 
 				return fmt.Errorf("đã lưu chứng chỉ nhưng chưa gọi lại control plane được bằng nó: %w", err)
 			}
 			fmt.Fprintf(out, "Control plane nhận ra server này là %q.\n", who.Name)
+			fmt.Fprintf(out, "\nĐể daemon báo cáo cho control plane, thêm vào config rồi khởi động lại sentinel:\n\n  control_plane:\n    url: %q\n", opts.URL)
 			return nil
 		},
 	}
@@ -120,5 +120,5 @@ func (a *cliApp) agentDir(flagged string) (dir, note string) {
 	if err != nil {
 		return defaultAgentDir, fmt.Sprintf("Chưa đọc được config (%v): lưu vào %s.", err, defaultAgentDir)
 	}
-	return filepath.Join(filepath.Dir(cfg.StorePath), transport.DirName), ""
+	return cfg.ControlPlaneDir(), ""
 }

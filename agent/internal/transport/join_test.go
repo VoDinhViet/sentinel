@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,12 @@ type controlPlane struct {
 	ca     *pki.CA
 	server *httptest.Server
 	tamper func(answer *agentapi.JoinResponse, csr []byte)
+
+	mu           sync.Mutex
+	reports      []agentapi.Report
+	reportSerial []string // of the certificate each report was made with
+	reportStatus int      // when not 0, the answer to a report
+	renewals     int
 }
 
 func newControlPlane(t *testing.T) *controlPlane {
@@ -42,6 +49,8 @@ func newControlPlane(t *testing.T) *controlPlane {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+agentapi.RouteJoin, plane.join)
 	mux.HandleFunc("GET "+agentapi.RouteWhoAmI, plane.whoAmI)
+	mux.HandleFunc("POST "+agentapi.RouteReport, plane.report)
+	mux.HandleFunc("POST "+agentapi.RouteRenew, plane.renew)
 	plane.server = httptest.NewUnstartedServer(mux)
 	plane.server.TLS = pki.ServerTLSConfig(cert, ca.Pool())
 	plane.server.StartTLS()
@@ -76,6 +85,42 @@ func (p *controlPlane) whoAmI(w http.ResponseWriter, r *http.Request) {
 	leaf := r.TLS.VerifiedChains[0][0]
 	name, _ := pki.AgentName(leaf)
 	_ = json.NewEncoder(w).Encode(agentapi.WhoAmI{Name: name, NotAfter: leaf.NotAfter})
+}
+
+func (p *controlPlane) report(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.reportStatus != 0 {
+		w.WriteHeader(p.reportStatus)
+		_, _ = w.Write([]byte(`{"error":"the certificate is not accepted"}`))
+		return
+	}
+	var report agentapi.Report
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	p.reports = append(p.reports, report)
+	p.reportSerial = append(p.reportSerial, pki.SerialOf(r.TLS.VerifiedChains[0][0]))
+	_ = json.NewEncoder(w).Encode(agentapi.ReportResponse{ServerTime: time.Now(), ReportEverySeconds: 60})
+}
+
+func (p *controlPlane) renew(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var req agentapi.RenewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name, _ := pki.AgentName(r.TLS.VerifiedChains[0][0])
+	issued, err := p.ca.SignAgent([]byte(req.CSR), name, time.Now())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	p.renewals++
+	_ = json.NewEncoder(w).Encode(agentapi.RenewResponse{Cert: string(issued.CertPEM), NotAfter: issued.NotAfter})
 }
 
 func (p *controlPlane) options(t *testing.T) JoinOptions {

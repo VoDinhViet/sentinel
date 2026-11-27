@@ -25,6 +25,7 @@ import (
 	"sentinel/agent/internal/fleet"
 	"sentinel/agent/internal/restic"
 	"sentinel/agent/internal/store"
+	"sentinel/agent/internal/transport"
 	"sentinel/pkg/notify"
 )
 
@@ -161,6 +162,9 @@ func Run(ctx context.Context, cfg *config.Config, configPath string, openStore f
 		notifierFinding.Hint = "add telegram, smtp, discord or slack under notifiers: in the config"
 	}
 	findings = append(findings, notifierFinding, heartbeatFinding(cfg))
+	if cfg.ControlPlane.Enabled() {
+		findings = append(findings, controlPlaneFinding(ctx, cfg))
+	}
 	if cfg.API.Listen != "" {
 		findings = append(findings, apiFinding(cfg))
 	}
@@ -202,6 +206,34 @@ func repositoryFinding(ctx context.Context, runner *backup.Runner, name string) 
 		repoFinding.Info = "reachable"
 	}
 	return repoFinding
+}
+
+// controlPlaneFinding checks that the identity from `sentinel agent join` is there and the control plane
+// takes this agent for what it is. An unreachable control plane is a warning: the agent works without
+// it, it only goes unwatched.
+func controlPlaneFinding(ctx context.Context, cfg *config.Config) Finding {
+	dir := cfg.ControlPlaneDir()
+	finding := Finding{Name: "control_plane"}
+	if _, err := transport.LoadIdentity(dir); err != nil {
+		finding.Err = err
+		finding.Hint = "join the control plane first: sentinelctl server add <name>, then run the command it prints on this server"
+		return finding
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	who, err := transport.WhoAmI(callCtx, dir, cfg.ControlPlane.URL)
+	switch {
+	case transport.IsStatus(err, 401):
+		finding.Err = fmt.Errorf("the control plane at %s refuses this agent's certificate: %w", cfg.ControlPlane.URL, err)
+		finding.Hint = "the server was revoked or its certificate ended: sentinelctl server add <name>, then sentinel agent join --force"
+	case err != nil:
+		finding.Warn = true
+		finding.Err = fmt.Errorf("cannot reach the control plane at %s: %w", cfg.ControlPlane.URL, err)
+		finding.Hint = "check the url, the network and that sentinel-server is running; this agent keeps working without it"
+	default:
+		finding.Info = fmt.Sprintf("%s knows this agent as %q; certificate ends %s", cfg.ControlPlane.URL, who.Name, who.NotAfter.Local().Format("2006-01-02"))
+	}
+	return finding
 }
 
 // apiFinding warns when the API can be reached from other machines: the token travels in clear text.

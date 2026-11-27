@@ -50,6 +50,8 @@ func (a *cliApp) runCmd() *cobra.Command {
 				return err
 			}
 			defer stopAPI() // also when the daemon fails to start while ctx is still live
+			stopReporter := a.startReporter(ctx, cfg, st)
+			defer stopReporter()
 			return dm.Run(ctx)
 		},
 	}

@@ -17,8 +17,10 @@ PASSWORD="correct horse battery"
 cleanup() {
 	# Never change the exit status of the script (see test/e2e.sh).
 	set +e
+	[ -n "${DAEMON_PID:-}" ] && kill "$DAEMON_PID" 2>/dev/null
 	[ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null
 	sleep 1
+	[ -n "${DAEMON_PID:-}" ] && kill -9 "$DAEMON_PID" 2>/dev/null
 	[ -n "${SERVER_PID:-}" ] && kill -9 "$SERVER_PID" 2>/dev/null
 	rm -rf "$WORK"
 }
@@ -90,6 +92,35 @@ echo "== certificate"
 [ "$(agent_status)" = 200 ] && pass "the agent's certificate is accepted" || fail "the agent's certificate was not accepted"
 [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$WORK/agent/ca.pem" "https://127.0.0.1:$AGENT_PORT/v1/agent/whoami")" = 401 ] &&
 	pass "no certificate, no agent route" || fail "an agent route answered without a certificate"
+
+echo "== report"
+if command -v restic >/dev/null 2>&1; then
+	mkdir -p "$WORK/agentstate"
+	cat >"$WORK/agent.yaml" <<EOF
+server_name: web01
+store: $WORK/agentstate/state.db
+control_plane:
+  url: "https://127.0.0.1:$AGENT_PORT"
+  dir: "$WORK/agent"
+EOF
+	"$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
+	DAEMON_PID=$!
+	for _ in $(seq 50); do
+		[ "$(ctl server show web01 -o json 2>/dev/null | jq -r '.report.host.hostname // empty')" != "" ] && break
+		sleep 0.2
+	done
+	[ "$(ctl server show web01 -o json | jq -r '.status')" = ONLINE ] && pass "the daemon reports and the server is ONLINE" ||
+		{ sed 's/^/    daemon: /' "$WORK/daemon.log" >&2; fail "the daemon's report did not arrive"; }
+	ctl server show web01 | grep -q "Máy:" && pass "sentinelctl server show prints the host" || fail "server show printed no host"
+	[ "$(ctl alert -o json | jq length)" = 0 ] && pass "no alert while the server reports" || fail "an alert is open for a reporting server"
+	kill "$DAEMON_PID" 2>/dev/null
+	wait "$DAEMON_PID" 2>/dev/null
+	DAEMON_PID=
+else
+	echo "  SKIP the daemon's report: restic is not installed"
+fi
+
+echo "== revoke"
 ctl server revoke web01 --yes >/dev/null
 [ "$(agent_status)" = 401 ] && pass "a revoked certificate is refused at once" || fail "a revoked certificate was still accepted"
 
