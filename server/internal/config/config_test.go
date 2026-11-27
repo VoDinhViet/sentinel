@@ -160,3 +160,21 @@ func TestDigestAtIsATimeOfDayOrEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestDigestStaleAfterDefaultsToTwoDaysAndMayBeOffOrAtLeastAnHour(t *testing.T) {
+	cfg, err := Parse([]byte("hosts: [cp.example.com]\n"))
+	if err != nil || cfg.DigestStaleAfter != 48*time.Hour {
+		t.Errorf("default = %v, %v", cfg.DigestStaleAfter, err)
+	}
+	for text, want := range map[string]time.Duration{"0s": 0, "168h": 168 * time.Hour, "1h": time.Hour} {
+		cfg, err := Parse([]byte("hosts: [cp.example.com]\ndigest_stale_after: " + text + "\n"))
+		if err != nil || cfg.DigestStaleAfter != want {
+			t.Errorf("%s: %v %v", text, cfg.DigestStaleAfter, err)
+		}
+	}
+	for _, bad := range []string{"-1h", "30m"} {
+		if _, err := Parse([]byte("hosts: [cp.example.com]\ndigest_stale_after: " + bad + "\n")); err == nil || !strings.Contains(err.Error(), "digest_stale_after") {
+			t.Errorf("%s: %v", bad, err)
+		}
+	}
+}

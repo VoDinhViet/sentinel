@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,8 +26,8 @@ import (
 // the note in the state directory, and the binary they replace is the one they are (or, when they are the
 // previous binary, the one without ".prev").
 
-// guardUnit is the timer that puts the previous binary back when the new version never gets as far as doing it itself
-// (a config it cannot read, a store it cannot open, a hang): it is armed by the install, before the new binary exists.
+// guardUnit is the transient service that puts the previous binary back when the new version never gets as far as doing
+// it itself (a config it cannot read, a store it cannot open, a hang): the install starts it before the new binary exists.
 const guardUnit = "sentinel-self-update-guard"
 
 // systemToolDirs are the places the helpers look for systemd-run and systemctl (not the PATH).
@@ -65,14 +67,19 @@ func (a *cliApp) updateInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Nothing is changed until the update is known to be good: the copy of the database and the guard come after.
+			if _, _, err := selfupdate.Check(dir, key); err != nil {
+				return err
+			}
 			if err := snapshotState(cmd.Context(), cfg.StorePath, dir); err != nil {
 				return fmt.Errorf("keep a copy of the state database for a rollback: %w", err)
 			}
-			// First the guard, then the install: an install that cannot be watched is not done.
+			// The guard before the install: an install that cannot be watched is not done.
 			if err := armGuard(cmd.Context(), exe, a.configPath); err != nil {
-				return fmt.Errorf("arm the guard that goes back if the new version is silent: %w", err)
+				return fmt.Errorf("start the guard that goes back if the new version is silent: %w", err)
 			}
 			if err := selfupdate.Install(dir, exe, key); err != nil {
+				_, _ = runSystemTool(cmd.Context(), "systemctl", "stop", "--", guardUnit+".service")
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "the new binary is in place; the previous one is kept as", exe+".prev")
@@ -81,15 +88,13 @@ func (a *cliApp) updateInstallCmd() *cobra.Command {
 	}
 }
 
-// armGuard starts the timer that runs the previous binary's update-guard after the trial window and a little more.
+// armGuard starts the service that runs the previous binary's update-guard.
 func armGuard(ctx context.Context, exe, configPath string) error {
 	absolute, err := filepath.Abs(configPath)
 	if err != nil {
 		return err
 	}
-	after := selfupdate.TrialWindow + 2*time.Minute
-	_, err = runSystemTool(ctx, "systemd-run", "--on-active="+fmt.Sprint(int(after.Seconds())), "--unit="+guardUnit, "--collect", "--quiet",
-		"--", exe+".prev", "--config", absolute, "update-guard")
+	_, err = runSystemTool(ctx, "systemd-run", "--unit="+guardUnit, "--collect", "--quiet", "--", exe+".prev", "--config", absolute, "update-guard")
 	return err
 }
 
@@ -104,10 +109,7 @@ func (a *cliApp) updateRollbackCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.restoreState(dir); err != nil {
-				return err
-			}
-			if err := selfupdate.Rollback(dir, exe, selfupdate.WhyGoBack(dir)); err != nil {
+			if err := a.goBack(dir, exe, selfupdate.WhyGoBack(dir)); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "the previous binary is back")
@@ -116,12 +118,33 @@ func (a *cliApp) updateRollbackCmd() *cobra.Command {
 	}
 }
 
-// updateGuardCmd runs from the timer that the install armed. If the new version confirmed itself there is nothing to
-// do; if not, the previous binary is put back and the daemon is restarted, whatever state it is in.
+// goBack puts the previous binary back, and the copy of the state database if the new version moved its schema on. The
+// binary is what matters: a copy that cannot be put back is logged, and the rollback goes on.
+func (a *cliApp) goBack(dir, exe, reason string) error {
+	if err := selfupdate.CanRollback(dir, exe); err != nil {
+		return err
+	}
+	if err := a.restoreState(dir); err != nil {
+		slog.Error("self-update: the state database could not be put back; the previous binary is put back anyway", "err", err)
+	}
+	return selfupdate.Rollback(dir, exe, reason)
+}
+
+// The pace of the guard, and how long it waits; tests shorten them.
+var (
+	guardEvery    = 30 * time.Second
+	guardPatience = selfupdate.TrialWindow + time.Minute // how long the new version is given once the old daemon is gone
+	guardMaxWait  = 4 * time.Hour                        // longer than the daemon waits for running backups; then it stops waiting for it
+)
+
+// updateGuardCmd is run by the service the install started, as the previous binary. It waits while the old daemon is
+// still finishing its backups (the new binary has not started yet, and has not been given its trial), gives the new
+// version the trial window from then on, and if the note still says "on trial" puts the previous binary back and
+// restarts the daemon, whatever state the new version is in.
 func (a *cliApp) updateGuardCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "update-guard",
-		Short:  "Quay về binary cũ nếu bản mới chưa báo cáo (timer gọi, không chạy tay)",
+		Short:  "Quay về binary cũ nếu bản mới chưa báo cáo (daemon gọi, không chạy tay)",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -129,15 +152,30 @@ func (a *cliApp) updateGuardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !selfupdate.OnTrialNow(dir) {
-				fmt.Fprintln(cmd.OutOrStdout(), "the new version has reported (or there is no update): nothing to do")
-				return nil
+			var trialFrom time.Time
+			for {
+				marker, found, _ := selfupdate.ReadMarker(dir)
+				if !found || marker.State != selfupdate.Installed {
+					fmt.Fprintln(cmd.OutOrStdout(), "the new version has reported (or there is no update): nothing to do")
+					return nil
+				}
+				now := time.Now()
+				if now.Sub(marker.At) < guardMaxWait && oldDaemonRuns(cmd.Context(), marker.At) {
+					trialFrom = time.Time{}
+				} else if trialFrom.IsZero() {
+					trialFrom = now
+				}
+				if !trialFrom.IsZero() && now.Sub(trialFrom) >= guardPatience {
+					break
+				}
+				select {
+				case <-cmd.Context().Done():
+					return cmd.Context().Err()
+				case <-time.After(guardEvery):
+				}
 			}
 			reason := fmt.Sprintf("the new version did not report to the control plane within %s", selfupdate.TrialWindow)
-			if err := a.restoreState(dir); err != nil {
-				return err
-			}
-			if err := selfupdate.Rollback(dir, exe, reason); err != nil {
+			if err := a.goBack(dir, exe, reason); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "the previous binary is back; restarting the daemon")
@@ -147,6 +185,62 @@ func (a *cliApp) updateGuardCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// oldDaemonRuns says the process of the daemon was started before the install: it is the old one, still finishing its
+// backups before it stops. A daemon that cannot be found (it is between two starts) is not the old one.
+var oldDaemonRuns = func(ctx context.Context, installedAt time.Time) bool {
+	out, err := runSystemTool(ctx, "systemctl", "show", "--property=MainPID", "--value", "--", agentapi.OwnUnit)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	started, err := processStart(pid)
+	return err == nil && !started.After(installedAt)
+}
+
+// processStart is when a process started, from /proc: the time since boot in clock ticks (100 a second on Linux), and
+// the time of the boot.
+func processStart(pid int) (time.Time, error) {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return time.Time{}, err
+	}
+	ticks, err := startTicks(string(stat))
+	if err != nil {
+		return time.Time{}, err
+	}
+	system, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}, err
+	}
+	for _, line := range strings.Split(string(system), "\n") {
+		if text, found := strings.CutPrefix(line, "btime "); found {
+			boot, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+			if err != nil {
+				return time.Time{}, err
+			}
+			return time.Unix(boot, 0).Add(time.Duration(ticks) * 10 * time.Millisecond), nil
+		}
+	}
+	return time.Time{}, errors.New("/proc/stat has no btime")
+}
+
+// startTicks reads the 22nd field of /proc/<pid>/stat. The name in the second field may hold spaces and brackets, so the
+// fields are counted from the last closing bracket.
+func startTicks(stat string) (int64, error) {
+	end := strings.LastIndexByte(stat, ')')
+	if end < 0 {
+		return 0, errors.New("unexpected /proc stat")
+	}
+	fields := strings.Fields(stat[end+1:])
+	if len(fields) < 20 {
+		return 0, errors.New("unexpected /proc stat")
+	}
+	return strconv.ParseInt(fields[19], 10, 64)
 }
 
 // updatePaths are the directory of the update and the path of the binary the helper acts on: this one, or when it is
@@ -167,11 +261,12 @@ func (a *cliApp) updatePaths() (dir, exe string, err error) {
 	return selfupdate.Dir(cfg.StorePath), exe, nil
 }
 
-// snapshotState keeps a copy of the state database next to the note of the update. The database is only copied if
-// there is one: a first start has none.
+// snapshotState keeps a copy of the state database next to the note of the update. There is none to copy on a first start.
 func snapshotState(ctx context.Context, storePath, dir string) error {
-	if _, err := os.Stat(storePath); err != nil {
+	if _, err := os.Stat(storePath); errors.Is(err, fs.ErrNotExist) {
 		return nil
+	} else if err != nil {
+		return err
 	}
 	snapshot := filepath.Join(dir, selfupdate.SnapshotName)
 	_ = os.Remove(snapshot)
@@ -180,24 +275,31 @@ func snapshotState(ctx context.Context, storePath, dir string) error {
 
 // restoreState puts the copy of the state database back when the new version has changed its schema: the previous
 // binary refuses a database written by a newer one, so without the copy a rollback would leave an agent that does not start.
-// What the new version recorded since the install is lost; the previous version running again is worth more.
+// What was recorded since the install is lost from the database (the file it was in is kept as state.db.rolled-back); the
+// previous version running again is worth more.
 func (a *cliApp) restoreState(dir string) error {
 	cfg, err := a.readConfig()
 	if err != nil {
 		return err
 	}
 	snapshot := filepath.Join(dir, selfupdate.SnapshotName)
-	if _, err := os.Stat(snapshot); err != nil {
+	if _, err := os.Lstat(snapshot); errors.Is(err, fs.ErrNotExist) {
 		return nil // no copy: the install did not make one, or it was dropped
+	} else if err != nil {
+		return err
 	}
 	before, err := store.SchemaVersion(snapshot)
 	if err != nil {
 		return err
 	}
-	now, err := store.SchemaVersion(cfg.StorePath)
-	if err != nil || now <= before {
-		return err
+	if before < 1 {
+		return errors.New("the copy of the state database is empty")
 	}
-	slog.Warn("self-update: the new version changed the schema of the state database; the copy made before the install is put back", "schema", now, "back_to", before)
+	now, err := store.SchemaVersion(cfg.StorePath)
+	if err == nil && now <= before {
+		return nil
+	}
+	slog.Warn("self-update: the new version changed the schema of the state database, or it cannot be read; the copy made before the install is put back",
+		"schema", now, "back_to", before, "read_error", err)
 	return store.Restore(snapshot, cfg.StorePath)
 }

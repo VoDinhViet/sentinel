@@ -127,13 +127,14 @@ type StaleJob struct {
 	LastSuccessAt          *time.Time
 }
 
-// Stale lists the jobs of active agents with no successful run in the last age, from all the runs kept. A job an
+// Stale lists the jobs of active agents with no successful run in the last age, from all the runs kept. A job whose
+// first run is younger than age and failed is new, not stale. A job an
 // agent no longer reports is not here for ever: its runs leave the history after RunKeep.
 func (s *Service) Stale(ctx context.Context, age time.Duration, now time.Time) ([]StaleJob, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT r.agent, r.job, r.repository, MAX(CASE WHEN r.success = 1 THEN r.finished_at END) AS last_ok
 		FROM backup_runs r JOIN agents a ON a.name = r.agent WHERE a.state = 'active' AND r.finished_at <= ?
-		GROUP BY r.agent, r.job, r.repository HAVING last_ok IS NULL OR last_ok < ? ORDER BY r.agent, r.job, r.repository LIMIT ?`,
-		now.Unix(), now.Add(-age).Unix(), maxFailures*5)
+		GROUP BY r.agent, r.job, r.repository HAVING (last_ok IS NULL AND MIN(r.finished_at) < ?) OR last_ok < ? ORDER BY r.agent, r.job, r.repository LIMIT ?`,
+		now.Unix(), now.Add(-age).Unix(), now.Add(-age).Unix(), maxFailures*5)
 	if err != nil {
 		return nil, fmt.Errorf("read stale jobs: %w", err)
 	}

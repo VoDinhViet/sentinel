@@ -97,8 +97,10 @@ func (a *App) SendDigest(ctx context.Context, notifier *notify.Multi, now time.T
 	}
 	input.Jobs = slices.DeleteFunc(input.Jobs, func(job report.JobSummary) bool { return !listed[job.Agent] })
 	input.Failed = slices.DeleteFunc(input.Failed, func(run report.Run) bool { return !listed[run.Agent] })
-	if input.Stale, err = a.Report.Stale(ctx, report.StaleAfter, now); err != nil {
-		return err
+	if input.StaleAfter = a.Config.DigestStaleAfter; input.StaleAfter > 0 {
+		if input.Stale, err = a.Report.Stale(ctx, input.StaleAfter, now); err != nil {
+			return err
+		}
 	}
 	open, err := a.AlertStore.Alerts(ctx, true)
 	if err != nil {

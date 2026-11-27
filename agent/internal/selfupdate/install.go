@@ -19,29 +19,9 @@ import (
 // kept next to the note is checked again here, with the public key from the config this process read, and the bytes
 // that are put in place are hashed while they are copied, so what is installed is what was signed.
 func Install(dir, exe string, key ed25519.PublicKey) error {
-	if err := privateDir(dir); err != nil {
-		return err
-	}
-	marker, found, err := ReadMarker(dir)
+	manifest, marker, err := Check(dir, key)
 	if err != nil {
 		return err
-	}
-	if !found || marker.State != Staged {
-		return errors.New("there is no staged update to install (or one is on trial: wait for it to report)")
-	}
-	if time.Since(marker.At) > staleStaged {
-		return errors.New("the staged update is old: stage it again")
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, ManifestName))
-	if err != nil {
-		return fmt.Errorf("read the signed manifest: %w", err)
-	}
-	manifest, err := release.Verify(key, raw)
-	if err != nil {
-		return fmt.Errorf("the signed manifest kept with the update: %w", err)
-	}
-	if manifest.SHA256 != marker.SHA256 || manifest.Version != marker.To {
-		return errors.New("the note of the update does not say what the signed manifest says")
 	}
 	staged := filepath.Join(dir, StagedName)
 	if err := regularFile(staged); err != nil {
@@ -83,6 +63,49 @@ func Install(dir, exe string, key ed25519.PublicKey) error {
 	}
 	syncDir(filepath.Dir(exe))
 	_ = os.Remove(staged)
+	return nil
+}
+
+// Check is what an install needs to be true before anything is changed: the directory of the update is private, the note
+// says an update is staged and fresh (and not that one is on trial), and the signed manifest kept with it is good for the
+// key and says what the note says. The helper takes the copy of the state database only after this passes.
+func Check(dir string, key ed25519.PublicKey) (release.Manifest, Marker, error) {
+	if err := privateDir(dir); err != nil {
+		return release.Manifest{}, Marker{}, err
+	}
+	marker, found, err := ReadMarker(dir)
+	if err != nil {
+		return release.Manifest{}, Marker{}, err
+	}
+	if !found || marker.State != Staged {
+		return release.Manifest{}, Marker{}, errors.New("there is no staged update to install (or one is on trial: wait for it to report)")
+	}
+	if time.Since(marker.At) > staleStaged {
+		return release.Manifest{}, Marker{}, errors.New("the staged update is old: stage it again")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, ManifestName))
+	if err != nil {
+		return release.Manifest{}, Marker{}, fmt.Errorf("read the signed manifest: %w", err)
+	}
+	manifest, err := release.Verify(key, raw)
+	if err != nil {
+		return release.Manifest{}, Marker{}, fmt.Errorf("the signed manifest kept with the update: %w", err)
+	}
+	if manifest.SHA256 != marker.SHA256 || manifest.Version != marker.To {
+		return release.Manifest{}, Marker{}, errors.New("the note of the update does not say what the signed manifest says")
+	}
+	return manifest, marker, nil
+}
+
+// CanRollback says a rollback would work: an update is on trial and the previous binary is there. The helper checks it
+// before it touches the state database, so a rollback that cannot happen does not change anything.
+func CanRollback(dir, exe string) error {
+	if err := regularFile(exe + ".prev"); err != nil {
+		return fmt.Errorf("there is no previous binary to go back to: %w", err)
+	}
+	if !OnTrialNow(dir) {
+		return errors.New("there is no update on trial to go back from")
+	}
 	return nil
 }
 

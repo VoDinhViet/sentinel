@@ -274,7 +274,8 @@ func TestStaleListsTheJobsWithNoRecentSuccessOfActiveAgentsOnly(t *testing.T) {
 	}
 	record("web01", "fresh", time.Hour, true)
 	record("web01", "old", 5*24*time.Hour, true)
-	record("web01", "never", time.Hour, false)
+	record("web01", "never", 3*24*time.Hour, false)
+	record("web01", "brandnew", time.Hour, false) // its first run failed an hour ago: new, not stale
 	record("db01", "gone", 5*24*time.Hour, true)
 	if _, err := st.store.DB.Exec(`UPDATE agents SET state = 'revoked' WHERE name = 'db01'`); err != nil {
 		t.Fatal(err)

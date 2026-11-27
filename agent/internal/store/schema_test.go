@@ -62,8 +62,44 @@ func TestARestoredCopyLetsTheOlderBinaryOpenTheDatabaseAgain(t *testing.T) {
 	if runs, err := again.LatestBackups(context.Background()); err != nil || len(runs) != 1 {
 		t.Errorf("the data of the copy is gone: %v %v", runs, err)
 	}
-	if _, err := os.Stat(path + ".restore"); err == nil {
-		t.Error("the temporary file was left")
+	if _, err := os.Stat(snapshot); err == nil {
+		t.Error("the copy was copied, not moved")
+	}
+	if version, err := SchemaVersion(path + RolledBackSuffix); err != nil || version != 99 {
+		t.Errorf("the database that was put aside: %d, %v", version, err)
+	}
+}
+
+func TestRestoreRefusesALinkAndLeavesTheDatabaseWhereItWas(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	link := filepath.Join(dir, "copy.db")
+	if err := os.Symlink("/etc/passwd", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := Restore(link, path); err == nil {
+		t.Error("a link was restored")
+	}
+	if _, err := SchemaVersion(path); err != nil {
+		t.Errorf("the database was disturbed: %v", err)
+	}
+	if err := Restore(filepath.Join(dir, "missing.db"), path); err == nil {
+		t.Error("a copy that is not there was restored")
+	}
+}
+
+func TestSchemaVersionDoesNotCreateAFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nothing.db")
+	if _, err := SchemaVersion(path); err == nil {
+		t.Error("a database that is not there has a version")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("reading a version made a file")
 	}
 }
 

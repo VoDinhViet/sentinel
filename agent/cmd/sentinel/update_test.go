@@ -15,7 +15,7 @@ import (
 	"sentinel/agent/internal/store"
 )
 
-func TestArmGuardStartsATimerThatRunsThePreviousBinaryWithFixedArguments(t *testing.T) {
+func TestArmGuardStartsAServiceThatRunsThePreviousBinaryWithFixedArguments(t *testing.T) {
 	var name string
 	var args []string
 	old := runSystemTool
@@ -28,7 +28,7 @@ func TestArmGuardStartsATimerThatRunsThePreviousBinaryWithFixedArguments(t *test
 		t.Fatal(err)
 	}
 	got := name + " " + strings.Join(args, " ")
-	want := "systemd-run --on-active=420 --unit=sentinel-self-update-guard --collect --quiet -- /usr/local/bin/sentinel.prev --config /etc/sentinel/config.yaml update-guard"
+	want := "systemd-run --unit=sentinel-self-update-guard --collect --quiet -- /usr/local/bin/sentinel.prev --config /etc/sentinel/config.yaml update-guard"
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
@@ -91,10 +91,10 @@ func TestARollbackPutsTheCopyOfTheDatabaseBackOnlyWhenTheSchemaMovedOn(t *testin
 	if version, err := store.SchemaVersion(storePath); err != nil || version != store.KnownSchema() {
 		t.Errorf("schema after the restore = %d, %v", version, err)
 	}
-	// No copy, nothing to do.
-	if err := os.Remove(filepath.Join(updateDir, selfupdate.SnapshotName)); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(storePath + store.RolledBackSuffix); err != nil {
+		t.Errorf("the database that was replaced was not kept: %v", err)
 	}
+	// The copy was used: nothing to do.
 	if err := app.restoreState(updateDir); err != nil {
 		t.Errorf("without a copy: %v", err)
 	}
@@ -127,8 +127,17 @@ func guardPlant(t *testing.T) (app *cliApp, exe, updateDir string) {
 	return &cliApp{configPath: configPath}, exe, updateDir
 }
 
-func TestTheGuardPutsThePreviousBinaryBackAndRestartsTheDaemonWhenTheNewVersionNeverReported(t *testing.T) {
-	app, exe, _ := guardPlant(t)
+// quickGuard makes the guard poll and give up waiting in milliseconds, with a daemon that is gone.
+func quickGuard(t *testing.T, oldRuns func() bool) {
+	t.Helper()
+	oldEvery, oldPatience, oldRuns0 := guardEvery, guardPatience, oldDaemonRuns
+	t.Cleanup(func() { guardEvery, guardPatience, oldDaemonRuns = oldEvery, oldPatience, oldRuns0 })
+	guardEvery, guardPatience = time.Millisecond, 5*time.Millisecond
+	oldDaemonRuns = func(context.Context, time.Time) bool { return oldRuns() }
+}
+
+func recordSystemCalls(t *testing.T) *[]string {
+	t.Helper()
 	var calls []string
 	old := runSystemTool
 	t.Cleanup(func() { runSystemTool = old })
@@ -136,37 +145,87 @@ func TestTheGuardPutsThePreviousBinaryBackAndRestartsTheDaemonWhenTheNewVersionN
 		calls = append(calls, program+" "+strings.Join(arguments, " "))
 		return "", nil
 	}
+	return &calls
+}
+
+func runGuard(t *testing.T, app *cliApp) error {
+	t.Helper()
 	cmd := app.updateGuardCmd()
-	if err := cmd.RunE(cmd, nil); err != nil {
+	cmd.SetContext(context.Background())
+	return cmd.RunE(cmd, nil)
+}
+
+func TestTheGuardPutsThePreviousBinaryBackAndRestartsTheDaemonWhenTheNewVersionNeverReported(t *testing.T) {
+	app, exe, _ := guardPlant(t)
+	quickGuard(t, func() bool { return false })
+	calls := recordSystemCalls(t)
+	if err := runGuard(t, app); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(exe); string(data) != "old binary" {
 		t.Errorf("the binary is %q", data)
 	}
-	if len(calls) != 1 || calls[0] != "systemctl restart -- sentinel.service" {
-		t.Errorf("calls = %v", calls)
+	if len(*calls) != 1 || (*calls)[0] != "systemctl restart -- sentinel.service" {
+		t.Errorf("calls = %v", *calls)
 	}
-	// Run again (the timer fires once, but a second run must do no harm): the note is a rollback now.
-	calls = nil
-	if err := cmd.RunE(cmd, nil); err != nil || len(calls) != 0 {
-		t.Errorf("a second run: %v %v", err, calls)
+	*calls = nil // a second run does no harm: the note is a rollback now
+	if err := runGuard(t, app); err != nil || len(*calls) != 0 {
+		t.Errorf("a second run: %v %v", err, *calls)
+	}
+}
+
+func TestTheGuardWaitsWhileTheOldDaemonIsStillFinishingItsBackups(t *testing.T) {
+	app, exe, _ := guardPlant(t)
+	polls := 0
+	quickGuard(t, func() bool { polls++; return polls <= 20 }) // the old daemon exits after 20 polls
+	calls := recordSystemCalls(t)
+	start := time.Now()
+	if err := runGuard(t, app); err != nil {
+		t.Fatal(err)
+	}
+	if polls <= 20 || time.Since(start) < 20*time.Millisecond {
+		t.Errorf("the guard did not wait for the old daemon: %d polls", polls)
+	}
+	if data, _ := os.ReadFile(exe); string(data) != "old binary" || len(*calls) != 1 {
+		t.Errorf("binary %q, calls %v", data, *calls)
 	}
 }
 
 func TestTheGuardDoesNothingWhenTheNewVersionReported(t *testing.T) {
 	app, exe, updateDir := guardPlant(t)
 	selfupdate.Confirm(updateDir) // the new version reached the control plane
-	old := runSystemTool
-	t.Cleanup(func() { runSystemTool = old })
-	runSystemTool = func(context.Context, string, ...string) (string, error) {
-		t.Error("the daemon was restarted although the new version reported")
-		return "", nil
-	}
-	cmd := app.updateGuardCmd()
-	if err := cmd.RunE(cmd, nil); err != nil {
+	quickGuard(t, func() bool { return false })
+	calls := recordSystemCalls(t)
+	if err := runGuard(t, app); err != nil {
 		t.Fatal(err)
 	}
-	if data, _ := os.ReadFile(exe); string(data) != "new binary" {
-		t.Errorf("the binary is %q", data)
+	if data, _ := os.ReadFile(exe); string(data) != "new binary" || len(*calls) != 0 {
+		t.Errorf("binary %q, calls %v", data, *calls)
+	}
+}
+
+func TestARollbackThatCannotHappenLeavesTheStateDatabaseAlone(t *testing.T) {
+	app, exe, updateDir := guardPlant(t)
+	if err := os.Remove(exe + ".prev"); err != nil { // no previous binary
+		t.Fatal(err)
+	}
+	if err := app.goBack(updateDir, exe, "x"); err == nil {
+		t.Error("a rollback without a previous binary succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(updateDir, "..", "state.db"+store.RolledBackSuffix)); err == nil {
+		t.Error("the database was touched")
+	}
+}
+
+func TestStartTicksReadsTheStartOfAProcessWhoseNameHasBracketsAndSpaces(t *testing.T) {
+	stat := "1234 (a b) c) S 1 1234 1234 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 98765 1000 100 18446744073709551615"
+	if ticks, err := startTicks(stat); err != nil || ticks != 98765 {
+		t.Errorf("ticks = %d, %v", ticks, err)
+	}
+	if _, err := startTicks("garbage"); err == nil {
+		t.Error("garbage was read")
+	}
+	if started, err := processStart(os.Getpid()); err != nil || started.After(time.Now()) || time.Since(started) > 24*time.Hour*365 {
+		t.Errorf("this process started %v, %v", started, err)
 	}
 }

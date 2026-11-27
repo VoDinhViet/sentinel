@@ -53,11 +53,17 @@ type Config struct {
 	// DigestAt is the time of day (local to this machine, "08:00") the control plane sends a daily report to the
 	// notifiers: how many servers are in each state, the backups that failed, the alerts that are open. Empty is off.
 	DigestAt string `yaml:"digest_at"`
+	// DigestStaleAfter is how long a job may go without a successful backup before the daily report names it. A job that
+	// runs less often than that (weekly, monthly) needs a longer time; 0 leaves the list out.
+	DigestStaleAfter time.Duration `yaml:"digest_stale_after"`
 }
+
+// DefaultDigestStaleAfter is how long a job may go without a success before the daily report names it.
+const DefaultDigestStaleAfter = 48 * time.Hour
 
 // Default is the configuration with nothing set but the defaults.
 func Default() Config {
-	return Config{Listen: DefaultListen, CtlListen: DefaultCtlListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter, Cooldown: DefaultCooldown}
+	return Config{Listen: DefaultListen, CtlListen: DefaultCtlListen, StateDir: DefaultStateDir, OfflineAfter: DefaultOfflineAfter, Cooldown: DefaultCooldown, DigestStaleAfter: DefaultDigestStaleAfter}
 }
 
 // Load reads a config file. A key that is not known is an error, so a typo does not go unnoticed.
@@ -118,6 +124,9 @@ func (c Config) Validate() error {
 		} else if len(notify.FromConfig(c.Notifiers)) == 0 {
 			errs = append(errs, errors.New("digest_at: there is no notifier to send the report to"))
 		}
+	}
+	if c.DigestStaleAfter < 0 || (c.DigestStaleAfter > 0 && c.DigestStaleAfter < time.Hour) {
+		errs = append(errs, errors.New("digest_stale_after: 0 (off) or at least 1h"))
 	}
 	if err := c.Notifiers.Validate(); err != nil {
 		errs = append(errs, err)

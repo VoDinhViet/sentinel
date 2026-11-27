@@ -5,17 +5,27 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
+	"net/url"
 	"os"
+	"syscall"
 )
 
 // KnownSchema is the schema version this binary writes: the number of its migrations.
 func KnownSchema() int { return len(migrations) }
 
-// SchemaVersion reads the schema version of the state database at path without migrating it.
+// readOnlyDSN opens the file at path read-only, whatever characters its name has.
+func readOnlyDSN(path string) string {
+	return "file:" + (&url.URL{Path: path}).EscapedPath() + "?mode=ro&_pragma=busy_timeout(5000)"
+}
+
+// SchemaVersion reads the schema version of the state database at path without migrating it, and without creating
+// it when it is not there.
 func SchemaVersion(path string) (int, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	if _, err := os.Stat(path); err != nil {
+		return 0, err
+	}
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
 	if err != nil {
 		return 0, err
 	}
@@ -28,13 +38,19 @@ func SchemaVersion(path string) (int, error) {
 }
 
 // Snapshot writes a consistent copy of the state database at path to dest, which must not exist, while another
-// process may be using the database. Only its owner can read the copy.
+// process may be using the database. Only its owner can read the copy, from the moment it exists.
 func Snapshot(ctx context.Context, path, dest string) error {
-	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("%s exists", dest)
-	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	// O_EXCL also refuses a link left at dest; SQLite accepts an output file that exists and is empty.
+	empty, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := empty.Close(); err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		_ = os.Remove(dest)
 		return err
 	}
 	defer db.Close()
@@ -42,36 +58,40 @@ func Snapshot(ctx context.Context, path, dest string) error {
 		_ = os.Remove(dest)
 		return fmt.Errorf("copy the state database: %w", err)
 	}
-	return os.Chmod(dest, 0o600)
+	return nil
 }
 
-// Restore puts the copy made by Snapshot in the place of the state database at path. The daemon is not expected
-// to be using it for long: it is about to be restarted. What the old file and its WAL held is dropped.
+// RolledBackSuffix is added to the name of a database that a restore put aside.
+const RolledBackSuffix = ".rolled-back"
+
+// Restore puts the copy made by Snapshot in the place of the state database at path, and keeps what was there as
+// path+RolledBackSuffix (a daemon that still has it open goes on writing to that file, which is then not lost). The
+// copy is moved, not copied: no space is needed. The write-ahead files of the old database are removed so that they
+// are not replayed on the copy. It is for a daemon that is about to be restarted.
 func Restore(snapshot, path string) error {
-	in, err := os.Open(snapshot)
+	info, err := os.Lstat(snapshot)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	temp := path + ".restore"
-	out, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", snapshot)
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		_ = os.Remove(temp)
-		return err
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("%s is not owned by the user that restores it", snapshot)
 	}
-	if err := errors.Join(out.Sync(), out.Close()); err != nil {
-		_ = os.Remove(temp)
-		return err
+	aside := path + RolledBackSuffix
+	_ = os.Remove(aside)
+	if err := os.Rename(path, aside); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("put the database aside: %w", err)
 	}
 	for _, suffix := range walSuffixes {
 		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			_ = os.Remove(temp)
 			return err
 		}
 	}
-	return os.Rename(temp, path)
+	if err := os.Rename(snapshot, path); err != nil {
+		_ = os.Rename(aside, path) // not moved: the database stays where it was
+		return fmt.Errorf("put the copy in place: %w", err)
+	}
+	return nil
 }

@@ -35,3 +35,6 @@ cooldown: 1h
 # Once a day, at this time of day on this machine, send the notifiers a summary: how many servers are in each
 # state, the backups that failed in the last 24 hours, and the alerts that are open. Empty (the default) is off.
 # digest_at: "08:00"
+# A job with no successful backup for this long is named in the daily report (a job that runs weekly or monthly needs
+# a longer time; 0 leaves the list out). Default 48h.
+# digest_stale_after: 48h
