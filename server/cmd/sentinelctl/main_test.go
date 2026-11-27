@@ -66,7 +66,13 @@ func newPlant(t *testing.T) *plant {
 // run executes a sentinelctl command line with stdin as the typed or piped input.
 func (p *plant) run(stdin string, args ...string) (string, error) {
 	p.t.Helper()
-	c := &cli{term: terminal.Terminal{In: strings.NewReader(stdin), Out: io.Discard}}
+	return p.runIn(terminal.Terminal{In: strings.NewReader(stdin), Out: io.Discard}, args...)
+}
+
+// runIn is run with a terminal of the test's own making (a typing person has IsTTY set).
+func (p *plant) runIn(term terminal.Terminal, args ...string) (string, error) {
+	p.t.Helper()
+	c := &cli{term: term}
 	root := newRootCmd(c)
 	var out bytes.Buffer
 	root.SetOut(&out)

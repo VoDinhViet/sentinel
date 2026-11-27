@@ -20,7 +20,7 @@ import (
 )
 
 func newRunCmd(c *cli) *cobra.Command {
-	var wait, follow bool
+	var wait, follow, yes bool
 	runCmd := &cobra.Command{
 		Use:   "run <server> <action> [tên=giá-trị …]",
 		Short: "Giao một việc cho một server (backup, doctor …)",
@@ -31,12 +31,15 @@ không có action nào chạy lệnh shell hay nhận đường dẫn.
 Action:
 ` + actionHelp() + `
 Việc không được server lấy trong 10 phút sẽ hết hạn.
+Action đổi máy khó hoàn tác (os.apply_updates) hỏi gõ lại tên server để xác nhận, trừ khi có --yes.
 --wait đợi đến khi việc kết thúc; --follow cũng in log từng dòng khi nó chạy. Cả hai thoát với mã khác 0 nếu việc không thành công.`,
 		Example: `  sentinelctl run web01 doctor.run --follow
   sentinelctl run web01 backup.start job=db
   sentinelctl run web01 backup.snapshots job=db repository=s3 --wait
   sentinelctl run web01 service.restart unit=nginx.service --wait
-  sentinelctl run web01 container.restart container=web timeout_s=30 --wait`,
+  sentinelctl run web01 container.restart container=web timeout_s=30 --wait
+  sentinelctl run web01 os.check_updates --follow
+  sentinelctl run web01 os.apply_updates --follow`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			asJSON, err := c.wantsJSON()
@@ -46,6 +49,11 @@ Việc không được server lấy trong 10 phút sẽ hết hạn.
 			params, err := parseParams(args[2:])
 			if err != nil {
 				return err
+			}
+			if agentapi.NeedsConfirmation(args[1]) && !yes {
+				if err := c.confirmAction(args[0], args[1]); err != nil {
+					return err
+				}
 			}
 			api, _, err := c.connect()
 			if err != nil {
@@ -81,8 +89,25 @@ Việc không được server lấy trong 10 phút sẽ hết hạn.
 		},
 	}
 	runCmd.Flags().BoolVar(&wait, "wait", false, "đợi việc kết thúc rồi in kết quả")
+	runCmd.Flags().BoolVarP(&yes, "yes", "y", false, "không hỏi xác nhận (cho action đổi máy khó hoàn tác)")
 	runCmd.Flags().BoolVar(&follow, "follow", false, "đợi và in log của việc khi nó chạy")
 	return runCmd
+}
+
+// confirmAction asks to type the name of the server again before an action that is hard to take back is
+// given. Without a terminal there is nobody to ask, so a script has to say --yes.
+func (c *cli) confirmAction(serverName, action string) error {
+	if !c.term.IsTTY {
+		return fmt.Errorf("%s đổi máy khó hoàn tác: chạy trong terminal để xác nhận, hoặc thêm --yes", action)
+	}
+	typed, err := c.term.Line(fmt.Sprintf("%s sẽ chạy trên %s. Gõ lại tên server để xác nhận: ", action, serverName))
+	if err != nil {
+		return err
+	}
+	if typed != serverName {
+		return errors.New("tên không khớp: không giao việc nào")
+	}
+	return nil
 }
 
 // actionHelp lists the actions of the table with their parameters, for the help of run.

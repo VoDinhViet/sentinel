@@ -107,7 +107,17 @@ type Allow struct {
 	Containers []string `yaml:"containers"`
 	// DockerSocket is the unix socket of the Docker Engine; DefaultDockerSocket when empty.
 	DockerSocket string `yaml:"docker_socket" validate:"omitempty,abspath"`
+	// OSUpdates is off (the default), check (os.check_updates may list what could be upgraded) or apply (os.apply_updates
+	// may also upgrade the packages of this machine). Only apt-based systems (Debian, Ubuntu) are supported.
+	OSUpdates string `yaml:"os_updates" validate:"omitempty,oneof=off check apply"`
 }
+
+// The values of Allow.OSUpdates.
+const (
+	OSUpdatesOff   = "off"
+	OSUpdatesCheck = "check"
+	OSUpdatesApply = "apply"
+)
 
 // Permits says the action may run with these parameters. The names of a unit or a container have to be in
 // the lists above.
@@ -121,6 +131,10 @@ func (a Allow) Permits(action string, params map[string]string) bool {
 		return slices.Contains(a.Services, params["unit"])
 	case agentapi.ActionContainerRestart:
 		return slices.Contains(a.Containers, params["container"])
+	case agentapi.ActionOSCheckUpdates:
+		return a.OSUpdates == OSUpdatesCheck || a.OSUpdates == OSUpdatesApply
+	case agentapi.ActionOSApplyUpdates:
+		return a.OSUpdates == OSUpdatesApply
 	}
 	return false
 }
@@ -156,6 +170,10 @@ func (Allow) Hint(action string, params map[string]string) string {
 		return "control_plane.allow.services: [" + params["unit"] + "]"
 	case agentapi.ActionContainerRestart:
 		return "control_plane.allow.containers: [" + params["container"] + "]"
+	case agentapi.ActionOSCheckUpdates:
+		return "control_plane.allow.os_updates: check"
+	case agentapi.ActionOSApplyUpdates:
+		return "control_plane.allow.os_updates: apply"
 	}
 	return "control_plane.allow.backup: true"
 }

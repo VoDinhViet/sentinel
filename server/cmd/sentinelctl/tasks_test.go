@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"sentinel/pkg/agentapi"
 	"sentinel/server/internal/audit"
 	"sentinel/server/internal/ctlapi"
+	"sentinel/server/internal/terminal"
 )
 
 // activeServer adds a server and makes it active, as a join would.
@@ -174,5 +176,43 @@ func TestServerShowSaysWhichActionsTheServerAllows(t *testing.T) {
 	}
 	if out := save([]string{"doctor.run", "backup.start"}); !strings.Contains(out, "Cho phép:          doctor.run, backup.start") {
 		t.Errorf("an allowlist:\n%s", out)
+	}
+}
+
+func TestAnActionThatIsHardToTakeBackAsksForTheNameOfTheServer(t *testing.T) {
+	p := newPlant(t)
+	p.login()
+	p.activeServer("web01")
+	typing := func(text string) terminal.Terminal {
+		return terminal.Terminal{In: strings.NewReader(text), Out: io.Discard, IsTTY: true}
+	}
+	queued := func() int {
+		var count int
+		if err := p.app.Store.DB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE action = ?`, agentapi.ActionOSApplyUpdates).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	if _, err := p.run("web01\n", "run", "web01", agentapi.ActionOSApplyUpdates); err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("a script without a terminal: %v", err)
+	}
+	if _, err := p.runIn(typing("web02\n"), "run", "web01", agentapi.ActionOSApplyUpdates); err == nil || !strings.Contains(err.Error(), "không khớp") {
+		t.Errorf("the wrong name: %v", err)
+	}
+	if _, err := p.runIn(typing(""), "run", "web01", agentapi.ActionOSApplyUpdates); err == nil {
+		t.Error("no answer was taken as a yes")
+	}
+	if queued() != 0 {
+		t.Fatal("a task was queued without a confirmation")
+	}
+	if _, err := p.runIn(typing("web01\n"), "run", "web01", agentapi.ActionOSApplyUpdates); err != nil || queued() != 1 {
+		t.Errorf("the right name: %v, %d queued", err, queued())
+	}
+	if _, err := p.run("", "run", "web01", agentapi.ActionOSApplyUpdates, "--yes"); err != nil || queued() != 2 {
+		t.Errorf("--yes: %v, %d queued", err, queued())
+	}
+	// An action that is easy to take back does not ask.
+	if _, err := p.run("", "run", "web01", agentapi.ActionOSCheckUpdates); err != nil {
+		t.Errorf("os.check_updates asked for a confirmation: %v", err)
 	}
 }

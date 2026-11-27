@@ -178,8 +178,8 @@ Bảng action cố định trong `pkg/agentapi`; tham số được decode bằn
 | `doctor.run` | — | kết quả đã `restic.Redact`; có check lỗi thì task `failed` ("N of M checks failed") |
 | `service.start\|stop\|restart` | `unit` | `^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.(service\|timer)$`, khớp chính xác trong `allow.services`; không bao giờ `sentinel.service` (cả server lẫn agent từ chối). Trước hết `systemctl show --property=Id --value -- <unit>`: unit là bí danh của `sentinel.service` (hoặc systemd không trả lời) thì `refused`. Rồi chạy `systemctl --no-ask-password --no-pager <động từ> -- <unit>` (argv cố định, unit đứng sau `--`, môi trường tối thiểu, tìm `systemctl` ở `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`), rồi `systemctl is-active -- <unit>`: unit ở trạng thái `failed` thì task `failed`, còn lại báo trạng thái trong output |
 | `container.restart` | `container`, `timeout_s` tuỳ chọn (1 đến 90) | `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, khớp chính xác trong `allow.containers`; `GET /containers/{tên}/json` để biết tên đó đúng là container (Docker còn hiểu tên là tiền tố của id: `Name` phải là `/tên` hoặc `Id` phải bằng tên), rồi `POST /containers/{id đầy đủ}/restart[?t=N]` qua unix socket `allow.docker_socket`, không theo redirect, không proxy; 204 là thành công, 404 là không có container đó |
-| `os.check_updates` | — | `apt-get -s upgrade` hoặc `dnf check-update` |
-| `os.apply_updates` | `security_only` | cần `allow.os_updates: apply`; xác nhận trước khi gửi |
+| `os.check_updates` | — | cần `allow.os_updates: check` hoặc `apply`. Chạy `apt-get -s -o Debug::NoLocking=1 upgrade` (mô phỏng, không đổi gì), báo số package có thể nâng cấp, số bản vá bảo mật (suite có `-security`), package bị giữ lại, 100 package đầu, tuổi của package lists và máy có đang chờ khởi động lại không. Chỉ Debian và Ubuntu (apt); không có `dnf` |
+| `os.apply_updates` | — | cần `allow.os_updates: apply`; `sentinelctl run` hỏi gõ lại tên server (hoặc `--yes`), không có terminal mà thiếu `--yes` thì từ chối. Không có tham số: không `security_only`, không tên package, không `dist-upgrade`, không reboot. Timeout 30 phút |
 | `agent.update` | `version` | cần `allow.self_update`; mục 12 |
 
 Không có action nào chạy shell, nhận path, tên package hay lệnh tự do. Không có reboot.
@@ -203,7 +203,7 @@ Agent kiểm tra lại mọi task theo thứ tự: bảng action (`agentapi.Vali
 
 Việc ở server: `queued` quá 10 phút thì `expired`; `sent` mà quá `result_by` (hạn của action + 30 giây) cũng `expired`; mỗi agent tối đa 20 việc đang mở; việc đã xong giữ 30 ngày. Mỗi bước (`task.create|send|result|cancel|expire`) ghi audit. Agent gửi kết quả lại với backoff cho đến `result_by`; gặp 404 hoặc 409 thì bỏ, gặp 401 thì im một giờ.
 
-`os.apply_updates` chạy qua `systemd-run --wait --pipe --collect --unit=sentinel-os-update -- /usr/bin/apt-get -y … upgrade` (argv cố định), vì `ProtectSystem=full` chặn daemon ghi `/usr`. Đây là lối ra khỏi sandbox có chủ ý, chỉ mở khi `os_updates: apply`.
+`os.apply_updates` chạy qua `systemd-run --wait --pipe --collect --unit=sentinel-os-update -- /usr/bin/apt-get -y … upgrade` (argv cố định), vì `ProtectSystem=full` chặn daemon ghi `/usr`. Đây là lối ra khỏi sandbox có chủ ý, chỉ mở khi `os_updates: apply`. Chính đơn vị `sentinel-os-update` là khoá chống hai lần nâng cấp cùng lúc (lần thứ hai thấy tên đã dùng và thất bại); hết timeout của task thì agent thôi đợi nhưng **không** giết unit, vì dừng giữa chừng `dpkg` làm hỏng package: xem `journalctl -u sentinel-os-update`. `apt-get` được gọi với `-y`, `--force-confdef` và `--force-confold` (giữ file config đang có), `DEBIAN_FRONTEND=noninteractive`, và tìm ở `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin` chứ không theo `PATH`.
 
 ## 11. Schema
 
@@ -289,7 +289,7 @@ Mỗi giai đoạn nhỏ, có test riêng, `make test` xanh ở mọi module.
 | 9 | Task engine và action `backup.*`, `doctor.run`; log qua SSE; `sentinelctl run\|task`; `control_plane.allow`; trong TUI phím `b`/`s` ở mục Backup (hỏi y/n, chặn trước nếu `allow` của server trong report không có action) và mục Việc |
 | 10 | Xoá mô hình pull (mục 15): tab Fleet và `sentinel fleet`, FleetWatcher và alert `fleet:`, `internal/fleet`, `internal/api` (daemon không nghe cổng nào); `api:` và `fleet:` thành khối deprecated |
 | 11 | Action systemd và Docker (`service.start\|stop\|restart`, `container.restart`; `allow.services`, `allow.containers`, `allow.docker_socket`) |
-| 12 | Cập nhật OS |
+| 12 | Action cập nhật OS (`os.check_updates`, `os.apply_updates`; `allow.os_updates: off\|check\|apply`), chỉ apt |
 | 13 | Lịch và cửa sổ bảo trì |
 | 14 | Báo cáo và lịch sử |
 | 15 | Tự cập nhật agent |

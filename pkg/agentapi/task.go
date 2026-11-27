@@ -31,6 +31,8 @@ const (
 	ActionServiceStop      = "service.stop"
 	ActionServiceRestart   = "service.restart"
 	ActionContainerRestart = "container.restart"
+	ActionOSCheckUpdates   = "os.check_updates"
+	ActionOSApplyUpdates   = "os.apply_updates"
 )
 
 // OwnUnit is the unit of the agent itself. No task starts, stops or restarts it: the task would end the
@@ -70,6 +72,9 @@ const (
 type actionSpec struct {
 	required, optional []string
 	timeout            time.Duration
+	// confirm says the action changes the machine in a way that is hard to take back, so whoever gives it is
+	// asked to confirm first (the control plane does not enforce that: the person's tool does).
+	confirm bool
 }
 
 var actionTable = map[string]actionSpec{
@@ -82,6 +87,9 @@ var actionTable = map[string]actionSpec{
 	ActionServiceStop:      {required: []string{"unit"}, timeout: time.Minute},
 	ActionServiceRestart:   {required: []string{"unit"}, timeout: time.Minute},
 	ActionContainerRestart: {required: []string{"container"}, optional: []string{"timeout_s"}, timeout: 2 * time.Minute},
+	// No parameters at all: which packages are upgraded is the package manager's own business, never a task's.
+	ActionOSCheckUpdates: {timeout: 5 * time.Minute},
+	ActionOSApplyUpdates: {timeout: 30 * time.Minute, confirm: true},
 }
 
 // Actions are the names of the actions, in order.
@@ -99,6 +107,9 @@ func Params(action string) (required, optional []string) {
 	spec := actionTable[action]
 	return slices.Clone(spec.required), slices.Clone(spec.optional)
 }
+
+// NeedsConfirmation says the action should be confirmed by the person who gives it.
+func NeedsConfirmation(action string) bool { return actionTable[action].confirm }
 
 // Timeout is how long an agent may take over an action.
 func Timeout(action string) time.Duration { return actionTable[action].timeout }

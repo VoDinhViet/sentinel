@@ -105,6 +105,7 @@ control_plane:
   allow:
     doctor: true
     services: [demo.service]
+    os_updates: check
 EOF
 	"$SENTINEL" -c "$WORK/agent.yaml" run >"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
@@ -114,9 +115,9 @@ EOF
 	done
 	[ "$(ctl server show web01 -o json | jq -r '.status')" = ONLINE ] && pass "the daemon reports and the server is ONLINE" ||
 		{ sed 's/^/    daemon: /' "$WORK/daemon.log" >&2; fail "the daemon's report did not arrive"; }
-	ctl server show web01 | grep -q "Máy:" && pass "sentinelctl server show prints the host" || fail "server show printed no host"
+	ctl server show web01 | grep "Máy:" >/dev/null && pass "sentinelctl server show prints the host" || fail "server show printed no host"
 	[ "$(ctl alert -o json | jq length)" = 0 ] && pass "no alert while the server reports" || fail "an alert is open for a reporting server"
-	ctl server show web01 | grep -q "Cho phép:.*doctor.run.*service.restart" && pass "server show says which actions the server allows" || fail "server show does not list the allowed actions"
+	ctl server show web01 | grep "Cho phép:.*doctor.run.*service.restart" >/dev/null && pass "server show says which actions the server allows" || fail "server show does not list the allowed actions"
 
 	echo "== task"
 	if ctl run web01 backup.start job=nothing --wait >"$WORK/refused.txt" 2>&1; then fail "a backup was started on a server that does not allow it"; fi
@@ -125,10 +126,10 @@ EOF
 	case "$DOCTOR_STATE" in succeeded | failed) pass "doctor.run ran on the server ($DOCTOR_STATE)" ;; *) fail "doctor.run ended as: $DOCTOR_STATE" ;; esac
 	ctl run web01 doctor.run --follow >"$WORK/follow.txt" 2>&1
 	grep -q "running the checks" "$WORK/follow.txt" && grep -q "succeeded" "$WORK/follow.txt" && pass "run --follow streams the log and the result" || fail "no log from doctor.run --follow: $(cat "$WORK/follow.txt")"
-	ctl task ls --server web01 | grep -q "doctor.run" && pass "task ls lists the tasks" || fail "task ls shows no task"
+	ctl task ls --server web01 | grep "doctor.run" >/dev/null && pass "task ls lists the tasks" || fail "task ls shows no task"
 	if ctl run web01 shell.run cmd=id >/dev/null 2>&1; then fail "an action that is not in the table was queued"; fi
 	pass "an action that is not in the table is refused by the control plane"
-	ctl audit -n 50 | grep -q task.result && pass "the audit log has the results" || fail "no task.result in the audit log"
+	ctl audit -n 50 | grep task.result >/dev/null && pass "the audit log has the results" || fail "no task.result in the audit log"
 	echo "== service task"
 	# The daemon looks for systemctl in fixed places, so a stand-in on PATH is not used: the real one answers. The
 	# unit does not exist (and this is not root, usually), so the task must fail, but with systemctl's own words:
@@ -142,6 +143,15 @@ EOF
 	done
 	pass "a unit that is the agent, a flag, a path or a second command never becomes a task"
 	[ "$(ctl task ls --server web01 -o json | jq '[.[] | select(.params.unit != null and .params.unit != "demo.service" and .params.unit != "other.service")] | length')" = 0 ] && pass "no such task is in the queue" || fail "a bad unit is in the queue"
+	echo "== os updates"
+	# Only the check is allowed here, and it never changes the machine (apt-get -s). Where there is no apt-get the
+	# task fails with a clear message, which also proves it reached the executor. The upgrade is never run.
+	ctl run web01 os.check_updates --wait >"$WORK/osupdates.txt" 2>&1
+	grep -q "packages can be upgraded" "$WORK/osupdates.txt" || grep -q "has no apt-get" "$WORK/osupdates.txt" && pass "os.check_updates reaches the executor and reports (or says there is no apt)" || fail "no answer: $(cat "$WORK/osupdates.txt")"
+	if ctl run web01 os.apply_updates --yes --wait >"$WORK/apply.txt" 2>&1; then fail "an upgrade ran while os_updates is only check"; fi
+	grep -q "control_plane.allow.os_updates: apply" "$WORK/apply.txt" && pass "os.apply_updates is refused unless os_updates is apply, and the refusal says what to write" || fail "no refusal in: $(cat "$WORK/apply.txt")"
+	if ctl run web01 os.apply_updates </dev/null >"$WORK/apply2.txt" 2>&1; then fail "os.apply_updates was queued without a confirmation"; fi
+	grep -q -- "--yes" "$WORK/apply2.txt" && pass "os.apply_updates asks for a confirmation (a script must say --yes)" || fail "no confirmation asked: $(cat "$WORK/apply2.txt")"
 	kill "$DAEMON_PID" 2>/dev/null
 	wait "$DAEMON_PID" 2>/dev/null
 	DAEMON_PID=
@@ -154,12 +164,12 @@ ctl server revoke web01 --yes >/dev/null
 [ "$(agent_status)" = 401 ] && pass "a revoked certificate is refused at once" || fail "a revoked certificate was still accepted"
 
 echo "== audit"
-ctl audit -n 100 | grep -q agent.revoke && pass "the audit log has the revoke" || fail "no revoke in the audit log"
-"$SERVER" -c "$WORK/server.yaml" audit verify | grep -q nguyên && pass "audit chain (server)" || fail "audit verify (server)"
-ctl audit verify | grep -q nguyên && pass "audit chain (sentinelctl)" || fail "audit verify (sentinelctl)"
+ctl audit -n 100 | grep agent.revoke >/dev/null && pass "the audit log has the revoke" || fail "no revoke in the audit log"
+"$SERVER" -c "$WORK/server.yaml" audit verify | grep nguyên >/dev/null && pass "audit chain (server)" || fail "audit verify (server)"
+ctl audit verify | grep nguyên >/dev/null && pass "audit chain (sentinelctl)" || fail "audit verify (sentinelctl)"
 
 echo "== screen"
-ctl </dev/null | grep -q "màn hình terminal" && pass "sentinelctl with no terminal prints the help, not the screen" || fail "sentinelctl with no terminal did not print the help"
+ctl </dev/null | grep "màn hình terminal" >/dev/null && pass "sentinelctl with no terminal prints the help, not the screen" || fail "sentinelctl with no terminal did not print the help"
 
 echo "== logout"
 ctl logout >/dev/null

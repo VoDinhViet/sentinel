@@ -161,3 +161,27 @@ func TestUnitAndContainerNamesAreHeldToTheCharactersTheyReallyUse(t *testing.T) 
 		})
 	}
 }
+
+func TestTheOSActionsTakeNoParameterAndOnlyApplyNeedsConfirmation(t *testing.T) {
+	for _, action := range []string{ActionOSCheckUpdates, ActionOSApplyUpdates} {
+		if err := ValidateTask(action, nil); err != nil {
+			t.Errorf("%s: %v", action, err)
+		}
+		for _, name := range []string{"package", "packages", "security_only", "reboot", "command"} {
+			if err := ValidateTask(action, map[string]string{name: "x"}); err == nil || !strings.Contains(err.Error(), "does not take") {
+				t.Errorf("%s accepted the parameter %s: %v", action, name, err)
+			}
+		}
+		if required, optional := Params(action); len(required)+len(optional) != 0 {
+			t.Errorf("%s has parameters %v %v", action, required, optional)
+		}
+	}
+	for _, action := range Actions() {
+		if want := action == ActionOSApplyUpdates; NeedsConfirmation(action) != want {
+			t.Errorf("NeedsConfirmation(%s) = %v", action, !want)
+		}
+	}
+	if Timeout(ActionOSApplyUpdates) <= Timeout(ActionOSCheckUpdates) {
+		t.Error("an upgrade is given no more time than a check")
+	}
+}

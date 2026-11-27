@@ -106,6 +106,10 @@ prune_schedule: weekly sat 03:00     # `restic prune` of every repository (a bac
 #     # container.restart: exactly these Docker containers (names or ids), through the Docker socket.
 #     containers: []                    # e.g. [web, worker]
 #     docker_socket: /var/run/docker.sock
+#     # os_updates: off (default) | check (list the packages that could be upgraded; changes nothing) | apply (also
+#     # upgrade them with `apt-get -y upgrade`, in the transient unit sentinel-os-update; no package names, no
+#     # reboot). Debian and Ubuntu only. `apply` is the one setting that lets a task change packages as root.
+#     os_updates: off
 
 # Alert (Warning) when a file system Sentinel writes to has less than this share free: the state database,
 # the restic cache and each local repository are always watched, disk.paths adds more. These are the defaults;

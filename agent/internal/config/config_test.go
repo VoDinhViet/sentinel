@@ -633,3 +633,32 @@ func TestAllowListsAreCheckedWhenTheFileIsRead(t *testing.T) {
 		})
 	}
 }
+
+func TestOSUpdatesIsOffCheckOrApplyAndApplyIncludesCheck(t *testing.T) {
+	t.Setenv("RESTIC_PW", "secret")
+	t.Setenv("TG_TOKEN", "tok")
+	for mode, want := range map[string][2]bool{ // {os.check_updates, os.apply_updates}
+		"off": {false, false}, "check": {true, false}, "apply": {true, true},
+	} {
+		cfg, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { os_updates: " + mode + " } }\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		allow := cfg.ControlPlane.Allow
+		if got := [2]bool{allow.Permits("os.check_updates", nil), allow.Permits("os.apply_updates", nil)}; got != want {
+			t.Errorf("os_updates %s permits %v, want %v", mode, got, want)
+		}
+		if mode == "apply" && strings.Join(allow.Actions(), ",") != "os.apply_updates,os.check_updates" {
+			t.Errorf("Actions = %v", allow.Actions())
+		}
+	}
+	for _, bad := range []string{"all", "true", "security", "dist-upgrade"} {
+		if _, err := Parse([]byte(validYAML + "control_plane: { url: \"https://cp.example.com:9320\", allow: { os_updates: " + bad + " } }\n")); err == nil {
+			t.Errorf("os_updates: %s was accepted", bad)
+		}
+	}
+	if (Allow{OSUpdates: OSUpdatesCheck}).Hint("os.apply_updates", nil) != "control_plane.allow.os_updates: apply" ||
+		(Allow{}).Hint("os.check_updates", nil) != "control_plane.allow.os_updates: check" {
+		t.Error("the hints do not say what to write")
+	}
+}

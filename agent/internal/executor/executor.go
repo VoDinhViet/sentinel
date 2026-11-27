@@ -45,6 +45,9 @@ type Executor struct {
 	Now func() time.Time
 	// Systemctl runs systemctl with the given arguments; nil runs the real one. A test replaces it.
 	Systemctl func(ctx context.Context, args ...string) ([]byte, error)
+	// LookTool finds apt-get and systemd-run, and RunTool runs a program line by line; nil means the real ones.
+	LookTool func(name string) (string, error)
+	RunTool  func(ctx context.Context, path string, args []string, line func(string)) error
 
 	limit *ratelimit.Limiter
 }
@@ -112,6 +115,10 @@ func (e *Executor) run(ctx context.Context, task agentapi.Task, log func(line st
 		return e.service(ctx, task.Action, task.Params["unit"], log)
 	case agentapi.ActionContainerRestart:
 		return e.restartContainer(ctx, task.Params, log)
+	case agentapi.ActionOSCheckUpdates:
+		return e.checkUpdates(ctx, log)
+	case agentapi.ActionOSApplyUpdates:
+		return e.applyUpdates(ctx, log)
 	default: // agentapi.ActionDoctorRun: ValidateTask let nothing else through
 		return e.doctor(ctx, log)
 	}

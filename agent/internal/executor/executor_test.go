@@ -84,7 +84,7 @@ func TestNothingRunsWhileTheAllowlistIsOff(t *testing.T) {
 		backend := &fakeBackend{}
 		params := map[string]string{"job": "db"}
 		switch {
-		case action == agentapi.ActionDoctorRun:
+		case action == agentapi.ActionDoctorRun, strings.HasPrefix(action, "os."):
 			params = nil
 		case strings.HasPrefix(action, "service."):
 			params = map[string]string{"unit": "nginx.service"}

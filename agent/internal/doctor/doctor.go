@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -249,6 +250,26 @@ func allowToolFindings(allow config.Allow) []Finding {
 		if info, err := os.Stat(allow.Socket()); err != nil || info.Mode()&os.ModeSocket == 0 {
 			findings = append(findings, Finding{Name: "allow.containers", Warn: true, Err: fmt.Errorf("%s is not a Docker socket, so container tasks will fail", allow.Socket()),
 				Hint: "start Docker, or set control_plane.allow.docker_socket to the right path"})
+		}
+	}
+	findings = append(findings, osUpdateFindings(allow.OSUpdates)...)
+	return findings
+}
+
+// osToolDirs are the places the executor looks for apt-get and systemd-run (it ignores the PATH).
+var osToolDirs = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+
+// osUpdateFindings warns when os_updates is on and the tools its tasks run are not where the executor looks.
+func osUpdateFindings(mode string) []Finding {
+	needs := map[string][]string{config.OSUpdatesCheck: {"apt-get"}, config.OSUpdatesApply: {"apt-get", "systemd-run"}}[mode]
+	var findings []Finding
+	for _, tool := range needs {
+		if !slices.ContainsFunc(osToolDirs, func(dir string) bool {
+			info, err := os.Stat(filepath.Join(dir, tool))
+			return err == nil && !info.IsDir()
+		}) {
+			findings = append(findings, Finding{Name: "allow.os_updates", Warn: true, Err: fmt.Errorf("%s was not found, so os_updates tasks will fail", tool),
+				Hint: "only Debian and Ubuntu (apt) are supported: set control_plane.allow.os_updates to off"})
 		}
 	}
 	return findings

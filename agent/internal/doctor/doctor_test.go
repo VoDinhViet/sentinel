@@ -196,3 +196,29 @@ func TestAllowToolFindingsWarnOnlyWhenTheListNeedsSomethingThatIsMissing(t *test
 		t.Errorf("a real socket: %+v", got)
 	}
 }
+
+func TestOSUpdateFindingsNeedAptAndForApplySystemdRun(t *testing.T) {
+	dir := t.TempDir()
+	old := osToolDirs
+	t.Cleanup(func() { osToolDirs = old })
+	osToolDirs = []string{dir}
+	for _, mode := range []string{"", config.OSUpdatesOff} {
+		if got := osUpdateFindings(mode); len(got) != 0 {
+			t.Errorf("os_updates %q: %+v", mode, got)
+		}
+	}
+	if got := osUpdateFindings(config.OSUpdatesCheck); len(got) != 1 || !got[0].Warn || !strings.Contains(got[0].Err.Error(), "apt-get") {
+		t.Errorf("check without apt-get: %+v", got)
+	}
+	if got := osUpdateFindings(config.OSUpdatesApply); len(got) != 2 {
+		t.Errorf("apply without either: %+v", got)
+	}
+	for _, name := range []string{"apt-get", "systemd-run"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := osUpdateFindings(config.OSUpdatesApply); len(got) != 0 {
+		t.Errorf("both present: %+v", got)
+	}
+}
