@@ -70,10 +70,11 @@ func newApp(ctx context.Context, cfg *config.Config, st *store.Store, ca *pki.CA
 		return nil, fmt.Errorf("load alert state: %w", err)
 	}
 	enrolled := enroll.New(st, ca)
+	inv := inventory.New(st)
 	return &App{
-		Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enrolled, Inventory: inventory.New(st),
+		Config: cfg, Store: st, CA: ca, Auth: auth.New(st), Enroll: enrolled, Inventory: inv,
 		Alerts: alerts, AlertStore: alertStore,
-		Watchdog: &watchdog.Watchdog{Alerts: alerts, Agents: enrolled, OfflineAfter: cfg.OfflineAfter, Started: time.Now()},
+		Watchdog: &watchdog.Watchdog{Alerts: alerts, Agents: enrolled, Inventory: inv, OfflineAfter: cfg.OfflineAfter, Started: time.Now()},
 	}, nil
 }
 

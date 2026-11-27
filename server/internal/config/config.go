@@ -22,9 +22,11 @@ const (
 	DefaultStateDir     = "/var/lib/sentinel-server"
 	DefaultListen       = ":9320"
 	DefaultCtlListen    = "127.0.0.1:9321"
-	DefaultOfflineAfter = 2 * time.Minute
+	DefaultOfflineAfter = 3 * time.Minute
 	DefaultCooldown     = time.Hour
-	minOfflineAfter     = 30 * time.Second
+	// minOfflineAfter is three reporting periods: an agent reports about every 60s, and one report that
+	// is lost or late must not be enough to call it offline.
+	minOfflineAfter = 3 * time.Minute
 )
 
 type Config struct {

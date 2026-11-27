@@ -41,3 +41,21 @@ func TestReportCleanStripsTextCutsListsAndKeepsThemLists(t *testing.T) {
 		}
 	}
 }
+
+func TestAReportCannotMakeUpLinesOrFloodTheHostPart(t *testing.T) {
+	report := Report{
+		Alerts: []AlertStatus{{Message: "full\n  other-job  ok"}},
+		Host:   HostStatus{Hostname: "web\tshifted", Errors: []string{"a\nb"}},
+	}
+	for range MaxReportItems + 100 {
+		report.Host.Disks = append(report.Host.Disks, DiskStatus{Mount: "/x"})
+		report.Host.FailedServices = append(report.Host.FailedServices, ServiceStatus{Name: "u"})
+	}
+	cleaned := report.Clean()
+	if strings.ContainsAny(cleaned.Alerts[0].Message+cleaned.Host.Hostname+cleaned.Host.Errors[0], "\n\t") {
+		t.Errorf("a line break or tab is left: %+v", cleaned)
+	}
+	if len(cleaned.Host.Disks) != MaxReportItems || len(cleaned.Host.FailedServices) != MaxReportItems {
+		t.Errorf("host lists = %d and %d, want %d", len(cleaned.Host.Disks), len(cleaned.Host.FailedServices), MaxReportItems)
+	}
+}

@@ -121,6 +121,20 @@ func (c *Client) Renew(ctx context.Context) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
+	// The new key is written first, before the control plane is asked for anything: a directory that
+	// cannot be written (read-only, full) fails here, and no certificate is issued that could not be kept.
+	if err := pki.WritePrivate(filepath.Join(c.dir, nextKeyFile), keyPEM); err != nil {
+		return time.Time{}, fmt.Errorf("cannot write the new key: %w", err)
+	}
+	renewed, err := c.renewWith(ctx, keyPEM, csrPEM)
+	if err != nil {
+		_ = os.Remove(filepath.Join(c.dir, nextKeyFile))
+	}
+	return renewed, err
+}
+
+// renewWith asks for the certificate for csrPEM, checks the answer and puts it in place.
+func (c *Client) renewWith(ctx context.Context, keyPEM, csrPEM []byte) (time.Time, error) {
 	var answer agentapi.RenewResponse
 	if err := call(ctx, c.http, http.MethodPost, c.where.base+agentapi.RouteRenew, agentapi.RenewRequest{CSR: string(csrPEM)}, &answer); err != nil {
 		return time.Time{}, err
@@ -132,11 +146,29 @@ func (c *Client) Renew(ctx context.Context) (time.Time, error) {
 	if err := c.verifyRenewed(pair); err != nil {
 		return time.Time{}, err
 	}
-	if err := installRenewal(c.dir, []byte(answer.Cert), keyPEM); err != nil {
+	if err := installRenewal(c.dir, []byte(answer.Cert)); err != nil {
 		return time.Time{}, err
 	}
 	c.cert.Store(&pair)
 	return answer.NotAfter, nil
+}
+
+// Reload reads the identity in the directory again. The agent was joined again (sentinel agent join --force)
+// while the daemon runs: the next request is made with the new certificate, without a restart.
+func (c *Client) Reload() error {
+	identity, err := LoadIdentity(c.dir)
+	if err != nil {
+		return err
+	}
+	c.cert.Store(identity.Cert)
+	return nil
+}
+
+// Ping tells the control plane the agent is alive, without a report: for a round in which the report could
+// not be built (the database was busy), so the agent does not look offline while its daemon runs.
+func (c *Client) Ping(ctx context.Context) error {
+	_, err := c.WhoAmI(ctx)
+	return err
 }
 
 // verifyRenewed checks that the certificate is for this agent's name, signed by the CA it trusts.
@@ -174,14 +206,11 @@ func currentName(pair *tls.Certificate) (string, error) {
 	return pki.AgentName(leaf)
 }
 
-// installRenewal puts a new key and certificate in dir. Each step leaves a pair LoadIdentity can use:
-// the new files are written whole under their own names (key first, certificate last), then the key and
-// the certificate are renamed over the old ones. Between the two renames the key is new and the old
-// certificate does not match it, but cert.next.pem and the new key do.
-func installRenewal(dir string, certPEM, keyPEM []byte) error {
-	if err := pki.WritePrivate(filepath.Join(dir, nextKeyFile), keyPEM); err != nil {
-		return err
-	}
+// installRenewal puts the new certificate and the key written before (key.next.pem) in place. Each step leaves
+// a pair LoadIdentity can use: the certificate is written whole under its own name, then the key and the
+// certificate are renamed over the old ones. Between the two renames the key is new and the old certificate
+// does not match it, but cert.next.pem and the new key do.
+func installRenewal(dir string, certPEM []byte) error {
 	if err := pki.WritePublic(filepath.Join(dir, nextCertFile), certPEM); err != nil {
 		return err
 	}

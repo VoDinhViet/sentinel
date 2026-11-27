@@ -219,6 +219,11 @@ func controlPlaneFinding(ctx context.Context, cfg *config.Config) Finding {
 		finding.Hint = "join the control plane first: sentinelctl server add <name>, then run the command it prints on this server"
 		return finding
 	}
+	if err := dirWritable(dir); err != nil {
+		finding.Err = fmt.Errorf("%s cannot be written, so the certificate cannot be renewed: %w", dir, err)
+		finding.Hint = "the unit's ProtectSystem=full makes /etc read-only: keep the identity under the state directory (control_plane.dir)"
+		return finding
+	}
 	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	who, err := transport.WhoAmI(callCtx, dir, cfg.ControlPlane.URL)
@@ -234,6 +239,16 @@ func controlPlaneFinding(ctx context.Context, cfg *config.Config) Finding {
 		finding.Info = fmt.Sprintf("%s knows this agent as %q; certificate ends %s", cfg.ControlPlane.URL, who.Name, who.NotAfter.Local().Format("2006-01-02"))
 	}
 	return finding
+}
+
+// dirWritable says whether a file can be made in dir: a certificate is renewed by writing new files there.
+func dirWritable(dir string) error {
+	probe, err := os.CreateTemp(dir, ".write-test-*")
+	if err != nil {
+		return err
+	}
+	name := probe.Name()
+	return errors.Join(probe.Close(), os.Remove(name))
 }
 
 // apiFinding warns when the API can be reached from other machines: the token travels in clear text.

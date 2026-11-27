@@ -125,7 +125,7 @@ func (c *Client) failure(resp *http.Response, answer []byte) error {
 	var body ctlapi.ErrorBody
 	message := "no explanation"
 	if json.Unmarshal(answer, &body) == nil && body.Error != "" {
-		message = termtext.Clean(body.Error)
+		message = termtext.Line(body.Error)
 	}
 	return &Error{Status: resp.StatusCode, Message: message}
 }
@@ -154,7 +154,7 @@ func (c *Client) Agents(ctx context.Context) ([]ctlapi.Agent, error) {
 	var agents []ctlapi.Agent
 	err := c.do(ctx, http.MethodGet, ctlapi.RouteAgents, nil, &agents)
 	for i := range agents {
-		agents[i].Name = termtext.Clean(agents[i].Name)
+		agents[i].Name = termtext.Line(agents[i].Name)
 	}
 	return agents, err
 }
@@ -164,7 +164,7 @@ func (c *Client) Agents(ctx context.Context) ([]ctlapi.Agent, error) {
 func (c *Client) Agent(ctx context.Context, name string) (ctlapi.AgentDetail, error) {
 	var detail ctlapi.AgentDetail
 	err := c.do(ctx, http.MethodGet, ctlapi.RouteAgents+"/"+url.PathEscape(name), nil, &detail)
-	detail.Name, detail.Version = termtext.Clean(detail.Name), termtext.Clean(detail.Version)
+	detail.Name, detail.Version = termtext.Line(detail.Name), termtext.Line(detail.Version)
 	if detail.Report != nil {
 		cleaned := detail.Report.Clean()
 		detail.Report = &cleaned
@@ -177,7 +177,7 @@ func (c *Client) Alerts(ctx context.Context) ([]ctlapi.Alert, error) {
 	var alerts []ctlapi.Alert
 	err := c.do(ctx, http.MethodGet, ctlapi.RouteAlerts, nil, &alerts)
 	for i := range alerts {
-		alerts[i].Key, alerts[i].Message = termtext.Clean(alerts[i].Key), termtext.Clean(alerts[i].Message)
+		alerts[i].Key, alerts[i].Message = termtext.Line(alerts[i].Key), termtext.Line(alerts[i].Message)
 	}
 	return alerts, err
 }
@@ -197,8 +197,8 @@ func (c *Client) Audit(ctx context.Context, limit int) ([]ctlapi.AuditRecord, er
 	var records []ctlapi.AuditRecord
 	err := c.do(ctx, http.MethodGet, fmt.Sprintf("%s?limit=%d", ctlapi.RouteAudit, limit), nil, &records)
 	for i := range records {
-		records[i].Target = termtext.Clean(records[i].Target)
-		records[i].Detail = termtext.Clean(records[i].Detail)
+		records[i].Target = termtext.Line(records[i].Target)
+		records[i].Detail = termtext.Line(records[i].Detail)
 	}
 	return records, err
 }

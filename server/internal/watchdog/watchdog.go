@@ -31,6 +31,11 @@ func CertKey(name string) string { return certPrefix + name }
 // days, so an alert at 14 means the renewal has been failing for two weeks.
 const CertWarnAt = 14 * 24 * time.Hour
 
+// FirstReportGrace is how long an agent that has joined but never reported is left alone before it is called
+// offline: between `sentinel agent join` and the edit of the config and the restart there is a while in
+// which it is not at fault.
+const FirstReportGrace = 30 * time.Minute
+
 // Every is how often Run looks at the agents.
 const Every = 30 * time.Second
 
@@ -38,6 +43,7 @@ const Every = 30 * time.Second
 type Watchdog struct {
 	Alerts       *alert.Manager
 	Agents       *enroll.Service
+	Inventory    *inventory.Service
 	OfflineAfter time.Duration
 	// Now is the time; nil means the clock. Started is when the control plane started: for OfflineAfter after
 	// that no agent is called offline, because they have not had time to find it again.
@@ -93,11 +99,24 @@ func (w *Watchdog) checkOffline(ctx context.Context, agent enroll.Agent, now tim
 	key := OfflineKey(agent.Name)
 	status := inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, w.OfflineAfter)
 	switch {
-	case status == inventory.Offline && graceOver:
+	case status == inventory.Offline && graceOver && !w.stillJoining(ctx, agent, now):
 		w.Alerts.Fire(ctx, key, notify.Critical, agent.Name+" is offline", offlineBody(agent, now, w.OfflineAfter))
 	case status == inventory.Online && w.Alerts.Firing(key):
 		w.Alerts.Resolve(ctx, key, agent.Name+" is back", "It reported again.")
 	}
+}
+
+// stillJoining says the agent has not sent its first report and joined less than FirstReportGrace ago.
+func (w *Watchdog) stillJoining(ctx context.Context, agent enroll.Agent, now time.Time) bool {
+	if now.Sub(agent.EnrolledAt) >= FirstReportGrace {
+		return false
+	}
+	reported, err := w.Inventory.HasReported(ctx, agent.Name)
+	if err != nil {
+		slog.Error("watchdog: read reports", "agent", agent.Name, "err", err)
+		return false
+	}
+	return !reported
 }
 
 func offlineBody(agent enroll.Agent, now time.Time, after time.Duration) string {

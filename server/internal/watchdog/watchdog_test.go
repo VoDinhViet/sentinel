@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"sentinel/pkg/agentapi"
 	"sentinel/pkg/alert"
 	"sentinel/pkg/notify"
 	"sentinel/pkg/pki"
@@ -70,7 +71,7 @@ func newPlant(t *testing.T) plant {
 	manager := &alert.Manager{Notifier: notified, Store: AlertStore{DB: st.DB}, Server: "cp", Cooldown: time.Hour}
 	agents := enroll.New(st, ca)
 	return plant{
-		watchdog:  &Watchdog{Alerts: manager, Agents: agents, OfflineAfter: 2 * time.Minute, Started: time.Now()},
+		watchdog:  &Watchdog{Alerts: manager, Agents: agents, Inventory: inventory.New(st), OfflineAfter: 3 * time.Minute, Started: time.Now()},
 		agents:    agents,
 		inventory: inventory.New(st),
 		store:     st,
@@ -95,11 +96,20 @@ func (p plant) join(t *testing.T, name string) {
 	}
 }
 
+// joinAndReport joins the agent and has it send its first report, as a daemon that is set up does.
+func (p plant) joinAndReport(t *testing.T, name string) {
+	t.Helper()
+	p.join(t, name)
+	if err := p.inventory.SaveReport(context.Background(), name, agentapi.Report{Version: "1"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAnAgentThatGoesQuietIsReportedOnceAndThenWelcomedBack(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		p := newPlant(t)
 		ctx := context.Background()
-		p.join(t, "web01")
+		p.joinAndReport(t, "web01")
 		p.watchdog.Started = time.Now().Add(-time.Hour) // not in its first minutes
 
 		time.Sleep(time.Minute)
@@ -107,11 +117,11 @@ func TestAnAgentThatGoesQuietIsReportedOnceAndThenWelcomedBack(t *testing.T) {
 		if titles := p.notified.titles(); len(titles) != 0 {
 			t.Fatalf("an agent silent for a minute: %v", titles)
 		}
-		time.Sleep(90 * time.Second)
+		time.Sleep(150 * time.Second)
 		p.watchdog.Check(ctx)
 		p.watchdog.Check(ctx)
 		if titles := p.notified.titles(); len(titles) != 1 || titles[0] != "web01 is offline" {
-			t.Fatalf("after 2m30s of silence: %v", titles)
+			t.Fatalf("after 3m30s of silence: %v", titles)
 		}
 		if err := p.inventory.Seen(ctx, "web01", time.Now()); err != nil {
 			t.Fatal(err)
@@ -127,7 +137,7 @@ func TestNoAgentIsCalledOfflineInTheFirstMinutesAfterTheControlPlaneStarted(t *t
 	synctest.Test(t, func(t *testing.T) {
 		p := newPlant(t)
 		ctx := context.Background()
-		p.join(t, "web01")
+		p.joinAndReport(t, "web01")
 		p.watchdog.Started = time.Now()
 		time.Sleep(time.Hour) // the agent was silent all that while, but so was the control plane
 		p.watchdog.Started = time.Now()
@@ -136,7 +146,7 @@ func TestNoAgentIsCalledOfflineInTheFirstMinutesAfterTheControlPlaneStarted(t *t
 		if titles := p.notified.titles(); len(titles) != 0 {
 			t.Fatalf("inside the grace period: %v", titles)
 		}
-		time.Sleep(90 * time.Second)
+		time.Sleep(150 * time.Second)
 		p.watchdog.Check(ctx)
 		if titles := p.notified.titles(); len(titles) != 1 {
 			t.Fatalf("after the grace period: %v", titles)
@@ -165,7 +175,16 @@ func TestACertificateNearItsEndWarnsUntilItIsRenewed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := p.agents.Renew(ctx, "web01", time.Now().Add(10*24*time.Hour), request); err != nil {
+		renewed, err := p.agents.Renew(ctx, "web01", time.Now().Add(10*24*time.Hour), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.watchdog.Check(ctx)
+		if titles := p.notified.titles(); len(titles) != 1 {
+			t.Fatalf("a certificate that was issued but is not in use yet must not hide the warning: %v", titles)
+		}
+		renewedCert, _ := pki.ParseCert(renewed.CertPEM)
+		if err := p.agents.Check(ctx, pki.SerialOf(renewedCert), "web01"); err != nil { // the agent shows its new certificate
 			t.Fatal(err)
 		}
 		p.watchdog.Check(ctx)
@@ -179,7 +198,7 @@ func TestRevokingAnAgentClosesItsAlerts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		p := newPlant(t)
 		ctx := context.Background()
-		p.join(t, "web01")
+		p.joinAndReport(t, "web01")
 		p.watchdog.Started = time.Now().Add(-time.Hour)
 		time.Sleep(5 * time.Minute)
 		p.watchdog.Check(ctx)
@@ -192,6 +211,28 @@ func TestRevokingAnAgentClosesItsAlerts(t *testing.T) {
 		p.watchdog.Check(ctx)
 		if p.watchdog.Alerts.Firing(OfflineKey("web01")) {
 			t.Error("the alert of a revoked agent is still open")
+		}
+	})
+}
+
+func TestAnAgentThatJoinedAndHasNotReportedYetGetsHalfAnHourBeforeItIsCalledOffline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newPlant(t)
+		ctx := context.Background()
+		p.join(t, "web01")
+		p.watchdog.Started = time.Now().Add(-time.Hour)
+		if err := p.inventory.Seen(ctx, "web01", time.Now()); err != nil { // the whoami of `agent join`
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Minute) // the operator is still editing the config
+		p.watchdog.Check(ctx)
+		if titles := p.notified.titles(); len(titles) != 0 {
+			t.Fatalf("10 minutes after joining: %v", titles)
+		}
+		time.Sleep(25 * time.Minute)
+		p.watchdog.Check(ctx)
+		if titles := p.notified.titles(); len(titles) != 1 || titles[0] != "web01 is offline" {
+			t.Fatalf("35 minutes after joining, still no report: %v", titles)
 		}
 	})
 }

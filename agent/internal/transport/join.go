@@ -116,6 +116,13 @@ func writeIdentity(dir string, answer agentapi.JoinResponse, keyPEM []byte) erro
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
+	// A renewal that was cut short leaves the .next files; they belong to the identity being replaced and
+	// must not win over the new one when the daemon starts.
+	for _, stale := range []string{nextCertFile, nextKeyFile} {
+		if err := os.Remove(filepath.Join(dir, stale)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", stale, err)
+		}
+	}
 	if err := pki.WritePublic(filepath.Join(dir, CAFile), []byte(answer.CA)); err != nil {
 		return err
 	}

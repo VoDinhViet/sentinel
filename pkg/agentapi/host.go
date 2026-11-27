@@ -3,11 +3,7 @@
 // that runs on a machine.
 package agentapi
 
-import (
-	"slices"
-
-	"sentinel/pkg/termtext"
-)
+import "slices"
 
 // HostStatus is how one machine is doing. Every list is a list, never null, when the agent sends it.
 type HostStatus struct {
@@ -81,23 +77,23 @@ type ServiceStatus struct {
 // descriptions) stripped of escape sequences and control characters, and every list a list, never
 // nil. Whoever receives a status from another machine calls it before showing or storing it.
 func (h HostStatus) Clean() HostStatus {
-	h.Hostname, h.OS, h.Kernel = termtext.Clean(h.Hostname), termtext.Clean(h.OS), termtext.Clean(h.Kernel)
-	h.Disks = cleanEach(h.Disks, func(disk DiskStatus) DiskStatus {
-		disk.Mount, disk.Device, disk.FSType = termtext.Clean(disk.Mount), termtext.Clean(disk.Device), termtext.Clean(disk.FSType)
+	h.Hostname, h.OS, h.Kernel = short(h.Hostname), short(h.OS), short(h.Kernel)
+	h.Disks = cleanEach(first(h.Disks), func(disk DiskStatus) DiskStatus {
+		disk.Mount, disk.Device, disk.FSType = short(disk.Mount), short(disk.Device), short(disk.FSType)
 		return disk
 	})
-	h.Interfaces = cleanEach(h.Interfaces, func(netIf NetInterface) NetInterface {
-		netIf.Name = termtext.Clean(netIf.Name)
+	h.Interfaces = cleanEach(first(h.Interfaces), func(netIf NetInterface) NetInterface {
+		netIf.Name = short(netIf.Name)
 		return netIf
 	})
-	h.TopProcesses.ByCPU = cleanEach(h.TopProcesses.ByCPU, cleanProcess)
-	h.TopProcesses.ByMemory = cleanEach(h.TopProcesses.ByMemory, cleanProcess)
+	h.TopProcesses.ByCPU = cleanEach(first(h.TopProcesses.ByCPU), cleanProcess)
+	h.TopProcesses.ByMemory = cleanEach(first(h.TopProcesses.ByMemory), cleanProcess)
 	if h.Sentinel != nil {
 		service := cleanService(*h.Sentinel)
 		h.Sentinel = &service
 	}
-	h.FailedServices = cleanEach(h.FailedServices, cleanService)
-	h.Errors = cleanEach(h.Errors, termtext.Clean)
+	h.FailedServices = cleanEach(first(h.FailedServices), cleanService)
+	h.Errors = cleanEach(first(h.Errors), short)
 	return h
 }
 
@@ -111,11 +107,11 @@ func cleanEach[T any](items []T, clean func(T) T) []T {
 }
 
 func cleanProcess(process Process) Process {
-	process.Name = termtext.Clean(process.Name)
+	process.Name = short(process.Name)
 	return process
 }
 
 func cleanService(service ServiceStatus) ServiceStatus {
-	service.Name, service.Active, service.Description = termtext.Clean(service.Name), termtext.Clean(service.Active), termtext.Clean(service.Description)
+	service.Name, service.Active, service.Description = short(service.Name), short(service.Active), short(service.Description)
 	return service
 }

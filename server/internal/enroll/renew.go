@@ -14,6 +14,14 @@ import (
 // agent asks at 30 days; the window is wider so a clock that runs a little off still gets its answer.
 const RenewWindow = 45 * 24 * time.Hour
 
+// RenewEvery is the shortest time between two renewals of one agent. An agent that cannot save the new
+// certificate asks again, and so does one that lost the answer; this keeps either from filling the
+// certificate table and the audit log, which never shrinks.
+const RenewEvery = time.Hour
+
+// ErrTooSoon means a certificate was issued to the agent less than RenewEvery ago.
+var ErrTooSoon = errors.New("a certificate was issued to this agent a moment ago: try again in an hour")
+
 // ErrTooEarly means the agent's certificate has more than RenewWindow left.
 var ErrTooEarly = errors.New("the certificate has plenty of time left: renew when less than 45 days remain")
 
@@ -36,6 +44,13 @@ func (s *Service) Renew(ctx context.Context, name string, current time.Time, csr
 			return fmt.Errorf("read agent: %w", err)
 		case state != "active":
 			return ErrCertRefused
+		}
+		var lastIssued int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(issued_at), 0) FROM certs WHERE agent = ?`, name).Scan(&lastIssued); err != nil {
+			return fmt.Errorf("read certificates: %w", err)
+		}
+		if now.Sub(time.Unix(lastIssued, 0)) < RenewEvery {
+			return ErrTooSoon
 		}
 		issued, err := s.ca.SignAgent(csrPEM, name, now)
 		if err != nil {

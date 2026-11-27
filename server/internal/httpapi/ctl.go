@@ -139,7 +139,7 @@ func (s *Server) ctlAgent(agent enroll.Agent, now time.Time) ctlapi.Agent {
 	return ctlapi.Agent{
 		Name: agent.Name, State: agent.State, CreatedAt: agent.CreatedAt,
 		Status:     string(inventory.StatusOf(agent.State, agent.EnrolledAt, agent.LastSeen, now, s.app.Config.OfflineAfter)),
-		EnrolledAt: timePointer(agent.EnrolledAt), LastSeen: timePointer(agent.LastSeen), Version: termtext.Clean(agent.Version),
+		EnrolledAt: timePointer(agent.EnrolledAt), LastSeen: timePointer(agent.LastSeen), Version: termtext.Line(agent.Version),
 		CertNotAfter: timePointer(agent.CertNotAfter),
 	}
 }
@@ -180,7 +180,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request, _ session) {
 	}
 	listed := make([]ctlapi.Alert, 0, len(open))
 	for _, alert := range open {
-		listed = append(listed, ctlapi.Alert{Key: termtext.Clean(alert.Key), Message: termtext.Clean(alert.Message), Since: alert.Since})
+		listed = append(listed, ctlapi.Alert{Key: termtext.Line(alert.Key), Message: termtext.Line(alert.Message), Since: alert.Since})
 	}
 	writeJSON(w, http.StatusOK, listed)
 }

@@ -14,8 +14,12 @@ const (
 	// RenewBefore is how close to its end the certificate is when the agent asks for a new one. The
 	// control plane allows it from 45 days, and warns about an agent that still has the old one at 14.
 	RenewBefore = 30 * 24 * time.Hour
-	// renewRetry is how long to wait after a renewal that failed: it is tried again, not every minute.
-	renewRetry = 10 * time.Minute
+	// renewRetry is how long to wait after a renewal that failed. It is the shortest time the control plane
+	// allows between two certificates, and the certificate has 30 days left when the first try is made.
+	// retryAfterFailure is how soon a report that did not get through is tried again: sooner than the
+	// pace, so that one lost request does not make the control plane wait for two periods.
+	retryAfterFailure = 20 * time.Second
+	renewRetry        = time.Hour
 	// refusedPause is how long the reporter stays quiet after the control plane refused its certificate
 	// (revoked, or ended): it does not hammer, and it notices an agent that was put back.
 	refusedPause = time.Hour
@@ -32,6 +36,9 @@ type Sender interface {
 	Report(ctx context.Context, report agentapi.Report) (agentapi.ReportResponse, error)
 	Renew(ctx context.Context) (time.Time, error)
 	NotAfter() time.Time
+	// Reload reads the identity from its files again, and Ping is a request that proves the agent is alive.
+	Reload() error
+	Ping(ctx context.Context) error
 }
 
 // Reporter tells the control plane how this agent is, every minute or so, and renews the certificate
@@ -48,6 +55,7 @@ type Reporter struct {
 	failing      bool          // the last report did not get through
 	refusedUntil time.Time
 	lastRenewTry time.Time
+	wasRefused   bool // the last pause was for a refusal: the identity is read again before the next try
 	skewWarned   bool
 }
 
@@ -62,8 +70,11 @@ func (r *Reporter) now() time.Time {
 // 10% so a fleet that started together does not report together.
 func (r *Reporter) Loop(ctx context.Context) {
 	for {
-		r.Round(ctx)
-		timer := time.NewTimer(jitter(r.pace()))
+		wait := r.pace()
+		if !r.Round(ctx) {
+			wait = min(wait, retryAfterFailure)
+		}
+		timer := time.NewTimer(jitter(wait))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -84,48 +95,76 @@ func jitter(every time.Duration) time.Duration {
 	return time.Duration(float64(every) * (0.9 + 0.2*rand.Float64())) //nolint:gosec // spreading load, not a secret
 }
 
-// Round is one report, after the renewal of the certificate when it is due.
-func (r *Reporter) Round(ctx context.Context) {
+// Round is one report, after the renewal of the certificate when it is due. It says whether the control
+// plane was reached (a refused certificate is not a failure to retry soon: the pause is an hour).
+func (r *Reporter) Round(ctx context.Context) (reached bool) {
 	now := r.now()
 	if now.Before(r.refusedUntil) {
-		return
+		return true
+	}
+	if r.wasRefused {
+		r.wasRefused = false
+		r.reloadIdentity()
 	}
 	r.renewIfDue(ctx, now)
 	if now.Before(r.refusedUntil) {
-		return
+		return true
 	}
 	report, err := r.Build(ctx)
 	if err != nil {
-		slog.Warn("control plane: cannot build the report", "err", err)
-		return
+		slog.Warn("control plane: cannot build the report; telling it only that this agent is alive", "err", err)
+		return r.ping(ctx)
 	}
 	report.SentAt = now
 	answer, err := r.Client.Report(ctx, report)
 	switch {
 	case ctx.Err() != nil:
-		return // the daemon is stopping
+		return true // the daemon is stopping
 	case IsStatus(err, 401):
 		r.refused(now, err)
+		return true
 	case err != nil:
 		if !r.failing {
 			slog.Warn("control plane: the report did not get through; it is tried again", "err", err)
 		}
 		r.failing = true
-	default:
-		if r.failing {
-			slog.Info("control plane: reporting again")
-		}
-		r.failing = false
+		return false
+	}
+	if r.failing {
+		slog.Info("control plane: reporting again")
+	}
+	r.failing = false
+	if answer.ReportEverySeconds > 0 { // a control plane that says nothing leaves the pace as it was
 		r.every = min(max(time.Duration(answer.ReportEverySeconds)*time.Second, minEvery), maxEvery)
-		r.checkClock(answer.ServerTime, now)
+	}
+	r.checkClock(answer.ServerTime, now)
+	return true
+}
+
+// ping is the round of an agent that could not build a report.
+func (r *Reporter) ping(ctx context.Context) bool {
+	err := r.Client.Ping(ctx)
+	if IsStatus(err, 401) {
+		r.refused(r.now(), err)
+		return true
+	}
+	return err == nil || ctx.Err() != nil
+}
+
+// reloadIdentity reads the identity files again after a refusal, so an agent that was joined again is taken
+// back without a restart.
+func (r *Reporter) reloadIdentity() {
+	if err := r.Client.Reload(); err != nil {
+		slog.Warn("control plane: cannot read the identity again", "err", err)
 	}
 }
 
 func (r *Reporter) refused(now time.Time, err error) {
 	r.refusedUntil = now.Add(refusedPause)
+	r.wasRefused = true
 	r.failing = true
 	slog.Error("control plane: it refuses this agent's certificate (the server was revoked, or its certificate ended); "+
-		"it asks again in an hour. To join again: sentinelctl server add, then sentinel agent join --force", "err", err)
+		"it asks again in an hour, with the identity it finds then. To join again: sentinelctl server add, then sentinel agent join --force", "err", err)
 }
 
 func (r *Reporter) renewIfDue(ctx context.Context, now time.Time) {

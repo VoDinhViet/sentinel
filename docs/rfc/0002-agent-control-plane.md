@@ -136,7 +136,7 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 | `POST /v1/enroll/join` | `{token, csr}` → `{name, cert, ca, not_after}`; không cần client cert; giới hạn tần suất theo IP, body tối đa 16 KiB |
 | `GET /v1/agent/whoami` | → `{name, cert_not_after}`: control plane đọc tên từ cert; dùng để kiểm tra cert hoạt động |
 | `POST /v1/agent/report` | `{version, sent_at, host, backups, checks, alerts}` → `{server_time, report_every_s}`; body tối đa 512 KiB, mỗi danh sách tối đa 200 phần tử, mọi chuỗi qua `termtext.Clean` và bị cắt; trường lạ được bỏ qua (agent mới hơn server vẫn báo được) |
-| `POST /v1/agent/renew` | `{csr}` → `{cert, not_after}`; chỉ khi cert hiện tại còn dưới 45 ngày; cert cũ vẫn dùng được đến hết hạn |
+| `POST /v1/agent/renew` | `{csr}` → `{cert, not_after}`; chỉ khi cert hiện tại còn dưới 45 ngày và agent chưa được cấp cert nào trong giờ qua (429 nếu có: chặn vòng lặp làm đầy bảng `certs` và audit); cert cũ vẫn dùng được cho đến khi agent đưa cert mới ra lần đầu, lúc đó các cert cũ hơn của nó bị thu hồi (bản sao khoá cũ hết tác dụng, và `server ls` hiện hạn của cert đang dùng chứ không phải của cert đã cấp mà agent chưa nhận) |
 | `GET /v1/agent/tasks?wait=25s` | long-poll → `[{id, action, params, result_by}]` |
 | `POST /v1/agent/tasks/{id}/result` | `{state, started_at, finished_at, output, error}` → 204 |
 | `POST /v1/agent/tasks/{id}/log` | một đoạn log của task (có giới hạn kích thước) |
@@ -144,7 +144,9 @@ Mọi route agent dùng mTLS (TLS 1.3). Mỗi request cập nhật `last_seen`.
 - `backups` là lần chạy mới nhất của từng job vào từng repository. Lịch sử các lần chạy (`backup_runs` với cursor) và `host_samples` thuộc giai đoạn 14, vì khi đó agent gửi lại từ cursor 0 nên không mất gì.
 - `allow` (action agent cho phép) sẽ vào report cùng `control_plane.allow` ở giai đoạn 9.
 - `report_every_s` là nhịp server muốn (agent giữ trong 15 giây đến 10 phút, lệch ±10%); `server_time` để agent báo khi đồng hồ lệch quá 2 phút.
-- Agent gia hạn khi cert còn dưới 30 ngày. Khoá mới được sinh mỗi lần; khoá và cert mới ghi thành `key.next.pem`, `cert.next.pem` rồi `rename` đè, và `LoadIdentity` chọn cặp khớp nhau, nên mất điện giữa chừng không khoá agent ra ngoài.
+- Mỗi agent bị giới hạn tần suất gọi (0,2 lần/giây, burst 5) sau khi cert được kiểm tra. Chuỗi trong report là một dòng (`termtext.Line`: xuống dòng và tab thành dấu cách) và bị cắt; danh sách phần máy cũng giới hạn 200 phần tử.
+- Agent gia hạn khi cert còn dưới 30 ngày, thử lại sau một giờ nếu hỏng; khoá mới được ghi vào `key.next.pem` trước khi hỏi control plane, nên thư mục không ghi được thì không cấp cert vô ích (`sentinel doctor` cũng kiểm tra). Sau khi bị từ chối (401) agent đọc lại file danh tính trước lần thử kế, nên `agent join --force` có hiệu lực không cần khởi động lại; `agent join` xoá `*.next.pem` còn sót.
+- Report trượt thì thử lại sau 20 giây chứ không đợi cả nhịp; không dựng được report (database bận) thì agent chỉ gọi whoami để vẫn hiện là còn sống. Khoá mới được sinh mỗi lần; khoá và cert mới ghi thành `key.next.pem`, `cert.next.pem` rồi `rename` đè, và `LoadIdentity` chọn cặp khớp nhau, nên mất điện giữa chừng không khoá agent ra ngoài.
 - Một lần poll mới của cùng agent huỷ lần poll trước.
 - Agent report mỗi 60 giây (lệch ±10%), poll liên tục. Gặp 401 thì ghi log lỗi rồi im một giờ mới hỏi lại (không lặp nóng, nhưng cũng không bỏ hẳn: một agent được đặt lại sẽ tự về).
 
@@ -223,7 +225,7 @@ Audit: mỗi dòng có `hash = sha256(prev_hash ‖ nội dung chuẩn hoá)`; `
 
 Control plane dùng lại `alert.Manager` và `notify` (chuyển sang `pkg`; `alert.Manager.Store` thành interface).
 
-- `agent:<tên>` (Critical): `last_seen` cũ hơn `offline_after` (mặc định 2 phút); có thời gian ân hạn sau khi control plane khởi động.
+- `agent:<tên>` (Critical): `last_seen` cũ hơn `offline_after` (mặc định 3 phút, tối thiểu 3 phút = ba nhịp báo cáo, để một báo cáo trượt không đủ gây báo giả); có thời gian ân hạn sau khi control plane khởi động, và 30 phút sau khi join cho agent chưa gửi báo cáo nào (chưa kịp sửa config và khởi động lại daemon).
 - `agent-cert:<tên>` (Warning): cert còn dưới 14 ngày.
 - Cửa sổ bảo trì tắt `agent:` và đặt trạng thái `MAINTENANCE`.
 - Control plane **không** chuyển tiếp alert mà agent đã tự gửi; nó chỉ báo điều agent không tự báo được.

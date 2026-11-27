@@ -35,10 +35,13 @@ type Server struct {
 	// ctlLimit keeps one address from asking for hundreds of things a second; the password
 	// attempts are limited separately, by package auth.
 	ctlLimit *ratelimit.Limiter
+	// agentLimit keeps one agent (a compromised one, or one that loops) from loading the database: it
+	// reports about once a minute, and may call a few times at once (join, whoami, report, renew).
+	agentLimit *ratelimit.Limiter
 }
 
 func New(a *app.App) *Server {
-	return &Server{app: a, joinLimit: ratelimit.New(0.2, 10), ctlLimit: ratelimit.New(20, 40)}
+	return &Server{app: a, joinLimit: ratelimit.New(0.2, 10), ctlLimit: ratelimit.New(20, 40), agentLimit: ratelimit.New(0.2, 5)}
 }
 
 // AgentHandler is the routes of `listen`. Joining needs no certificate; every other route needs the

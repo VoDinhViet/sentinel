@@ -19,7 +19,7 @@ hosts:
   - "ctl.example.com"
 
 # An agent that has not reported for this long is offline.
-offline_after: 2m
+offline_after: 3m
 
 # Where the control plane sends its own alerts: an agent gone quiet, an agent certificate near its end.
 # Without a notifier they are only logged and shown by `sentinelctl alert`. Write secrets as ${VAR}; the

@@ -99,3 +99,14 @@ func (s *Service) Report(ctx context.Context, name string) (agentapi.Report, tim
 	}
 	return report.Clean(), time.Unix(receivedAt, 0), nil
 }
+
+// HasReported says whether the agent has ever sent a report. A request without one (the whoami that `sentinel
+// agent join` makes) shows the agent is there, but not that its daemon runs.
+func (s *Service) HasReported(ctx context.Context, name string) (bool, error) {
+	var found int
+	err := s.store.DB.QueryRowContext(ctx, `SELECT 1 FROM agent_reports WHERE agent = ?`, name).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}

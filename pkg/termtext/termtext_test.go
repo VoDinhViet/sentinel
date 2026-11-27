@@ -60,3 +60,9 @@ func TestShortenCutsTextToTheLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestLineTurnsBreaksAndTabsIntoSpaces(t *testing.T) {
+	if got, want := Line("a\nb\tc\r\nd\x1b[31me"), "a b c de"; got != want {
+		t.Errorf("Line = %q, want %q", got, want)
+	}
+}

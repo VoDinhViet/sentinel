@@ -14,14 +14,14 @@ func TestParseAppliesDefaultsAndAcceptsAGoodFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != ":9320" || cfg.CtlListen != "127.0.0.1:9321" || cfg.StateDir != DefaultStateDir || cfg.OfflineAfter != 2*time.Minute {
+	if cfg.Listen != ":9320" || cfg.CtlListen != "127.0.0.1:9321" || cfg.StateDir != DefaultStateDir || cfg.OfflineAfter != 3*time.Minute {
 		t.Errorf("defaults = %+v", cfg)
 	}
 	if cfg.JoinURL() != "https://backup.example.com:9320" || cfg.Port() != "9320" {
 		t.Errorf("join url = %q, port %q", cfg.JoinURL(), cfg.Port())
 	}
-	cfg, err = Parse([]byte("hosts: ['10.0.0.5', '2001:db8::1']\nlisten: 0.0.0.0:443\noffline_after: 90s\n"))
-	if err != nil || cfg.JoinURL() != "https://10.0.0.5:443" || cfg.OfflineAfter != 90*time.Second {
+	cfg, err = Parse([]byte("hosts: ['10.0.0.5', '2001:db8::1']\nlisten: 0.0.0.0:443\noffline_after: 5m\n"))
+	if err != nil || cfg.JoinURL() != "https://10.0.0.5:443" || cfg.OfflineAfter != 5*time.Minute {
 		t.Errorf("cfg = %+v, %v", cfg, err)
 	}
 }
@@ -129,5 +129,14 @@ func TestNotifiersAndHeartbeatAreCheckedAndGetDefaults(t *testing.T) {
 		if _, err := Parse([]byte(text)); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+}
+
+func TestOfflineAfterIsAtLeastThreeReportingPeriods(t *testing.T) {
+	if _, err := Parse([]byte("hosts: [a.example.com]\noffline_after: 2m\n")); err == nil {
+		t.Error("offline_after of 2m was accepted: one lost report would be enough to flap")
+	}
+	if _, err := Parse([]byte("hosts: [a.example.com]\noffline_after: 3m\n")); err != nil {
+		t.Errorf("offline_after of 3m: %v", err)
 	}
 }

@@ -490,3 +490,21 @@ func TestAlertsListsWhatIsOpen(t *testing.T) {
 		t.Errorf("alerts without a session: status %d", status)
 	}
 }
+
+func TestAnAgentThatCallsInALoopIsSlowedDownAndOthersAreNot(t *testing.T) {
+	p := newPlant(t)
+	token := p.signedIn()
+	loud, quiet := p.join(token, "loud"), p.join(token, "quiet")
+	refused := 0
+	for range 30 {
+		if status, _ := call(t, p.client(&loud), "GET", p.agents.URL+agentapi.RouteWhoAmI, "", nil, nil); status == http.StatusTooManyRequests {
+			refused++
+		}
+	}
+	if refused == 0 {
+		t.Error("30 calls in a row were all answered")
+	}
+	if status, _ := call(t, p.client(&quiet), "GET", p.agents.URL+agentapi.RouteWhoAmI, "", nil, nil); status != http.StatusOK {
+		t.Errorf("another agent was slowed down too: status %d", status)
+	}
+}

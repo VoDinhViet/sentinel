@@ -22,6 +22,22 @@ type fakeSender struct {
 	renewErr   error
 	everySecs  int
 	serverTime func() time.Time
+	pings      int
+	reloads    int
+}
+
+func (f *fakeSender) Reload() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reloads++
+	return nil
+}
+
+func (f *fakeSender) Ping(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pings++
+	return f.reportErr
 }
 
 func (f *fakeSender) Report(_ context.Context, report agentapi.Report) (agentapi.ReportResponse, error) {
@@ -118,7 +134,7 @@ func TestARenewalThatFailsIsTriedAgainLaterNotEveryRound(t *testing.T) {
 			t.Fatalf("the reports go on while renewal fails: renewed %d, reports %d", sender.renewed, sender.count())
 		}
 		sender.renewErr = nil
-		time.Sleep(11 * time.Minute)
+		time.Sleep(61 * time.Minute)
 		reporter.Round(t.Context())
 		if sender.renewed != 1 {
 			t.Errorf("renewed %d times after the retry delay", sender.renewed)
@@ -156,6 +172,68 @@ func TestAFailedReportDoesNotStopTheNext(t *testing.T) {
 		reporter.Round(t.Context())
 		if sender.count() != 1 {
 			t.Errorf("reports = %d", sender.count())
+		}
+	})
+}
+
+func TestAfterARefusalTheIdentityIsReadAgainBeforeTheNextTry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &fakeSender{notAfter: time.Now().Add(80 * 24 * time.Hour), reportErr: unauthorized()}
+		reporter := newReporter(sender)
+		reporter.Round(t.Context())
+		time.Sleep(30 * time.Minute)
+		reporter.Round(t.Context())
+		if sender.reloads != 0 {
+			t.Error("the identity was read again while the pause lasted")
+		}
+		sender.reportErr = nil // the operator joined again
+		time.Sleep(31 * time.Minute)
+		reporter.Round(t.Context())
+		if sender.reloads != 1 || sender.count() != 1 {
+			t.Errorf("reloads %d, reports %d: want the identity read once, then a report", sender.reloads, sender.count())
+		}
+	})
+}
+
+func TestAReportThatCannotBeBuiltStillShowsTheAgentIsAlive(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &fakeSender{notAfter: time.Now().Add(80 * 24 * time.Hour)}
+		reporter := newReporter(sender)
+		reporter.Build = func(context.Context) (agentapi.Report, error) {
+			return agentapi.Report{}, errors.New("database is locked")
+		}
+		if !reporter.Round(t.Context()) || sender.pings != 1 || sender.count() != 0 {
+			t.Errorf("pings %d, reports %d", sender.pings, sender.count())
+		}
+	})
+}
+
+func TestAFailedReportIsTriedAgainSoonerThanThePace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &fakeSender{notAfter: time.Now().Add(80 * 24 * time.Hour), reportErr: errors.New("timeout")}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { newReporter(sender).Loop(ctx); close(done) }()
+		time.Sleep(time.Second)
+		sender.mu.Lock()
+		sender.reportErr = nil
+		sender.mu.Unlock()
+		time.Sleep(30 * time.Second) // well before the 60s pace
+		if sender.count() == 0 {
+			t.Error("the report was not tried again within 30 seconds of the failure")
+		}
+		cancel()
+		<-done
+	})
+}
+
+func TestAnAnswerWithoutAPaceLeavesThePaceAlone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &fakeSender{notAfter: time.Now().Add(80 * 24 * time.Hour), everySecs: 0}
+		reporter := newReporter(sender)
+		reporter.Round(t.Context())
+		if reporter.pace() != time.Duration(agentapi.DefaultReportGap)*time.Second {
+			t.Errorf("pace = %s after an answer that named none", reporter.pace())
 		}
 	})
 }

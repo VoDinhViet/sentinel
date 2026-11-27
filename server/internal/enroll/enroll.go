@@ -149,7 +149,7 @@ type Agent struct {
 	State        string // pending, active or revoked
 	CreatedAt    time.Time
 	EnrolledAt   time.Time // zero until it joins
-	CertNotAfter time.Time // of its newest certificate; zero if it has none
+	CertNotAfter time.Time // of the certificate in use (the oldest one that is still good); zero if it has none
 	LastSeen     time.Time // of its latest request; zero if it never made one
 	Version      string    // of the sentinel it runs, as it last reported
 }
@@ -157,9 +157,9 @@ type Agent struct {
 // List returns every agent, by name.
 func (s *Service) List(ctx context.Context) ([]Agent, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT a.name, a.state, a.created_at, a.enrolled_at,
-		(SELECT MAX(c.not_after) FROM certs c WHERE c.agent = a.name AND c.revoked_at IS NULL),
+		(SELECT MIN(c.not_after) FROM certs c WHERE c.agent = a.name AND c.revoked_at IS NULL AND c.not_after > ?),
 		a.last_seen, a.version
-		FROM agents a ORDER BY a.name`)
+		FROM agents a ORDER BY a.name`, time.Now().Unix())
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -233,7 +233,24 @@ func (s *Service) Check(ctx context.Context, serial, name string) error {
 	if agent != name || revokedAt.Valid || state != "active" || time.Now().Unix() >= notAfter {
 		return ErrCertRefused
 	}
+	s.retireOlder(ctx, serial, name)
 	return nil
+}
+
+// retireOlder revokes the certificates of the agent that were issued before the one now in use. A new
+// certificate is shown only once the agent has it in place, so from then on the old ones are of no use to
+// it, and a copy of an old key stops working. An agent that lost the answer to a renewal goes on with the
+// old certificate, and nothing is retired. A failure here is logged and does not refuse the request.
+func (s *Service) retireOlder(ctx context.Context, serial, name string) {
+	retired, err := s.store.DB.ExecContext(ctx, `UPDATE certs SET revoked_at = ? WHERE agent = ? AND revoked_at IS NULL AND serial <> ?
+		AND issued_at < (SELECT issued_at FROM certs WHERE serial = ?)`, time.Now().Unix(), name, serial, serial)
+	if err != nil {
+		slog.Warn("retire old certificates", "agent", name, "err", err)
+		return
+	}
+	if count, _ := retired.RowsAffected(); count > 0 {
+		slog.Info("retired the older certificates of an agent that uses its new one", "agent", name, "count", count)
+	}
 }
 
 // newToken is a random 256-bit join token and the hash that is stored for it.

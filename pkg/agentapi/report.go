@@ -80,7 +80,7 @@ func (r Report) Clean() Report {
 	return r
 }
 
-func short(text string) string { return termtext.Shorten(termtext.Clean(text), maxReportText) }
+func short(text string) string { return termtext.Shorten(termtext.Line(text), maxReportText) }
 
 // first is the start of a list that is at most MaxReportItems long.
 func first[T any](items []T) []T {

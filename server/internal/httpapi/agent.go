@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"sentinel/pkg/agentapi"
@@ -60,6 +61,11 @@ func (s *Server) agentOnly(next func(w http.ResponseWriter, r *http.Request, age
 			writeError(w, http.StatusUnauthorized, "the certificate is not an agent's")
 			return
 		}
+		if !s.agentLimit.Allow(name) {
+			w.Header().Set("Retry-After", "5")
+			writeError(w, http.StatusTooManyRequests, "this agent calls too often")
+			return
+		}
 		switch err := s.app.Enroll.Check(r.Context(), pki.SerialOf(leaf), name); {
 		case errors.Is(err, enroll.ErrCertRefused):
 			writeError(w, http.StatusUnauthorized, err.Error())
@@ -107,6 +113,9 @@ func (s *Server) renew(w http.ResponseWriter, r *http.Request, agent caller) {
 	switch {
 	case errors.Is(err, enroll.ErrTooEarly), errors.Is(err, enroll.ErrBadRequest):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, enroll.ErrTooSoon):
+		w.Header().Set("Retry-After", strconv.Itoa(int(enroll.RenewEvery.Seconds())))
+		writeError(w, http.StatusTooManyRequests, err.Error())
 	case errors.Is(err, enroll.ErrCertRefused):
 		writeError(w, http.StatusUnauthorized, err.Error())
 	case err != nil:

@@ -87,6 +87,68 @@ func TestRenewPutsANewKeyAndCertificateInPlaceAndTheNextRequestUsesThem(t *testi
 	}
 }
 
+func TestRenewAsksForNothingWhenTheDirectoryCannotBeWritten(t *testing.T) {
+	plane := newControlPlane(t)
+	client, dir := joinedClient(t, plane)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a directory whatever its mode")
+	}
+	if _, err := client.Renew(t.Context()); err == nil {
+		t.Fatal("renewed into a directory that cannot be written")
+	}
+	if plane.renewals != 0 {
+		t.Error("a certificate was asked for although it could not be kept")
+	}
+}
+
+func TestJoiningAgainDropsTheLeftoversOfACutShortRenewal(t *testing.T) {
+	plane := newControlPlane(t)
+	_, dir := joinedClient(t, plane)
+	for _, leftover := range []string{nextCertFile, nextKeyFile} {
+		if err := os.WriteFile(filepath.Join(dir, leftover), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := plane.options(t)
+	opts.Dir, opts.Force = dir, true
+	if _, err := Join(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, leftover := range []string{nextCertFile, nextKeyFile} {
+		if _, err := os.Stat(filepath.Join(dir, leftover)); err == nil {
+			t.Errorf("%s survived the new join", leftover)
+		}
+	}
+	if _, err := LoadIdentity(dir); err != nil {
+		t.Errorf("the new identity: %v", err)
+	}
+}
+
+func TestReloadTakesUpAnIdentityThatWasJoinedAgain(t *testing.T) {
+	plane := newControlPlane(t)
+	client, dir := joinedClient(t, plane)
+	opts := plane.options(t)
+	opts.Dir, opts.Force = dir, true
+	if _, err := Join(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := client.Report(t.Context(), agentapi.Report{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := client.Reload(); err != nil { // the first report still used the old certificate
+			t.Fatal(err)
+		}
+	}
+	if len(plane.reportSerial) != 2 || plane.reportSerial[0] == plane.reportSerial[1] {
+		t.Errorf("serials of the reports = %v: the second must use the identity read again", plane.reportSerial)
+	}
+}
+
 func TestRenewKeepsTheOldIdentityWhenTheAnswerIsNotUsable(t *testing.T) {
 	plane := newControlPlane(t)
 	client, dir := joinedClient(t, plane)

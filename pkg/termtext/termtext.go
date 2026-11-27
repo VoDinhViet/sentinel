@@ -33,6 +33,17 @@ func Clean(text string) string {
 	return cleaned.String()
 }
 
+// Line is Clean for text that goes on one line or in one cell of a table: line breaks and tabs, which Clean
+// keeps, become a space, so that a remote machine cannot make up extra lines or shift the columns of a screen.
+func Line(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, Clean(text))
+}
+
 // Shorten returns text cut to at most limit runes, with … in place of what was cut. Text that a remote
 // server chooses (a version, an error) would otherwise let it fill a chat message or the alert store.
 func Shorten(text string, limit int) string {
