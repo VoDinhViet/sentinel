@@ -126,6 +126,8 @@ sentinel backup restore appdb latest --target /tmp/restore [-r s3main]
 sentinel check                       # chạy mọi uptime check một lần
 sentinel status                      # daemon có đang chạy không, backup gần nhất, cảnh báo đang mở, uptime
 sentinel status -o json              # như trên, cho script
+sentinel fleet status                # tình trạng của nhiều server cùng lúc (xem "Nhiều server")
+sentinel fleet alerts                # cảnh báo đang mở của mọi server
 sentinel notify test                 # gửi tin thử tới mọi kênh cảnh báo
 journalctl -u sentinel -f            # log của daemon
 ```
@@ -183,7 +185,34 @@ curl -H "Authorization: Bearer $SENTINEL_API_TOKEN" http://127.0.0.1:9311/api/v1
 
 ## Nhiều server
 
-Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Chưa có lệnh xem chung nhiều server; thiết kế dự kiến nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md) (máy xem gọi API của từng daemon, không có server trung tâm). Trong lúc chờ, ba việc sau dùng được ngay:
+Mỗi server chạy một daemon độc lập, tự backup và tự gửi cảnh báo. Để xem tất cả cùng lúc, một máy bất kỳ (laptop cũng được, không cần `config.yaml`) gọi HTTP API của từng daemon; không có server trung tâm. Thiết kế nằm ở [RFC 0001](docs/rfc/0001-multi-server-monitoring.md).
+
+### Xem nhiều server: `sentinel fleet`
+
+Trên mỗi server cần xem, bật API và tạo `read_token` (xem [HTTP API](#http-api)). Trên máy xem, liệt kê các server trong `~/.config/sentinel/fleet.yaml` (hoặc file khác qua `--fleet-config` / `$SENTINEL_FLEET_CONFIG`):
+
+```yaml
+servers:
+  - name: web-01
+    url: https://web-01.example.com:9311   # địa chỉ gốc của API, qua reverse proxy có TLS
+    token: ${WEB01_READ_TOKEN}
+  - name: db-01
+    url: http://127.0.0.1:19312            # qua SSH tunnel, xem bên dưới
+    token: ${DB01_READ_TOKEN}
+    # tls_ca: /etc/sentinel/db01-ca.pem    # nếu https dùng CA riêng: file PEM, đường dẫn tuyệt đối
+```
+
+Token viết `${VAR}`; giá trị đặt trong môi trường hoặc trong `fleet.env` nằm cạnh file (cùng cách `sentinel.env`: chỉ chủ file ghi được, chỉ đọc những biến file fleet nhắc tới). Nếu viết thẳng token vào file thì file phải là `chmod 600`, nếu không `sentinel fleet` từ chối chạy. Dùng `read_token` của từng server, không dùng `token` đầy đủ. Tên server chỉ gồm chữ, số, `.`, `_`, `-`.
+
+```sh
+sentinel fleet status           # mỗi server một dòng: OK / ALERT / UNREACHABLE, số cảnh báo, backup lỗi, check down, backup đang chạy
+sentinel fleet status -o json   # cùng dữ liệu, kèm report đầy đủ của từng server (như `sentinel status -o json`)
+sentinel fleet alerts           # cảnh báo đang mở của mọi server; server không gọi được hiện với key "unreachable"
+```
+
+Các server được hỏi song song (tối đa 8 cùng lúc, mỗi server 15 giây), kết quả giữ đúng thứ tự trong file. Một server lỗi (không kết nối, sai token, bản Sentinel cũ chưa có route) không làm mất kết quả của server khác; lệnh vẫn thoát với mã 0. API chưa có TLS riêng: giữa máy xem và server, dùng SSH tunnel hoặc reverse proxy có TLS, vì `http://` gửi token không mã hóa.
+
+Ngoài `sentinel fleet`, ba việc sau dùng được ngay:
 
 1. **Heartbeat trên mọi server.** Đặt `heartbeat.url` (xem phần đầu); dịch vụ bên ngoài báo khi daemon của bất kỳ server nào ngừng gọi.
 2. **Server này gọi `/healthz` của server kia** bằng uptime check có sẵn, để biết daemon bên kia còn trả lời không:

@@ -127,7 +127,7 @@ Token đọc từ biến môi trường hoặc từ file `fleet.env` nằm cạn
 ### 7.4. Lệnh và TUI
 
 - `cmd/sentinel/fleet.go` là lệnh cobra mỏng, chỉ gọi `internal/fleet`. Mô tả lệnh và cờ bằng tiếng Việt, theo quy ước của dự án.
-- `sentinel fleet status`: một dòng mỗi server (tên, daemon chạy hay không, số alert mở, job quá hạn, backup đang chạy, tuổi của dữ liệu). `sentinel fleet alerts`: mọi alert đang mở, có cột server.
+- `sentinel fleet status`: một dòng mỗi server (tên, trạng thái OK / ALERT / UNREACHABLE, version, số alert mở, backup lỗi, check down, backup đang chạy; server không gọi được thì có lý do). `sentinel fleet alerts`: mọi alert đang mở, có cột server, và một dòng `unreachable` cho mỗi server không gọi được. Cả hai thoát với mã 0 dù có server lỗi; một server lỗi không làm mất kết quả của server khác.
 - Tab `Fleet` trong `sentinel manage`, và `sentinel fleet` không kèm lệnh con mở TUI chỉ có tab này (trên terminal; không phải terminal thì in help). Enter trên một dòng mở một `screen` chỉ đọc (cơ chế ngăn xếp trong [internal/tui/screen.go](../../internal/tui/screen.go)), hiện `status.Report` của server đó.
 
 ### 7.5. Thay đổi API của daemon

@@ -80,7 +80,7 @@ func readFleetFile(path string) ([]byte, error) {
 	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("fleet file %s does not exist: create it with the servers to watch (see the README, \"Nhiều server\")", path)
+		return nil, fmt.Errorf("fleet file %s does not exist: create it with the servers to watch, as the README section \"Nhiều server\" shows", path)
 	}
 	return raw, err
 }
@@ -128,7 +128,7 @@ func loadSecrets(path string, raw []byte) error {
 
 func (c *Config) validate() error {
 	if len(c.Servers) == 0 {
-		return errors.New("no servers: list them under servers:")
+		return errors.New("the file lists no servers, put them under the key servers")
 	}
 	seen := map[string]bool{}
 	for i, server := range c.Servers {

@@ -44,8 +44,8 @@ servers:
 
 func TestLoadRefusesAFileThatIsWrong(t *testing.T) {
 	tests := map[string]struct{ content, wantError string }{
-		"empty file":      {"", "no servers"},
-		"no servers":      {"servers: []", "no servers"},
+		"empty file":      {"", "lists no servers"},
+		"lists no servers":      {"servers: []", "lists no servers"},
 		"unknown key":     {"servers: [{name: a, url: 'https://a', token: " + goodToken + ", colour: red}]", "colour"},
 		"bad name":        {"servers: [{name: 'a b', url: 'https://a', token: " + goodToken + "}]", "name must"},
 		"name is empty":   {"servers: [{url: 'https://a', token: " + goodToken + "}]", "name must"},
