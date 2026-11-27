@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -112,5 +113,21 @@ func TestFetchStopsWhenTheContextIsCancelled(t *testing.T) {
 func TestNoServersIsNoAnswers(t *testing.T) {
 	if statuses := Fetch(context.Background(), nil, 0); len(statuses) != 0 {
 		t.Errorf("statuses = %v", statuses)
+	}
+}
+
+func TestPollReadsTheFileEachTimeAndAsksItsServers(t *testing.T) {
+	path := writeFleetFile(t, "servers: []", 0o600)
+	if _, err := Poll(context.Background(), path); err == nil {
+		t.Fatal("an empty file was accepted")
+	}
+	server := serverReporting(t, "web-01", 0)
+	content := "servers: [{name: web-01, url: '" + server.URL + "', token: " + goodToken + "}]"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := Poll(context.Background(), path)
+	if err != nil || len(statuses) != 1 || statuses[0].Report.Server != "web-01" {
+		t.Errorf("statuses = %+v, err = %v", statuses, err)
 	}
 }

@@ -21,6 +21,9 @@ const EnvFileName = "fleet.env"
 // EnvPath is the variable that names the fleet file when --fleet-config is not given.
 const EnvPath = "SENTINEL_FLEET_CONFIG"
 
+// ErrNoFile is a fleet file that does not exist: the screens answer it with how to create one.
+var ErrNoFile = errors.New("the fleet file does not exist")
+
 // Config is the fleet file: the servers to watch, in the order they are shown.
 type Config struct {
 	Servers []Server `yaml:"servers"`
@@ -80,7 +83,7 @@ func readFleetFile(path string) ([]byte, error) {
 	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("fleet file %s does not exist: create it with the servers to watch, as the README section \"Nhiều server\" shows", path)
+		return nil, fmt.Errorf("%w: %s; create it with the servers to watch, as the README section \"Nhiều server\" shows", ErrNoFile, path)
 	}
 	return raw, err
 }

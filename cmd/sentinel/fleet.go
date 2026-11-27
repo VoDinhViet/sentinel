@@ -72,12 +72,5 @@ func newFleetAlertsCmd(fleetPath *string) *cobra.Command {
 
 // fetchFleet reads the fleet file and asks every server in it.
 func fetchFleet(cmd *cobra.Command, fleetPath string) ([]fleet.ServerStatus, error) {
-	if fleetPath == "" {
-		fleetPath = fleet.DefaultPath()
-	}
-	cfg, err := fleet.Load(fleetPath)
-	if err != nil {
-		return nil, err
-	}
-	return fleet.Fetch(cmd.Context(), cfg.Servers, fleet.DefaultParallel), nil
+	return fleet.Poll(cmd.Context(), fleetPath)
 }

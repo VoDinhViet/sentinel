@@ -40,6 +40,19 @@ func Fetch(ctx context.Context, servers []Server, limit int) []ServerStatus {
 	return statuses
 }
 
+// Poll reads the fleet file at path (DefaultPath when it is "") and asks every server in it. The
+// file is read each time, so a server added to it shows up without restarting the screen.
+func Poll(ctx context.Context, path string) ([]ServerStatus, error) {
+	if path == "" {
+		path = DefaultPath()
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return Fetch(ctx, cfg.Servers, DefaultParallel), nil
+}
+
 func fetchOne(ctx context.Context, server Server) ServerStatus {
 	answer := ServerStatus{Server: server}
 	client, err := NewClient(server)

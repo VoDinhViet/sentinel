@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,8 +72,8 @@ func TestLoadRefusesAFileThatIsWrong(t *testing.T) {
 
 func TestLoadNamesTheFileThatDoesNotExist(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "fleet.yaml"))
-	if err == nil || !strings.Contains(err.Error(), "does not exist") {
-		t.Errorf("error = %v, want one that says the file does not exist", err)
+	if !errors.Is(err, ErrNoFile) || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("error = %v, want ErrNoFile", err)
 	}
 	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), EnvPath) {
 		t.Errorf("error = %v, want one that names $%s", err, EnvPath)
