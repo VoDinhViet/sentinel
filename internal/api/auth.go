@@ -7,14 +7,15 @@ import (
 )
 
 // authorized runs next only for a request that carries a bearer token of the server. The token
-// may do anything; the read token only the read-only methods, any other gets 403.
+// may do anything; the read token only the read-only methods, any other gets 403. A server made
+// without a token refuses everything, even a request that carries its read token.
 func (s *Server) authorized(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		// Both tokens are always compared, so the time taken does not tell which one matched.
 		full, read := tokenMatches(given, s.opts.Token), tokenMatches(given, s.opts.ReadToken)
 		switch {
-		case !ok || (!full && !read):
+		case !ok || s.opts.Token == "" || (!full && !read):
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			writeError(w, http.StatusUnauthorized, "missing or wrong token")
 		case !full && !readOnly(r.Method):

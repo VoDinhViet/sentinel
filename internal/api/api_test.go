@@ -123,14 +123,85 @@ func TestTheReadTokenOnlyReads(t *testing.T) {
 				switch {
 				case mustBeDenied && rec.Code != http.StatusForbidden:
 					t.Errorf("status = %d, want 403", rec.Code)
-				case !mustBeDenied && (rec.Code == http.StatusForbidden || rec.Code == http.StatusUnauthorized):
-					t.Errorf("status = %d, the token must be accepted", rec.Code)
+				case !mustBeDenied && (rec.Code < 200 || rec.Code > 299):
+					t.Errorf("status = %d, the token must be accepted and the request served", rec.Code)
 				}
 				if mustBeDenied && len(backend.started)+len(backend.stopped) != 0 {
 					t.Errorf("the read token changed something: started %v, stopped %v", backend.started, backend.stopped)
 				}
 			})
 		}
+	}
+}
+
+func TestTheReadTokenCannotWriteWithAnyOtherMethod(t *testing.T) {
+	for _, method := range []string{"PUT", "PATCH", "OPTIONS"} {
+		for _, target := range []string{"/api/v1/status", "/api/v1/jobs/shop/backups", "/api/v1/jobs/shop/backups/running"} {
+			t.Run(method+" "+target, func(t *testing.T) {
+				backend := &fakeBackend{}
+				rec := call(t, backend, method, target, testReadToken)
+				if rec.Code >= 200 && rec.Code <= 299 {
+					t.Errorf("status = %d, the read token must not get a success", rec.Code)
+				}
+				if len(backend.started)+len(backend.stopped) != 0 {
+					t.Errorf("the read token changed something: started %v, stopped %v", backend.started, backend.stopped)
+				}
+			})
+		}
+	}
+}
+
+func TestRefusalsTellWhichTokenIsMissing(t *testing.T) {
+	wrong := call(t, &fakeBackend{}, "GET", "/api/v1/status", "nope")
+	if wrong.Code != http.StatusUnauthorized || wrong.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Errorf("wrong token: status %d, WWW-Authenticate %q", wrong.Code, wrong.Header().Get("WWW-Authenticate"))
+	}
+	readOnly := call(t, &fakeBackend{}, "POST", "/api/v1/jobs/shop/backups", testReadToken)
+	if readOnly.Code != http.StatusForbidden || readOnly.Header().Get("WWW-Authenticate") != "" {
+		t.Errorf("read token: status %d, WWW-Authenticate %q", readOnly.Code, readOnly.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestHeadIsAReadForBothTokensAndNeedsOne(t *testing.T) {
+	for _, target := range []string{"/api/v1/status", "/api/v1/host"} {
+		for name, token := range map[string]string{"token": testToken, "read token": testReadToken} {
+			if rec := call(t, &fakeBackend{}, "HEAD", target, token); rec.Code != http.StatusOK {
+				t.Errorf("HEAD %s with the %s: status %d, want 200", target, name, rec.Code)
+			}
+		}
+		if rec := call(t, &fakeBackend{}, "HEAD", target, "nope"); rec.Code != http.StatusUnauthorized {
+			t.Errorf("HEAD %s with a wrong token: status %d, want 401", target, rec.Code)
+		}
+	}
+}
+
+func TestTheTokenWinsWhenTheReadTokenIsTheSame(t *testing.T) {
+	backend := &fakeBackend{}
+	req := httptest.NewRequest("POST", "/api/v1/jobs/shop/backups", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+	New(backend, Options{Token: testToken, ReadToken: testToken}).Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202", rec.Code)
+	}
+}
+
+func TestAReadTokenAloneOpensNothing(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/status", nil)
+	req.Header.Set("Authorization", "Bearer "+testReadToken)
+	rec := httptest.NewRecorder()
+	New(&fakeBackend{}, Options{ReadToken: testReadToken}).Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401: a server without a token refuses everything", rec.Code)
+	}
+}
+
+func TestHealthzAnswersOnlyOkAndNeverTheVersion(t *testing.T) {
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	rec := httptest.NewRecorder()
+	New(&fakeBackend{}, Options{Token: testToken, Version: "v9.9.9"}).Handler().ServeHTTP(rec, req)
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"status":"ok"}` {
+		t.Errorf("body = %s, want only the status", body)
 	}
 }
 
