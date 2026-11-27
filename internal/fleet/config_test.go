@@ -44,20 +44,20 @@ servers:
 
 func TestLoadRefusesAFileThatIsWrong(t *testing.T) {
 	tests := map[string]struct{ content, wantError string }{
-		"empty file":      {"", "lists no servers"},
-		"lists no servers":      {"servers: []", "lists no servers"},
-		"unknown key":     {"servers: [{name: a, url: 'https://a', token: " + goodToken + ", colour: red}]", "colour"},
-		"bad name":        {"servers: [{name: 'a b', url: 'https://a', token: " + goodToken + "}]", "name must"},
-		"name is empty":   {"servers: [{url: 'https://a', token: " + goodToken + "}]", "name must"},
-		"duplicate name":  {"servers: [{name: a, url: 'https://a', token: " + goodToken + "}, {name: a, url: 'https://b', token: " + goodToken + "}]", "used twice"},
-		"no url":          {"servers: [{name: a, token: " + goodToken + "}]", "url must be an address"},
-		"ftp url":         {"servers: [{name: a, url: 'ftp://a', token: " + goodToken + "}]", "http:// or https://"},
-		"url with secret": {"servers: [{name: a, url: 'https://me:pw@a', token: " + goodToken + "}]", "must not carry a user"},
-		"url with query":  {"servers: [{name: a, url: 'https://a?x=1', token: " + goodToken + "}]", "query"},
-		"no token":        {"servers: [{name: a, url: 'https://a'}]", "token is empty"},
-		"relative tls_ca": {"servers: [{name: a, url: 'https://a', token: " + goodToken + ", tls_ca: ca.pem}]", "absolute path"},
-		"tls_ca on http":  {"servers: [{name: a, url: 'http://a', token: " + goodToken + ", tls_ca: /ca.pem}]", "https://"},
-		"unset variable":  {"servers: [{name: a, url: 'https://a', token: '${FLEET_TEST_NEVER_SET}'}]", "FLEET_TEST_NEVER_SET"},
+		"empty file":       {"", "lists no servers"},
+		"lists no servers": {"servers: []", "lists no servers"},
+		"unknown key":      {"servers: [{name: a, url: 'https://a', token: " + goodToken + ", colour: red}]", "colour"},
+		"bad name":         {"servers: [{name: 'a b', url: 'https://a', token: " + goodToken + "}]", "name must"},
+		"name is empty":    {"servers: [{url: 'https://a', token: " + goodToken + "}]", "name must"},
+		"duplicate name":   {"servers: [{name: a, url: 'https://a', token: " + goodToken + "}, {name: a, url: 'https://b', token: " + goodToken + "}]", "used twice"},
+		"no url":           {"servers: [{name: a, token: " + goodToken + "}]", "url must be an address"},
+		"ftp url":          {"servers: [{name: a, url: 'ftp://a', token: " + goodToken + "}]", "http:// or https://"},
+		"url with secret":  {"servers: [{name: a, url: 'https://me:pw@a', token: " + goodToken + "}]", "must not carry a user"},
+		"url with query":   {"servers: [{name: a, url: 'https://a?x=1', token: " + goodToken + "}]", "query"},
+		"no token":         {"servers: [{name: a, url: 'https://a'}]", "token is empty"},
+		"relative tls_ca":  {"servers: [{name: a, url: 'https://a', token: " + goodToken + ", tls_ca: ca.pem}]", "absolute path"},
+		"tls_ca on http":   {"servers: [{name: a, url: 'http://a', token: " + goodToken + ", tls_ca: /ca.pem}]", "https://"},
+		"unset variable":   {"servers: [{name: a, url: 'https://a', token: '${FLEET_TEST_NEVER_SET}'}]", "FLEET_TEST_NEVER_SET"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

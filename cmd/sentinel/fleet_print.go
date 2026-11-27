@@ -18,7 +18,7 @@ func printFleetStatus(w io.Writer, answers []fleet.ServerStatus) error {
 	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(table, "SERVER\tSTATE\tVERSION\tALERTS\tFAILED BACKUPS\tDOWN CHECKS\tRUNNING\tNOTE")
 	for _, answer := range answers {
-		summary := summarize(answer)
+		summary := answer.Summary()
 		fmt.Fprintf(table, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n", summary.Name, summary.State, orDash(summary.Version),
 			summary.Alerts, summary.FailedBackups, summary.DownChecks, summary.Running, summary.Problem)
 	}
@@ -46,7 +46,7 @@ type fleetServerJSON struct {
 func fleetStatusJSON(answers []fleet.ServerStatus) []fleetServerJSON {
 	servers := []fleetServerJSON{}
 	for _, answer := range answers {
-		summary := summarize(answer)
+		summary := answer.Summary()
 		server := fleetServerJSON{
 			Name: answer.Server.Name, URL: answer.Server.URL, State: summary.State, Error: summary.Problem, FetchedAt: answer.FetchedAt,
 		}

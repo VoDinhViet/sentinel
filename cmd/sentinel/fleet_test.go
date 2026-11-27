@@ -2,17 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"sentinel/internal/fleet"
-	"sentinel/internal/status"
 )
 
 const fleetTestToken = "read-token-0123456789"
@@ -107,10 +104,10 @@ func TestFleetStatusJSONCarriesTheReportOfEachServerThatAnswered(t *testing.T) {
 	if len(servers) != 3 || servers[0].Name != "web-01" || servers[2].Name != "edge" {
 		t.Fatalf("servers = %+v", servers)
 	}
-	if servers[0].Report == nil || servers[0].Report.Version != "v1.2.0" || servers[1].State != stateAlert {
+	if servers[0].Report == nil || servers[0].Report.Version != "v1.2.0" || servers[1].State != fleet.StateAlert {
 		t.Errorf("answered servers = %+v, %+v", servers[0], servers[1])
 	}
-	if servers[2].Report != nil || servers[2].Error == "" || servers[2].State != stateUnreachable {
+	if servers[2].Report != nil || servers[2].Error == "" || servers[2].State != fleet.StateUnreachable {
 		t.Errorf("the unreachable server = %+v", servers[2])
 	}
 	if strings.Contains(output, fleetTestToken) || strings.Contains(output, `"token"`) {
@@ -167,45 +164,5 @@ func TestFleetCommandsExplainAMissingOrBadFile(t *testing.T) {
 		if _, err := runSentinel(t, args...); err == nil {
 			t.Errorf("%v: no error", args)
 		}
-	}
-}
-
-func TestSummarizeSaysHowAServerIs(t *testing.T) {
-	server := fleet.Server{Name: "web-01"}
-	tests := map[string]struct {
-		answer fleet.ServerStatus
-		want   serverSummary
-	}{
-		"quiet server": {
-			fleet.ServerStatus{Server: server, Report: status.Report{Version: "v1", Jobs: []status.Job{{Success: true}}, Checks: []status.Check{{OK: true}}}},
-			serverSummary{Name: "web-01", State: stateOK, Version: "v1"},
-		},
-		"an open alert": {
-			fleet.ServerStatus{Server: server, Report: status.Report{Alerts: []status.Alert{{Key: "a"}}}},
-			serverSummary{Name: "web-01", State: stateAlert, Alerts: 1},
-		},
-		"a failed backup without an alert yet": {
-			fleet.ServerStatus{Server: server, Report: status.Report{Jobs: []status.Job{{Success: false}, {Success: true}}}},
-			serverSummary{Name: "web-01", State: stateAlert, FailedBackups: 1},
-		},
-		"a check that is down": {
-			fleet.ServerStatus{Server: server, Report: status.Report{Checks: []status.Check{{OK: false}}}},
-			serverSummary{Name: "web-01", State: stateAlert, DownChecks: 1},
-		},
-		"a backup running is not trouble": {
-			fleet.ServerStatus{Server: server, Report: status.Report{Running: []status.Running{{}}}},
-			serverSummary{Name: "web-01", State: stateOK, Running: 1},
-		},
-		"unreachable, with the report left empty": {
-			fleet.ServerStatus{Server: server, Err: errors.New("server web-01: connection refused\x1b[2J"), FetchedAt: time.Now()},
-			serverSummary{Name: "web-01", State: stateUnreachable, Problem: "server web-01: connection refused"},
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			if got := summarize(tc.answer); got != tc.want {
-				t.Errorf("summary = %+v, want %+v", got, tc.want)
-			}
-		})
 	}
 }

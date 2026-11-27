@@ -6,8 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"sentinel/internal/fleet"
-	"sentinel/internal/status"
-	"sentinel/internal/termtext"
 )
 
 // newFleetCmd is `sentinel fleet`: how the other servers are doing, read from the HTTP API of
@@ -82,64 +80,4 @@ func fetchFleet(cmd *cobra.Command, fleetPath string) ([]fleet.ServerStatus, err
 		return nil, err
 	}
 	return fleet.Fetch(cmd.Context(), cfg.Servers, fleet.DefaultParallel), nil
-}
-
-// Server states, from the worst: the server cannot be asked, it has something to look at, it is fine.
-const (
-	stateUnreachable = "UNREACHABLE"
-	stateAlert       = "ALERT"
-	stateOK          = "OK"
-)
-
-// serverSummary is one line about a server: how it is, and the counts that say why.
-type serverSummary struct {
-	Name          string
-	State         string
-	Version       string
-	Alerts        int
-	FailedBackups int // jobs whose latest run failed
-	DownChecks    int
-	Running       int    // backups in progress
-	Problem       string // why the server could not be asked
-}
-
-// summarize reduces what a server answered to the line of the table. Text that came from the
-// server is cleaned of control characters, since it is printed on a terminal.
-func summarize(answer fleet.ServerStatus) serverSummary {
-	summary := serverSummary{Name: answer.Server.Name, State: stateOK}
-	if answer.Err != nil {
-		summary.State = stateUnreachable
-		summary.Problem = termtext.Clean(answer.Err.Error())
-		return summary
-	}
-	report := answer.Report
-	summary.Version = termtext.Clean(report.Version)
-	summary.Alerts = len(report.Alerts)
-	summary.FailedBackups = countFailedBackups(report.Jobs)
-	summary.DownChecks = countDownChecks(report.Checks)
-	summary.Running = len(report.Running)
-	if summary.Alerts+summary.FailedBackups+summary.DownChecks > 0 {
-		summary.State = stateAlert
-	}
-	return summary
-}
-
-func countFailedBackups(jobs []status.Job) int {
-	failed := 0
-	for _, job := range jobs {
-		if !job.Success {
-			failed++
-		}
-	}
-	return failed
-}
-
-func countDownChecks(checks []status.Check) int {
-	down := 0
-	for _, check := range checks {
-		if !check.OK {
-			down++
-		}
-	}
-	return down
 }
